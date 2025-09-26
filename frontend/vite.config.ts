@@ -64,6 +64,10 @@ export default defineConfig({
   server: {
     port: parseInt(process.env.FRONTEND_PORT || "3000"),
     host: process.env.VITE_HOST || "localhost",
+    // Allow all hosts when binding to 0.0.0.0 for network access
+    hmr: {
+      host: process.env.VITE_HMR_HOST || undefined,
+    },
     proxy: {
       "/api": {
         target: `http://${process.env.BACKEND_HOST || "localhost"}:${process.env.BACKEND_PORT || "3001"}`,

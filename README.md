@@ -128,6 +128,7 @@ The following environment variables can be configured at build time or runtime:
 | `FRONTEND_PORT` | Runtime | `3000` | Frontend development server port |
 | `HOST` | Runtime | `127.0.0.1` | Backend server host binding (use `0.0.0.0` for network access) |
 | `VITE_HOST` | Runtime | `localhost` | Frontend dev server host binding (use `0.0.0.0` for network access) |
+| `VITE_HMR_HOST` | Runtime | Not set | Vite HMR host for hot reload (use hostname for network access) |
 | `BACKEND_HOST` | Runtime | `localhost` | Backend hostname for frontend proxy (use actual hostname for network access) |
 | `DISABLE_WORKTREE_ORPHAN_CLEANUP` | Runtime | Not set | Disable git worktree cleanup (for debugging) |
 
