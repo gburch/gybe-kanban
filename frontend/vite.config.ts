@@ -63,7 +63,8 @@ export default defineConfig({
   },
   server: {
     port: parseInt(process.env.FRONTEND_PORT || "3000"),
-    host: process.env.VITE_HOST || "localhost",
+    // When VITE_HOST is 0.0.0.0, use true to allow all hosts
+    host: process.env.VITE_HOST === "0.0.0.0" ? true : (process.env.VITE_HOST || "localhost"),
     // Allow all hosts when binding to 0.0.0.0 for network access
     hmr: {
       host: process.env.VITE_HMR_HOST || undefined,
