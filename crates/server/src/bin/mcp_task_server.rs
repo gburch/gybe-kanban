@@ -49,6 +49,8 @@ fn main() -> anyhow::Result<()> {
             let options = SqliteConnectOptions::from_str(&database_url)?.create_if_missing(false);
             let pool = SqlitePool::connect_with(options).await?;
 
+            tracing::debug!("[MCP] Using asset dir {}", asset_dir().display());
+
             let service = TaskServer::new(pool)
                 .serve(stdio())
                 .await
