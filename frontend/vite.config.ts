@@ -91,6 +91,8 @@ function getAllowedHosts() {
   return Array.from(hosts);
 }
 
+const useStrictHostCheck = process.env.VITE_STRICT_ALLOWED_HOSTS === "true";
+
 export default defineConfig({
   plugins: [
     react(),
@@ -107,8 +109,8 @@ export default defineConfig({
     port: parseInt(process.env.FRONTEND_PORT || "3000"),
     // When VITE_HOST is 0.0.0.0, use true to allow all hosts
     host: process.env.VITE_HOST === "0.0.0.0" ? true : (process.env.VITE_HOST || "localhost"),
-    // Allow all hostnames when in network mode
-    allowedHosts: process.env.VITE_HOST === "0.0.0.0" ? getAllowedHosts() : undefined,
+    // Allow all hosts by default; opt into strict checking via VITE_STRICT_ALLOWED_HOSTS
+    allowedHosts: useStrictHostCheck ? getAllowedHosts() : true,
     // Allow all hosts when binding to 0.0.0.0 for network access
     hmr: {
       host: process.env.VITE_HMR_HOST || undefined,
