@@ -39,6 +39,8 @@ if [ -z "${BACKEND_PORT:-}" ]; then
 fi
 
 export PORT="${PORT:-$BACKEND_PORT}"
-export HOST="${HOST:-127.0.0.1}"
+if [ -z "${HOST+x}" ]; then
+  export HOST="127.0.0.1"
+fi
 
 exec cargo watch -w crates -x 'run --bin server'
