@@ -76,6 +76,29 @@ pnpm run dev
 
 This will start the backend. A blank DB will be copied from the `dev_assets_seed` folder.
 
+#### Network Access (Tailscale, LAN, etc.)
+
+To make the dev server accessible from other machines on your network (e.g., via Tailscale at `gmac:54002`):
+
+```bash
+# Binds to all network interfaces (0.0.0.0)
+pnpm run dev:network
+```
+
+Or manually with environment variables:
+
+```bash
+# For Tailscale or LAN access
+HOST=0.0.0.0 VITE_HOST=0.0.0.0 BACKEND_HOST=your-hostname pnpm run dev
+
+# Example for Tailscale
+HOST=0.0.0.0 VITE_HOST=0.0.0.0 BACKEND_HOST=gmac pnpm run dev
+```
+
+After starting, you can access:
+- Frontend: `http://gmac:3000` (or your configured FRONTEND_PORT)
+- Backend API: `http://gmac:PORT` (check console output for actual port)
+
 ### Building the frontend
 
 To build just the frontend:
@@ -103,7 +126,9 @@ The following environment variables can be configured at build time or runtime:
 | `POSTHOG_API_ENDPOINT` | Build-time | Empty | PostHog analytics endpoint (disables analytics if empty) |
 | `BACKEND_PORT` | Runtime | `0` (auto-assign) | Backend server port |
 | `FRONTEND_PORT` | Runtime | `3000` | Frontend development server port |
-| `HOST` | Runtime | `127.0.0.1` | Backend server host |
+| `HOST` | Runtime | `127.0.0.1` | Backend server host binding (use `0.0.0.0` for network access) |
+| `VITE_HOST` | Runtime | `localhost` | Frontend dev server host binding (use `0.0.0.0` for network access) |
+| `BACKEND_HOST` | Runtime | `localhost` | Backend hostname for frontend proxy (use actual hostname for network access) |
 | `DISABLE_WORKTREE_ORPHAN_CLEANUP` | Runtime | Not set | Disable git worktree cleanup (for debugging) |
 
 **Build-time variables** must be set when running `pnpm run build`. **Runtime variables** are read when the application starts.
