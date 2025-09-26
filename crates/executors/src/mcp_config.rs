@@ -2,7 +2,7 @@
 //!
 //! These helpers abstract over JSON vs TOML formats used by different agents.
 
-use std::{collections::HashMap, sync::LazyLock};
+use std::{collections::HashMap, env, path::PathBuf, sync::LazyLock};
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
@@ -32,6 +32,8 @@ impl McpConfig {
         preconfigured: serde_json::Value,
         is_toml_config: bool,
     ) -> Self {
+        let preconfigured = adjust_preconfigured(preconfigured);
+
         Self {
             servers: HashMap::new(),
             servers_path,
@@ -42,6 +44,52 @@ impl McpConfig {
     }
     pub fn set_servers(&mut self, servers: HashMap<String, serde_json::Value>) {
         self.servers = servers;
+    }
+}
+
+fn adjust_preconfigured(mut value: Value) -> Value {
+    if !should_use_local_vibe_server() {
+        return value;
+    }
+
+    let cli_path = match resolve_cli_path() {
+        Some(path) => path,
+        None => return value,
+    };
+
+    if let Value::Object(ref mut root) = value {
+        if let Some(Value::Object(server_obj)) = root.get_mut("vibe_kanban") {
+            server_obj.insert("command".to_string(), Value::String("node".to_string()));
+            server_obj.insert(
+                "args".to_string(),
+                Value::Array(vec![
+                    Value::String(cli_path.clone()),
+                    Value::String("--mcp".to_string()),
+                ]),
+            );
+        }
+    }
+
+    value
+}
+
+fn should_use_local_vibe_server() -> bool {
+    match env::var("VIBE_USE_LOCAL_MCP") {
+        Ok(val) => matches!(val.to_ascii_lowercase().as_str(), "1" | "true" | "yes"),
+        Err(_) => cfg!(debug_assertions),
+    }
+}
+
+fn resolve_cli_path() -> Option<String> {
+    let candidate = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../npx-cli/bin/cli.js");
+
+    let canonical = candidate.canonicalize().ok();
+    let path = canonical.unwrap_or(candidate);
+
+    if path.exists() {
+        Some(path.to_string_lossy().to_string())
+    } else {
+        None
     }
 }
 
@@ -284,7 +332,7 @@ impl CodingAgent {
             CodingAgent::Opencode(_) => Opencode,
         };
 
-        let canonical = PRECONFIGURED_MCP_SERVERS.clone();
+        let canonical = adjust_preconfigured(PRECONFIGURED_MCP_SERVERS.clone());
         apply_adapter(adapter, canonical)
     }
 }
