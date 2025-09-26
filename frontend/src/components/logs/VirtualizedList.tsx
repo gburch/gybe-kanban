@@ -6,6 +6,7 @@ import {
   VirtuosoMessageListMethods,
   VirtuosoMessageListProps,
 } from '@virtuoso.dev/message-list';
+import { Virtuoso, VirtuosoHandle } from 'react-virtuoso';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 import DisplayConversationEntry from '../NormalizedConversation/DisplayConversationEntry';
@@ -75,6 +76,8 @@ const VirtualizedList = ({ attempt }: VirtualizedListProps) => {
     useState<DataWithScrollModifier<PatchTypeWithKey> | null>(null);
   const [loading, setLoading] = useState(true);
   const { setEntries, reset } = useEntries();
+  const licenseKey = import.meta.env.VITE_PUBLIC_REACT_VIRTUOSO_LICENSE_KEY;
+  const fallbackVirtuosoRef = useRef<VirtuosoHandle | null>(null);
 
   useEffect(() => {
     setLoading(true);
@@ -105,24 +108,76 @@ const VirtualizedList = ({ attempt }: VirtualizedListProps) => {
 
   const messageListRef = useRef<VirtuosoMessageListMethods | null>(null);
   const messageListContext = useMemo(() => ({ attempt }), [attempt]);
+  const fallbackData = channelData?.data ?? [];
+
+  const useLicensedList = useMemo(() => {
+    if (licenseKey) {
+      return true;
+    }
+
+    if (typeof window === 'undefined') {
+      return true;
+    }
+
+    const hostname = window.location.hostname;
+    return /^(localhost|127\.0\.0\.1|0\.0\.0\.0|.+\.local)$/i.test(hostname);
+  }, [licenseKey]);
+
+  useEffect(() => {
+    if (useLicensedList || !channelData || !fallbackVirtuosoRef.current) {
+      return;
+    }
+
+    if (channelData.scrollModifier === AutoScrollToBottom) {
+      fallbackVirtuosoRef.current.scrollToIndex({
+        index: Math.max(fallbackData.length - 1, 0),
+        behavior: 'smooth',
+        align: 'end',
+      });
+    }
+
+    if (channelData.scrollModifier === InitialDataScrollModifier) {
+      fallbackVirtuosoRef.current.scrollToIndex({
+        index: Math.max(fallbackData.length - 1, 0),
+        behavior: 'auto',
+        align: INITIAL_TOP_ITEM.align,
+      });
+    }
+  }, [channelData, fallbackData.length, useLicensedList]);
 
   return (
     <>
-      <VirtuosoMessageListLicense
-        licenseKey={import.meta.env.VITE_PUBLIC_REACT_VIRTUOSO_LICENSE_KEY}
-      >
-        <VirtuosoMessageList<PatchTypeWithKey, MessageListContext>
-          ref={messageListRef}
+      {useLicensedList ? (
+        <VirtuosoMessageListLicense licenseKey={licenseKey}>
+          <VirtuosoMessageList<PatchTypeWithKey, MessageListContext>
+            ref={messageListRef}
+            className="flex-1"
+            data={channelData}
+            initialLocation={INITIAL_TOP_ITEM}
+            context={messageListContext}
+            computeItemKey={computeItemKey}
+            ItemContent={ItemContent}
+            Header={() => <div className="h-2"></div>}
+            Footer={() => <div className="h-2"></div>}
+          />
+        </VirtuosoMessageListLicense>
+      ) : (
+        <Virtuoso<PatchTypeWithKey>
+          ref={fallbackVirtuosoRef}
           className="flex-1"
-          data={channelData}
-          initialLocation={INITIAL_TOP_ITEM}
-          context={messageListContext}
-          computeItemKey={computeItemKey}
-          ItemContent={ItemContent}
-          Header={() => <div className="h-2"></div>}
-          Footer={() => <div className="h-2"></div>}
+          data={fallbackData}
+          followOutput="smooth"
+          itemContent={(index, item) => (
+            <ItemContent
+              index={index}
+              data={item}
+              prevData={fallbackData[index - 1] ?? null}
+              nextData={fallbackData[index + 1] ?? null}
+              context={messageListContext}
+            />
+          )}
         />
-      </VirtuosoMessageListLicense>
+      )}
       {loading && (
         <div className="float-left top-0 left-0 w-full h-full bg-primary flex flex-col gap-2 justify-center items-center">
           <Loader2 className="h-8 w-8 animate-spin" />
