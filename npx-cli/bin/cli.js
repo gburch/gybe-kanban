@@ -68,10 +68,49 @@ function getBinaryName(base) {
 
 const platformDir = getPlatformDir();
 const extractDir = path.join(__dirname, "..", "dist", platformDir);
+const repoRoot = path.join(__dirname, "..", "..");
 const isMcpMode = process.argv.includes("--mcp");
+const useLocalDevBinaries = Boolean(
+  (process.env.VIBE_USE_LOCAL_MCP || process.env.VIBE_USE_LOCAL_BIN || "")
+    .trim()
+    .toLowerCase()
+    .match(/^(1|true|yes)$/)
+);
 
 // ensure output dir
 fs.mkdirSync(extractDir, { recursive: true });
+
+function spawnDevBinary(baseName, extraArgs = []) {
+  if (!useLocalDevBinaries) return false;
+
+  const cargoBinName = {
+    "vibe-kanban": "server",
+    "vibe-kanban-mcp": "mcp_task_server",
+  }[baseName];
+
+  if (!cargoBinName) return false;
+
+  const cargoCmd = process.env.CARGO_PATH || "cargo";
+  const args = ["run", "--bin", cargoBinName, ...extraArgs];
+  const env = { ...process.env };
+  if (env.VIBE_DISABLE_SENTRY === undefined) {
+    env.VIBE_DISABLE_SENTRY = "1";
+  }
+
+  const proc = spawn(cargoCmd, args, {
+    stdio: "inherit",
+    cwd: repoRoot,
+    env,
+  });
+
+  proc.on("exit", (code) => process.exit(code || 0));
+  proc.on("error", (err) => {
+    console.error("❌ Failed to launch local dev binary via cargo:", err.message);
+    process.exit(1);
+  });
+
+  return true;
+}
 
 function extractAndRun(baseName, launch) {
   const binName = getBinaryName(baseName);
@@ -82,8 +121,14 @@ function extractAndRun(baseName, launch) {
   // clean old binary
   if (fs.existsSync(binPath)) fs.unlinkSync(binPath);
   if (!fs.existsSync(zipPath)) {
+    if (spawnDevBinary(baseName)) {
+      return;
+    }
     console.error(`❌ ${zipName} not found at: ${zipPath}`);
     console.error(`Current platform: ${platform}-${arch} (${platformDir})`);
+    console.error(
+      "Hint: run 'npm run build:npx' to build the binaries locally, or set VIBE_USE_LOCAL_MCP=true to run cargo directly."
+    );
     process.exit(1);
   }
 
@@ -105,7 +150,11 @@ function extractAndRun(baseName, launch) {
 
 if (isMcpMode) {
   extractAndRun("vibe-kanban-mcp", (bin) => {
-    const proc = spawn(bin, [], { stdio: "inherit" });
+    const env = { ...process.env };
+    if (env.VIBE_DISABLE_SENTRY === undefined) {
+      env.VIBE_DISABLE_SENTRY = "1";
+    }
+    const proc = spawn(bin, [], { stdio: "inherit", env });
     proc.on("exit", (c) => process.exit(c || 0));
     proc.on("error", (e) => {
       console.error("❌ MCP server error:", e.message);
