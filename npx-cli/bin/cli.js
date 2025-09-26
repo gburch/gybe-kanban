@@ -118,8 +118,6 @@ function extractAndRun(baseName, launch) {
   const zipName = `${baseName}.zip`;
   const zipPath = path.join(extractDir, zipName);
 
-  // clean old binary
-  if (fs.existsSync(binPath)) fs.unlinkSync(binPath);
   if (!fs.existsSync(zipPath)) {
     if (spawnDevBinary(baseName)) {
       return;
@@ -132,19 +130,41 @@ function extractAndRun(baseName, launch) {
     process.exit(1);
   }
 
-  // extract
-  const unzipCmd =
-    platform === "win32"
-      ? `powershell -Command "Expand-Archive -Path '${zipPath}' -DestinationPath '${extractDir}' -Force"`
-      : `unzip -qq -o "${zipPath}" -d "${extractDir}"`;
-  execSync(unzipCmd, { stdio: "inherit" });
-
-  // perms & launch
-  if (platform !== "win32") {
+  let shouldExtract = true;
+  if (fs.existsSync(binPath)) {
     try {
-      fs.chmodSync(binPath, 0o755);
-    } catch { }
+      const zipStat = fs.statSync(zipPath);
+      const binStat = fs.statSync(binPath);
+      if (binStat.mtimeMs >= zipStat.mtimeMs && binStat.size > 0) {
+        shouldExtract = false;
+      }
+    } catch {
+      shouldExtract = true;
+    }
   }
+
+  if (shouldExtract) {
+    if (fs.existsSync(binPath)) {
+      try {
+        fs.unlinkSync(binPath);
+      } catch {
+        // ignore deletion failure; unzip will overwrite
+      }
+    }
+
+    const unzipCmd =
+      platform === "win32"
+        ? `powershell -Command "Expand-Archive -Path '${zipPath}' -DestinationPath '${extractDir}' -Force"`
+        : `unzip -qq -o "${zipPath}" -d "${extractDir}"`;
+    execSync(unzipCmd, { stdio: "inherit" });
+
+    if (platform !== "win32") {
+      try {
+        fs.chmodSync(binPath, 0o755);
+      } catch {}
+    }
+  }
+
   return launch(binPath);
 }
 
