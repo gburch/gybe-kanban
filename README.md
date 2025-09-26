@@ -91,9 +91,11 @@ Or manually with environment variables:
 # For Tailscale or LAN access
 HOST=0.0.0.0 VITE_HOST=0.0.0.0 BACKEND_HOST=your-hostname pnpm run dev
 
-# Example for Tailscale
-HOST=0.0.0.0 VITE_HOST=0.0.0.0 BACKEND_HOST=gmac pnpm run dev
+# Example for Tailscale with custom hostname
+HOST=0.0.0.0 VITE_HOST=0.0.0.0 BACKEND_HOST=gmac VITE_ALLOWED_HOSTS=gmac pnpm run dev
 ```
+
+**Note**: If you get a "host not allowed" error, add your hostname to `VITE_ALLOWED_HOSTS` environment variable. The config automatically includes common patterns (.local, .tailscale.net, etc.) and the current machine's hostname.
 
 After starting, you can access:
 - Frontend: `http://gmac:3000` (or your configured FRONTEND_PORT)
@@ -129,6 +131,7 @@ The following environment variables can be configured at build time or runtime:
 | `HOST` | Runtime | `127.0.0.1` | Backend server host binding (use `0.0.0.0` for network access) |
 | `VITE_HOST` | Runtime | `localhost` | Frontend dev server host binding (use `0.0.0.0` for network access) |
 | `VITE_HMR_HOST` | Runtime | Not set | Vite HMR host for hot reload (use hostname for network access) |
+| `VITE_ALLOWED_HOSTS` | Runtime | Not set | Additional allowed hostnames (comma-separated, e.g., `gmac,host1.local`) |
 | `BACKEND_HOST` | Runtime | `localhost` | Backend hostname for frontend proxy (use actual hostname for network access) |
 | `DISABLE_WORKTREE_ORPHAN_CLEANUP` | Runtime | Not set | Disable git worktree cleanup (for debugging) |
 

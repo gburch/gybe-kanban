@@ -4,6 +4,7 @@ import { defineConfig, Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import path from "path";
 import fs from "fs";
+import os from "os";
 
 function executorSchemasPlugin(): Plugin {
   const VIRTUAL_ID = "virtual:executor-schemas";
@@ -49,6 +50,47 @@ export default schemas;
   };
 }
 
+// Get all possible hostnames for this machine
+function getAllowedHosts() {
+  const hosts = new Set([
+    'localhost',
+    '127.0.0.1',
+    '::1',
+    '.local',
+    '.tailscale.net',
+    '.ts.net',
+  ]);
+
+  // Add current hostname
+  try {
+    const hostname = os.hostname();
+    if (hostname) {
+      hosts.add(hostname);
+      hosts.add(hostname.toLowerCase());
+      // Also add without domain suffix if present
+      const shortName = hostname.split('.')[0];
+      if (shortName) {
+        hosts.add(shortName);
+        hosts.add(shortName.toLowerCase());
+      }
+    }
+  } catch (e) {
+    // Ignore errors getting hostname
+  }
+
+  // Add any explicitly configured hosts
+  if (process.env.VITE_ALLOWED_HOSTS) {
+    process.env.VITE_ALLOWED_HOSTS.split(',').forEach(h => hosts.add(h.trim()));
+  }
+
+  // Add the HMR host if configured
+  if (process.env.VITE_HMR_HOST) {
+    hosts.add(process.env.VITE_HMR_HOST);
+  }
+
+  return Array.from(hosts);
+}
+
 export default defineConfig({
   plugins: [
     react(),
@@ -65,6 +107,8 @@ export default defineConfig({
     port: parseInt(process.env.FRONTEND_PORT || "3000"),
     // When VITE_HOST is 0.0.0.0, use true to allow all hosts
     host: process.env.VITE_HOST === "0.0.0.0" ? true : (process.env.VITE_HOST || "localhost"),
+    // Allow all hostnames when in network mode
+    allowedHosts: process.env.VITE_HOST === "0.0.0.0" ? getAllowedHosts() : undefined,
     // Allow all hosts when binding to 0.0.0.0 for network access
     hmr: {
       host: process.env.VITE_HMR_HOST || undefined,
