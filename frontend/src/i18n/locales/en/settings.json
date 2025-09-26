@@ -68,6 +68,14 @@
           "label": "Personal Access Token",
           "helper": "GitHub Personal Access Token with 'repo' permissions. Use this if OAuth permissions are insufficient for private repositories and organisation owned repositories.",
           "createTokenLink": "Create token here"
+        },
+        "branchPrefix": {
+          "label": "Branch prefix",
+          "helper": "Prefix applied to branches created for task attempts. Leave blank to disable the prefix. A trailing slash is added automatically when missing."
+        },
+        "mergeSuffix": {
+          "label": "Merge commit suffix",
+          "helper": "Suffix appended to merge commit titles. Use placeholders like {short_id} or {task_id}. Leave blank to disable it."
         }
       },
       "notifications": {

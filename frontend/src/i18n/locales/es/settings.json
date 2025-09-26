@@ -61,7 +61,20 @@
         "connectButton": "Conectar Cuenta de GitHub",
         "manage": "Gestionar",
         "disconnect": "Desconectar",
-        "helper": "Conecta tu cuenta de GitHub para acceder a repositorios privados y habilitar acciones avanzadas de Git."
+        "helper": "Conecta tu cuenta de GitHub para acceder a repositorios privados y habilitar acciones avanzadas de Git.",
+        "pat": {
+          "label": "Token de acceso personal",
+          "helper": "Token de acceso personal de GitHub con permisos 'repo'. Usa esto si OAuth no tiene permisos suficientes para repositorios privados u organizaciones.",
+          "createTokenLink": "Crear token aquí"
+        },
+        "branchPrefix": {
+          "label": "Prefijo de rama",
+          "helper": "Prefijo aplicado a las ramas creadas para los intentos de tareas. Déjalo en blanco para desactivar el prefijo. Se añade automáticamente una barra final cuando falta."
+        },
+        "mergeSuffix": {
+          "label": "Sufijo del commit de merge",
+          "helper": "Sufijo añadido a los títulos de los commits de merge. Usa variables como {short_id} o {task_id}. Déjalo en blanco para desactivarlo."
+        }
       },
       "notifications": {
         "title": "Notificaciones",

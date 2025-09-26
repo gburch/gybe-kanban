@@ -24,6 +24,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Checkbox } from '@/components/ui/checkbox';
 import { ChevronDown, Key, Loader2, Volume2 } from 'lucide-react';
@@ -534,6 +535,76 @@ export function GeneralSettings() {
               >
                 {t('settings.general.github.pat.createTokenLink')}
               </a>
+            </p>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="github-branch-prefix">
+              {t('settings.general.github.branchPrefix.label')}
+            </Label>
+            <Input
+              id="github-branch-prefix"
+              value={draft?.github.branch_prefix ?? ''}
+              onChange={(e) => {
+                const rawValue = e.target.value;
+                updateDraft({
+                  github: {
+                    ...draft!.github,
+                    branch_prefix: rawValue,
+                  },
+                });
+              }}
+              placeholder="vk/"
+              autoComplete="off"
+              onBlur={(e) => {
+                const trimmed = e.target.value.trim();
+                if (!draft) return;
+                if (trimmed === '') {
+                  updateDraft({
+                    github: {
+                      ...draft.github,
+                      branch_prefix: '',
+                    },
+                  });
+                  return;
+                }
+
+                const needsSuffix = !/[\/_-]$/.test(trimmed);
+                const normalized = needsSuffix ? `${trimmed}/` : trimmed;
+                updateDraft({
+                  github: {
+                    ...draft.github,
+                    branch_prefix: normalized,
+                  },
+                });
+              }}
+            />
+            <p className="text-sm text-muted-foreground">
+              {t('settings.general.github.branchPrefix.helper')}
+            </p>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="github-merge-suffix">
+              {t('settings.general.github.mergeSuffix.label')}
+            </Label>
+            <Textarea
+              id="github-merge-suffix"
+              value={draft?.github.merge_commit_message_suffix ?? ''}
+              onChange={(e) => {
+                const rawValue = e.target.value;
+                updateDraft({
+                  github: {
+                    ...draft!.github,
+                    merge_commit_message_suffix: rawValue,
+                  },
+                });
+              }}
+              rows={3}
+              placeholder="(vibe-kanban {short_id})"
+            />
+            <p className="text-sm text-muted-foreground">
+              {t('settings.general.github.mergeSuffix.helper')}
             </p>
           </div>
         </CardContent>

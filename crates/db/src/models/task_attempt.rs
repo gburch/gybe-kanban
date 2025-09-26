@@ -206,6 +206,21 @@ impl TaskAttempt {
         Ok(())
     }
 
+    pub async fn update_branch(
+        pool: &SqlitePool,
+        attempt_id: Uuid,
+        branch: &str,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            "UPDATE task_attempts SET branch = ?, updated_at = datetime('now') WHERE id = ?",
+        )
+        .bind(branch)
+        .bind(attempt_id)
+        .execute(pool)
+        .await?;
+        Ok(())
+    }
+
     /// Helper function to mark a worktree as deleted in the database
     pub async fn mark_worktree_deleted(
         pool: &SqlitePool,

@@ -26,7 +26,7 @@ use services::services::container::{
 };
 use sqlx::Error as SqlxError;
 use ts_rs::TS;
-use utils::response::ApiResponse;
+use utils::{response::ApiResponse, text::git_branch_name_with_prefix};
 use uuid::Uuid;
 
 use crate::{DeploymentImpl, error::ApiError, middleware::load_task_middleware};
@@ -164,9 +164,11 @@ pub async fn create_task_and_start(
         )
         .await;
     let attempt_id = Uuid::new_v4();
-    let git_branch_name = deployment
-        .container()
-        .git_branch_from_task_attempt(&attempt_id, &task.title);
+    let branch_prefix = {
+        let cfg = deployment.config().read().await;
+        cfg.github.resolved_branch_prefix()
+    };
+    let git_branch_name = git_branch_name_with_prefix(&branch_prefix, &attempt_id, &task.title);
 
     let task_attempt = TaskAttempt::create(
         &deployment.db().pool,

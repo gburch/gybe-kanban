@@ -38,7 +38,7 @@ use services::services::{
 };
 use sqlx::Error as SqlxError;
 use ts_rs::TS;
-use utils::response::ApiResponse;
+use utils::{response::ApiResponse, text::git_branch_name_with_prefix};
 use uuid::Uuid;
 
 use crate::{
@@ -152,9 +152,11 @@ pub async fn create_task_attempt(
         .ok_or(SqlxError::RowNotFound)?;
 
     let attempt_id = Uuid::new_v4();
-    let git_branch_name = deployment
-        .container()
-        .git_branch_from_task_attempt(&attempt_id, &task.title);
+    let branch_prefix = {
+        let cfg = deployment.config().read().await;
+        cfg.github.resolved_branch_prefix()
+    };
+    let git_branch_name = git_branch_name_with_prefix(&branch_prefix, &attempt_id, &task.title);
 
     let task_attempt = TaskAttempt::create(
         &deployment.db().pool,
@@ -600,7 +602,27 @@ pub async fn merge_task_attempt(
     let first_uuid_section = task_uuid_str.split('-').next().unwrap_or(&task_uuid_str);
 
     // Create commit message with task title and description
-    let mut commit_message = format!("{} (vibe-kanban {})", ctx.task.title, first_uuid_section);
+    let github_config = {
+        let guard = deployment.config().read().await;
+        guard.github.clone()
+    };
+
+    let mut commit_message = ctx.task.title.clone();
+
+    if let Some(suffix) =
+        github_config.format_merge_commit_suffix(first_uuid_section, &task_uuid_str)
+    {
+        if !suffix.is_empty() {
+            if suffix.starts_with('\n') {
+                commit_message.push_str(&suffix);
+            } else {
+                if !commit_message.ends_with(' ') && !suffix.starts_with(' ') {
+                    commit_message.push(' ');
+                }
+                commit_message.push_str(&suffix);
+            }
+        }
+    }
 
     // Add description on next line if it exists
     if let Some(description) = &ctx.task.description

@@ -57,7 +57,7 @@ use tokio_util::io::ReaderStream;
 use utils::{
     log_msg::LogMsg,
     msg_store::MsgStore,
-    text::{git_branch_id, short_uuid},
+    text::{git_branch_id, git_branch_name_with_prefix, short_uuid},
 };
 use uuid::Uuid;
 
@@ -556,6 +556,13 @@ impl LocalContainerService {
         format!("{}-{}", short_uuid(attempt_id), task_title_id)
     }
 
+    pub fn git_branch_from_task_attempt(
+        branch_prefix: &str,
+        attempt_id: &Uuid,
+        task_title: &str,
+    ) -> String {
+        git_branch_name_with_prefix(branch_prefix, attempt_id, task_title)
+    }
     async fn track_child_msgs_in_store(&self, id: Uuid, child: &mut AsyncGroupChild) {
         let store = Arc::new(MsgStore::new());
 
@@ -875,6 +882,22 @@ impl ContainerService for LocalContainerService {
             LocalContainerService::dir_name_from_task_attempt(&task_attempt.id, &task.title);
         let worktree_path = WorktreeManager::get_worktree_base_dir().join(&worktree_dir_name);
 
+        let branch_prefix = {
+            let cfg = self.config.read().await;
+            cfg.github.resolved_branch_prefix()
+        };
+
+        let git_branch_name = if task_attempt.branch.trim().is_empty() {
+            let generated = LocalContainerService::git_branch_from_task_attempt(
+                &branch_prefix,
+                &task_attempt.id,
+                &task.title,
+            );
+            TaskAttempt::update_branch(&self.db.pool, task_attempt.id, &generated).await?;
+            generated
+        } else {
+            task_attempt.branch.clone()
+        };
         let project = task
             .parent_project(&self.db.pool)
             .await?
@@ -882,7 +905,7 @@ impl ContainerService for LocalContainerService {
 
         WorktreeManager::create_worktree(
             &project.git_repo_path,
-            &task_attempt.branch,
+            &git_branch_name,
             &worktree_path,
             &task_attempt.target_branch,
             true, // create new branch
@@ -909,7 +932,7 @@ impl ContainerService for LocalContainerService {
             tracing::warn!("Failed to copy task images to worktree: {}", e);
         }
 
-        // Update both container_ref and branch in the database
+        // Update container_ref in the database
         TaskAttempt::update_container_ref(
             &self.db.pool,
             task_attempt.id,
