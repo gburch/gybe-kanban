@@ -52,10 +52,21 @@ fn adjust_preconfigured(mut value: Value) -> Value {
         return value;
     }
 
-    let cli_path = match resolve_cli_path() {
+    let cli_path_buf = match resolve_cli_path() {
         Some(path) => path,
         None => return value,
     };
+
+    let cli_path = cli_path_buf.to_string_lossy().to_string();
+    let repo_root = cli_path_buf
+        .parent()
+        .and_then(|p| p.parent())
+        .and_then(|p| p.parent())
+        .map(|p| p.to_path_buf());
+    let dev_assets = repo_root
+        .as_ref()
+        .map(|root| root.join("dev_assets"))
+        .and_then(|path| path.to_str().map(|s| s.to_string()));
 
     if let Value::Object(ref mut root) = value {
         if let Some(Value::Object(server_obj)) = root.get_mut("vibe_kanban") {
@@ -63,10 +74,26 @@ fn adjust_preconfigured(mut value: Value) -> Value {
             server_obj.insert(
                 "args".to_string(),
                 Value::Array(vec![
-                    Value::String(cli_path.clone()),
+                    Value::String(cli_path),
                     Value::String("--mcp".to_string()),
                 ]),
             );
+
+            let mut env_map = server_obj
+                .get("env")
+                .and_then(|v| v.as_object().cloned())
+                .unwrap_or_default();
+            env_map.insert(
+                "VIBE_USE_LOCAL_MCP".to_string(),
+                Value::String("1".to_string()),
+            );
+            if let Some(dev_assets_path) = dev_assets {
+                env_map.insert(
+                    "VIBE_ASSETS_DIR".to_string(),
+                    Value::String(dev_assets_path),
+                );
+            }
+            server_obj.insert("env".to_string(), Value::Object(env_map));
         }
     }
 
@@ -80,17 +107,13 @@ fn should_use_local_vibe_server() -> bool {
     }
 }
 
-fn resolve_cli_path() -> Option<String> {
+fn resolve_cli_path() -> Option<PathBuf> {
     let candidate = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../npx-cli/bin/cli.js");
 
     let canonical = candidate.canonicalize().ok();
     let path = canonical.unwrap_or(candidate);
 
-    if path.exists() {
-        Some(path.to_string_lossy().to_string())
-    } else {
-        None
-    }
+    path.exists().then_some(path)
 }
 
 /// Read an agent's external config file (JSON or TOML) and normalize it to serde_json::Value.
