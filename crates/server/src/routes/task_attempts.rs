@@ -19,6 +19,7 @@ use db::models::{
     project::{Project, ProjectError},
     task::{Task, TaskRelationships, TaskStatus},
     task_attempt::{CreateTaskAttempt, CreateTaskAttemptRepository, TaskAttempt, TaskAttemptError},
+    task_attempt_repository::{TaskAttemptRepository, TaskAttemptRepositoryWithRepo},
 };
 use deployment::Deployment;
 use executors::{
@@ -1387,24 +1388,10 @@ pub async fn open_task_attempt_in_editor(
     State(deployment): State<DeploymentImpl>,
     Json(payload): Json<Option<OpenEditorRequest>>,
 ) -> Result<ResponseJson<ApiResponse<()>>, ApiError> {
-    // Get the task attempt to access the worktree path
-    let attempt = &task_attempt;
-    let base_path = attempt.container_ref.as_ref().ok_or_else(|| {
-        tracing::error!(
-            "No container ref found for task attempt {}",
-            task_attempt.id
-        );
-        ApiError::TaskAttempt(TaskAttemptError::ValidationError(
-            "No container ref found".to_string(),
-        ))
-    })?;
-
-    // If a specific file path is provided, use it; otherwise use the base path
-    let path = if let Some(file_path) = payload.as_ref().and_then(|req| req.file_path.as_ref()) {
-        std::path::Path::new(base_path).join(file_path)
-    } else {
-        std::path::PathBuf::from(base_path)
-    };
+    let container_ref = deployment
+        .container()
+        .ensure_container_exists(&task_attempt)
+        .await?;
 
     let editor_config = {
         let config = deployment.config().read().await;
@@ -1412,26 +1399,50 @@ pub async fn open_task_attempt_in_editor(
         config.editor.with_override(editor_type_str)
     };
 
-    match editor_config.open_file(&path.to_string_lossy()) {
-        Ok(_) => {
-            tracing::info!(
-                "Opened editor for task attempt {} at path: {}",
-                task_attempt.id,
-                path.display()
-            );
-            Ok(ResponseJson(ApiResponse::success(())))
-        }
-        Err(e) => {
-            tracing::error!(
-                "Failed to open editor for attempt {}: {}",
-                task_attempt.id,
-                e
-            );
-            Err(ApiError::TaskAttempt(TaskAttemptError::ValidationError(
-                format!("Failed to open editor: {}", e),
-            )))
+    if let Some(file_path) = payload.as_ref().and_then(|req| req.file_path.as_ref()) {
+        let resolved = std::path::Path::new(&container_ref).join(file_path);
+        let resolved_display = resolved.display().to_string();
+        let resolved_lossy = resolved.to_string_lossy();
+        editor_config.open_file(resolved_lossy.as_ref())?;
+        tracing::info!(
+            "Opened editor for task attempt {} at path: {}",
+            task_attempt.id,
+            resolved_display
+        );
+        return Ok(ResponseJson(ApiResponse::success(())));
+    }
+
+    let repo_entries: Vec<TaskAttemptRepositoryWithRepo> =
+        TaskAttemptRepository::list_for_attempt_with_repo(&deployment.db().pool, task_attempt.id)
+            .await?;
+
+    let mut paths = Vec::with_capacity(repo_entries.len().saturating_add(1));
+    paths.push(container_ref.clone());
+
+    for entry in repo_entries {
+        let Some(worktree_path) = entry.container_ref.clone().or_else(|| {
+            if entry.is_primary {
+                Some(container_ref.clone())
+            } else {
+                None
+            }
+        }) else {
+            continue;
+        };
+
+        if !paths.iter().any(|existing| existing == &worktree_path) {
+            paths.push(worktree_path);
         }
     }
+
+    editor_config.open_paths(paths.iter().map(|p| p.as_str()))?;
+    tracing::info!(
+        "Opened editor for task attempt {} with {} repositories",
+        task_attempt.id,
+        paths.len()
+    );
+
+    Ok(ResponseJson(ApiResponse::success(())))
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]

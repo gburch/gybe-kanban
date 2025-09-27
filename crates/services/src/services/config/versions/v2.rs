@@ -335,7 +335,11 @@ impl EditorConfig {
         }
     }
 
-    pub fn open_file(&self, path: &str) -> Result<(), std::io::Error> {
+    pub fn open_paths<I, S>(&self, paths: I) -> Result<(), std::io::Error>
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<str>,
+    {
         let mut command = self.get_command();
 
         if command.is_empty() {
@@ -357,9 +361,26 @@ impl EditorConfig {
         for arg in &command[1..] {
             cmd.arg(arg);
         }
-        cmd.arg(path);
+
+        let mut had_path = false;
+        for path in paths.into_iter() {
+            had_path = true;
+            cmd.arg(path.as_ref());
+        }
+
+        if !had_path {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "No paths provided to open",
+            ));
+        }
+
         cmd.spawn()?;
         Ok(())
+    }
+
+    pub fn open_file(&self, path: &str) -> Result<(), std::io::Error> {
+        self.open_paths([path])
     }
 
     pub fn with_override(&self, editor_type_str: Option<&str>) -> Self {
