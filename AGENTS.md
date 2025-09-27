@@ -9,6 +9,13 @@
 - `npx-cli/`: Files published to the npm CLI package.
 - `scripts/`: Dev helpers (ports, DB preparation).
 
+## Multi-Repository Attempts
+- Some tasks include additional Git repositories besides this primary worktree. Check `VIBE_REPOSITORY_COUNT` and `VIBE_REPOSITORIES` (comma-separated prefixes) to know how many are available.
+- For each prefix, environment variables like `VIBE_REPO_<PREFIX>_PATH`, `VIBE_REPO_<PREFIX>_ROOT`, `VIBE_REPO_<PREFIX>_NAME`, and `VIBE_REPO_<PREFIX>_IS_PRIMARY` describe the worktree path, scoped root, human-readable name, and whether it is the primary repo. `VIBE_PRIMARY_REPO_PREFIX`/`VIBE_PRIMARY_REPO_PATH` point to the default location most commands should run from.
+- Always set the `workdir` for shell commands to the correct repository path. Use `cd` only when absolutely necessary, and include the repo name in file references if the change is outside the primary repository.
+- Secondary repositories are isolated worktrees; be explicit about which repo a change belongs to in your responses (for example, `core-api/src/lib.rs`). Automated merge/push actions target the primary repo—manually outline follow-up steps for secondary repos if required.
+- If a repository uses a root override (`VIBE_REPO_<PREFIX>_ROOT` is non-empty), scope your edits to that subdirectory when summarizing or running commands.
+
 ## Managing Shared Types Between Rust and TypeScript
 
 ts-rs allows you to derive TypeScript types from Rust structs/enums. By annotating your Rust types with #[derive(TS)] and related macros, ts-rs will generate .ts declaration files for those types.

@@ -85,6 +85,19 @@ With this configuration:
 
 If you only want a subdirectory of a monorepo, point **Git repo path** at the repo and set **Root path** to the folder you need (for example, `packages/mobile-app`). The worktree still clones the whole repository, but diffs and searches are rooted inside the subdirectory.
 
+#### Agent runtime environment
+
+Task attempts export several environment variables so coding agents can reliably discover every repository worktree:
+
+- `VIBE_REPOSITORY_COUNT` reports how many repositories are linked to the attempt.
+- `VIBE_REPOSITORIES` lists comma-separated prefixes (for example, `WEB,CORE_API`).
+- `VIBE_REPO_<PREFIX>_PATH` gives the absolute worktree path for each repository.
+- `VIBE_REPO_<PREFIX>_ROOT` scopes the repository to a subdirectory when a root override is configured; it is empty when the entire repository is exposed.
+- `VIBE_REPO_<PREFIX>_NAME`, `VIBE_REPO_<PREFIX>_BRANCH`, and `VIBE_REPO_<PREFIX>_IS_PRIMARY` provide metadata so agents can choose sensible defaults and communicate which repo they are touching.
+- `VIBE_PRIMARY_REPO_PREFIX`, `VIBE_PRIMARY_REPO_PATH`, and related variables mirror the same data for the primary repository specifically.
+
+Prefixes use the repository name converted to uppercase snake_case and remain stable for the lifetime of the attempt. Agents should set the command `workdir` to the desired `VIBE_REPO_<PREFIX>_PATH` before running tools, especially when editing secondary repositories.
+
 ### How multi-repo attempts behave
 
 - Every task attempt creates a worktree for each configured repository. Long-lived tasks therefore keep the different codebases in sync.
