@@ -4,6 +4,7 @@ use async_trait::async_trait;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
+use uuid::Uuid;
 use workspace_utils::msg_store::MsgStore;
 
 use crate::{
@@ -38,12 +39,17 @@ impl QwenCode {
 
 #[async_trait]
 impl StandardCodingAgentExecutor for QwenCode {
-    async fn spawn(&self, current_dir: &Path, prompt: &str) -> Result<SpawnedChild, ExecutorError> {
+    async fn spawn(
+        &self,
+        current_dir: &Path,
+        prompt: &str,
+        attempt_id: Option<&Uuid>,
+    ) -> Result<SpawnedChild, ExecutorError> {
         let qwen_command = self.build_command_builder().build_initial();
         let combined_prompt = self.append_prompt.combine_prompt(prompt);
         let harness = AcpAgentHarness::with_session_namespace("qwen_sessions");
         harness
-            .spawn_with_command(current_dir, combined_prompt, qwen_command)
+            .spawn_with_command(current_dir, combined_prompt, qwen_command, attempt_id)
             .await
     }
 
@@ -52,12 +58,19 @@ impl StandardCodingAgentExecutor for QwenCode {
         current_dir: &Path,
         prompt: &str,
         session_id: &str,
+        attempt_id: Option<&Uuid>,
     ) -> Result<SpawnedChild, ExecutorError> {
         let qwen_command = self.build_command_builder().build_follow_up(&[]);
         let combined_prompt = self.append_prompt.combine_prompt(prompt);
         let harness = AcpAgentHarness::with_session_namespace("qwen_sessions");
         harness
-            .spawn_follow_up_with_command(current_dir, combined_prompt, session_id, qwen_command)
+            .spawn_follow_up_with_command(
+                current_dir,
+                combined_prompt,
+                session_id,
+                qwen_command,
+                attempt_id,
+            )
             .await
     }
 

@@ -6,6 +6,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use tokio::{io::AsyncWriteExt, process::Command};
 use ts_rs::TS;
+use uuid::Uuid;
 use workspace_utils::{msg_store::MsgStore, shell::get_shell_command};
 
 use crate::{
@@ -44,7 +45,12 @@ impl Amp {
 
 #[async_trait]
 impl StandardCodingAgentExecutor for Amp {
-    async fn spawn(&self, current_dir: &Path, prompt: &str) -> Result<SpawnedChild, ExecutorError> {
+    async fn spawn(
+        &self,
+        current_dir: &Path,
+        prompt: &str,
+        attempt_id: Option<&Uuid>,
+    ) -> Result<SpawnedChild, ExecutorError> {
         let (shell_cmd, shell_arg) = get_shell_command();
         let amp_command = self.build_command_builder().build_initial();
 
@@ -59,6 +65,10 @@ impl StandardCodingAgentExecutor for Amp {
             .current_dir(current_dir)
             .arg(shell_arg)
             .arg(&amp_command);
+
+        if let Some(attempt_id) = attempt_id {
+            command.env("VIBE_PARENT_TASK_ATTEMPT_ID", attempt_id.to_string());
+        }
 
         let mut child = command.group_spawn()?;
 
@@ -76,6 +86,7 @@ impl StandardCodingAgentExecutor for Amp {
         current_dir: &Path,
         prompt: &str,
         session_id: &str,
+        attempt_id: Option<&Uuid>,
     ) -> Result<SpawnedChild, ExecutorError> {
         // Use shell command for cross-platform compatibility
         let (shell_cmd, shell_arg) = get_shell_command();
@@ -129,6 +140,10 @@ impl StandardCodingAgentExecutor for Amp {
             .current_dir(current_dir)
             .arg(shell_arg)
             .arg(&continue_cmd);
+
+        if let Some(attempt_id) = attempt_id {
+            command.env("VIBE_PARENT_TASK_ATTEMPT_ID", attempt_id.to_string());
+        }
 
         let mut child = command.group_spawn()?;
 

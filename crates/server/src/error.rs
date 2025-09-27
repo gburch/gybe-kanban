@@ -67,7 +67,20 @@ impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
         let (status_code, error_type) = match &self {
             ApiError::Project(_) => (StatusCode::INTERNAL_SERVER_ERROR, "ProjectError"),
-            ApiError::TaskAttempt(_) => (StatusCode::INTERNAL_SERVER_ERROR, "TaskAttemptError"),
+            ApiError::TaskAttempt(task_attempt_err) => match task_attempt_err {
+                TaskAttemptError::ValidationError(_) => {
+                    (StatusCode::BAD_REQUEST, "TaskAttemptValidationError")
+                }
+                TaskAttemptError::TaskNotFound | TaskAttemptError::ProjectNotFound => {
+                    (StatusCode::NOT_FOUND, "TaskAttemptNotFound")
+                }
+                TaskAttemptError::BranchNotFound(_) => {
+                    (StatusCode::NOT_FOUND, "TaskAttemptBranchNotFound")
+                }
+                TaskAttemptError::Database(_) => {
+                    (StatusCode::INTERNAL_SERVER_ERROR, "TaskAttemptError")
+                }
+            },
             ApiError::ExecutionProcess(err) => match err {
                 ExecutionProcessError::ExecutionProcessNotFound => {
                     (StatusCode::NOT_FOUND, "ExecutionProcessError")

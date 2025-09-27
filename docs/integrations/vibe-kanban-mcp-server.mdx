@@ -84,6 +84,10 @@ A powerful workflow involves using coding agents within Vibe Kanban that are als
 
 This creates a seamless workflow where high-level planning automatically generates actionable tasks in your project board.
 
+<Tip>
+When a coding agent is running inside a Vibe Kanban task attempt, the container exports the environment variable `VIBE_PARENT_TASK_ATTEMPT_ID`. Pass this value to the MCP `create_task` tool via the `parent_task_attempt` argument so newly created tasks are linked as subtasks of the active attempt.
+</Tip>
+
 ## Installation Instructions for MCP Clients
 
 ### Raycast Example

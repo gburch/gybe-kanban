@@ -4,6 +4,7 @@ use async_trait::async_trait;
 use enum_dispatch::enum_dispatch;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
+use uuid::Uuid;
 
 use crate::{
     actions::{
@@ -45,15 +46,21 @@ impl ExecutorAction {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct ExecutorSpawnContext<'a> {
+    pub current_dir: &'a Path,
+    pub task_attempt_id: Option<&'a Uuid>,
+}
+
 #[async_trait]
 #[enum_dispatch(ExecutorActionType)]
 pub trait Executable {
-    async fn spawn(&self, current_dir: &Path) -> Result<SpawnedChild, ExecutorError>;
+    async fn spawn(&self, ctx: ExecutorSpawnContext<'_>) -> Result<SpawnedChild, ExecutorError>;
 }
 
 #[async_trait]
 impl Executable for ExecutorAction {
-    async fn spawn(&self, current_dir: &Path) -> Result<SpawnedChild, ExecutorError> {
-        self.typ.spawn(current_dir).await
+    async fn spawn(&self, ctx: ExecutorSpawnContext<'_>) -> Result<SpawnedChild, ExecutorError> {
+        self.typ.spawn(ctx).await
     }
 }

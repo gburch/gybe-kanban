@@ -30,7 +30,7 @@ use db::{
 };
 use deployment::DeploymentError;
 use executors::{
-    actions::{Executable, ExecutorAction},
+    actions::{Executable, ExecutorAction, ExecutorSpawnContext},
     logs::{
         NormalizedEntryType,
         utils::{
@@ -1032,7 +1032,11 @@ impl ContainerService for LocalContainerService {
         let current_dir = PathBuf::from(container_ref);
 
         // Create the child and stream, add to execution tracker
-        let mut spawned = executor_action.spawn(&current_dir).await?;
+        let spawn_ctx = ExecutorSpawnContext {
+            current_dir: &current_dir,
+            task_attempt_id: Some(&task_attempt.id),
+        };
+        let mut spawned = executor_action.spawn(spawn_ctx).await?;
 
         self.track_child_msgs_in_store(execution_process.id, &mut spawned.child)
             .await;

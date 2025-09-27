@@ -38,6 +38,8 @@ pub struct TaskWithAttemptStatus {
     pub has_merged_attempt: bool,
     pub last_attempt_failed: bool,
     pub executor: String,
+    pub parent_task_id: Option<Uuid>,
+    pub child_task_count: i64,
 }
 
 impl std::ops::Deref for TaskWithAttemptStatus {
@@ -105,6 +107,15 @@ impl Task {
   t.parent_task_attempt           AS "parent_task_attempt: Uuid",
   t.created_at                    AS "created_at!: DateTime<Utc>",
   t.updated_at                    AS "updated_at!: DateTime<Utc>",
+  pta.task_id                     AS "parent_task_id?: Uuid",
+
+  (
+    SELECT COUNT(1)
+      FROM task_attempts child_attempts
+      JOIN tasks child_tasks
+        ON child_tasks.parent_task_attempt = child_attempts.id
+     WHERE child_attempts.task_id = t.id
+  )                                 AS "child_task_count!: i64",
 
   CASE WHEN EXISTS (
     SELECT 1
@@ -137,6 +148,7 @@ impl Task {
     )                               AS "executor!: String"
 
 FROM tasks t
+LEFT JOIN task_attempts pta ON t.parent_task_attempt = pta.id
 WHERE t.project_id = $1
 ORDER BY t.created_at DESC"#,
             project_id
@@ -161,6 +173,8 @@ ORDER BY t.created_at DESC"#,
                 has_merged_attempt: false, // TODO use merges table
                 last_attempt_failed: rec.last_attempt_failed != 0,
                 executor: rec.executor,
+                parent_task_id: rec.parent_task_id,
+                child_task_count: rec.child_task_count,
             })
             .collect();
 
@@ -340,5 +354,20 @@ ORDER BY t.created_at DESC"#,
             current_attempt: task_attempt.clone(),
             children,
         })
+    }
+
+    pub async fn count_child_tasks(pool: &SqlitePool, task_id: Uuid) -> Result<i64, sqlx::Error> {
+        let count = sqlx::query_scalar!(
+            r#"SELECT COUNT(1)
+               FROM task_attempts child_attempts
+               JOIN tasks child_tasks
+                 ON child_tasks.parent_task_attempt = child_attempts.id
+              WHERE child_attempts.task_id = $1"#,
+            task_id
+        )
+        .fetch_one(pool)
+        .await?;
+
+        Ok(count)
     }
 }

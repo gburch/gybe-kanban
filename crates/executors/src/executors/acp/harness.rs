@@ -11,6 +11,7 @@ use futures::StreamExt;
 use tokio::{io::AsyncWriteExt, process::Command, sync::mpsc};
 use tokio_util::compat::{TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt};
 use tracing::error;
+use uuid::Uuid;
 use workspace_utils::shell::get_shell_command;
 
 use super::{AcpClient, SessionManager};
@@ -48,6 +49,7 @@ impl AcpAgentHarness {
         current_dir: &Path,
         prompt: String,
         full_command: String,
+        attempt_id: Option<&Uuid>,
     ) -> Result<SpawnedChild, ExecutorError> {
         let (shell_cmd, shell_arg) = get_shell_command();
         let mut command = Command::new(shell_cmd);
@@ -60,6 +62,10 @@ impl AcpAgentHarness {
             .arg(shell_arg)
             .arg(full_command)
             .env("NODE_NO_WARNINGS", "1");
+
+        if let Some(attempt_id) = attempt_id {
+            command.env("VIBE_PARENT_TASK_ATTEMPT_ID", attempt_id.to_string());
+        }
 
         let mut child = command.group_spawn()?;
 
@@ -86,6 +92,7 @@ impl AcpAgentHarness {
         prompt: String,
         session_id: &str,
         full_command: String,
+        attempt_id: Option<&Uuid>,
     ) -> Result<SpawnedChild, ExecutorError> {
         let (shell_cmd, shell_arg) = get_shell_command();
         let mut command = Command::new(shell_cmd);
@@ -98,6 +105,10 @@ impl AcpAgentHarness {
             .arg(shell_arg)
             .arg(full_command)
             .env("NODE_NO_WARNINGS", "1");
+
+        if let Some(attempt_id) = attempt_id {
+            command.env("VIBE_PARENT_TASK_ATTEMPT_ID", attempt_id.to_string());
+        }
 
         let mut child = command.group_spawn()?;
 

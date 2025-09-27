@@ -130,3 +130,4 @@ Runtime:
 - `VITE_HMR_HOST`: Vite HMR host for hot reload (default: not set, use hostname for network access)
 - `BACKEND_HOST`: Backend hostname for frontend proxy (default: localhost)
 - `DISABLE_WORKTREE_ORPHAN_CLEANUP`: Debug flag for worktrees
+- `VIBE_PARENT_TASK_ATTEMPT_ID`: When a coding agent is running inside an execution attempt, this identifies the active attempt and should be forwarded to MCP tools that create subtasks.

@@ -6,7 +6,11 @@ use thiserror::Error;
 use ts_rs::TS;
 use uuid::Uuid;
 
-use super::{project::Project, task::Task};
+use super::{
+    execution_process::{ExecutionProcess, ExecutionProcessRunReason, ExecutionProcessStatus},
+    project::Project,
+    task::Task,
+};
 
 #[derive(Debug, Error)]
 pub enum TaskAttemptError {
@@ -277,6 +281,57 @@ impl TaskAttempt {
         .await
     }
 
+    /// Ensure that a task attempt belongs to the supplied project and is currently active.
+    /// Returns the attempt if validation succeeds.
+    pub async fn ensure_active_for_project(
+        pool: &SqlitePool,
+        attempt_id: Uuid,
+        project_id: Uuid,
+    ) -> Result<Self, TaskAttemptError> {
+        let attempt = TaskAttempt::find_by_id(pool, attempt_id)
+            .await?
+            .ok_or(TaskAttemptError::TaskNotFound)?;
+
+        if attempt.worktree_deleted {
+            return Err(TaskAttemptError::ValidationError(
+                "Parent task attempt has been cleaned up and is no longer active".to_string(),
+            ));
+        }
+
+        let attempt_task = Task::find_by_id(pool, attempt.task_id)
+            .await?
+            .ok_or(TaskAttemptError::TaskNotFound)?;
+
+        if attempt_task.project_id != project_id {
+            return Err(TaskAttemptError::ValidationError(
+                "Parent task attempt belongs to a different project".to_string(),
+            ));
+        }
+
+        match ExecutionProcess::find_latest_by_task_attempt_and_run_reason(
+            pool,
+            attempt_id,
+            &ExecutionProcessRunReason::CodingAgent,
+        )
+        .await?
+        {
+            Some(process) if process.status == ExecutionProcessStatus::Running => {}
+            Some(process) => {
+                return Err(TaskAttemptError::ValidationError(format!(
+                    "Parent task attempt is not active (latest coding agent process status: {:?})",
+                    process.status
+                )));
+            }
+            None => {
+                return Err(TaskAttemptError::ValidationError(
+                    "Parent task attempt does not have an active coding agent process".to_string(),
+                ));
+            }
+        }
+
+        Ok(attempt)
+    }
+
     /// Find task attempts by task_id with project git repo path for cleanup operations
     pub async fn find_by_task_id_with_project(
         pool: &SqlitePool,
@@ -437,5 +492,184 @@ impl TaskAttempt {
         .ok_or(sqlx::Error::RowNotFound)?;
 
         Ok((result.attempt_id, result.task_id, result.project_id))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::{
+        execution_process::{
+            CreateExecutionProcess, ExecutionProcess, ExecutionProcessRunReason,
+            ExecutionProcessStatus,
+        },
+        project::{CreateProject, Project},
+        task::{CreateTask, Task},
+    };
+    use executors::{
+        actions::{
+            ExecutorAction, ExecutorActionType, coding_agent_initial::CodingAgentInitialRequest,
+        },
+        executors::BaseCodingAgent,
+        profile::ExecutorProfileId,
+    };
+    use sqlx::{
+        Pool, Sqlite,
+        sqlite::{SqliteConnectOptions, SqlitePoolOptions},
+    };
+    use std::str::FromStr;
+    use uuid::Uuid;
+
+    async fn setup_pool() -> Pool<Sqlite> {
+        let options = SqliteConnectOptions::from_str("sqlite::memory:")
+            .unwrap()
+            .create_if_missing(true);
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(options)
+            .await
+            .unwrap();
+        sqlx::migrate!("./migrations").run(&pool).await.unwrap();
+        pool
+    }
+
+    async fn seed_active_attempt(pool: &Pool<Sqlite>) -> (Uuid, TaskAttempt, ExecutionProcess) {
+        let project_id = Uuid::new_v4();
+        Project::create(
+            pool,
+            &CreateProject {
+                name: "Test Project".to_string(),
+                git_repo_path: format!("/tmp/{}", project_id),
+                use_existing_repo: false,
+                setup_script: None,
+                dev_script: None,
+                cleanup_script: None,
+                copy_files: None,
+            },
+            project_id,
+        )
+        .await
+        .unwrap();
+
+        let task_id = Uuid::new_v4();
+        let task = Task::create(
+            pool,
+            &CreateTask {
+                project_id,
+                title: "Parent Task".to_string(),
+                description: None,
+                parent_task_attempt: None,
+                image_ids: None,
+            },
+            task_id,
+        )
+        .await
+        .unwrap();
+
+        let attempt = TaskAttempt::create(
+            pool,
+            &CreateTaskAttempt {
+                executor: BaseCodingAgent::ClaudeCode,
+                base_branch: "main".to_string(),
+            },
+            task.id,
+        )
+        .await
+        .unwrap();
+
+        let executor_action = ExecutorAction::new(
+            ExecutorActionType::CodingAgentInitialRequest(CodingAgentInitialRequest {
+                prompt: "bootstrap".to_string(),
+                executor_profile_id: ExecutorProfileId::new(BaseCodingAgent::ClaudeCode),
+            }),
+            None,
+        );
+
+        let process = ExecutionProcess::create(
+            pool,
+            &CreateExecutionProcess {
+                task_attempt_id: attempt.id,
+                executor_action,
+                run_reason: ExecutionProcessRunReason::CodingAgent,
+            },
+            Uuid::new_v4(),
+            None,
+        )
+        .await
+        .unwrap();
+
+        (project_id, attempt, process)
+    }
+
+    #[tokio::test]
+    async fn ensure_active_for_project_accepts_running_attempt() {
+        let pool = setup_pool().await;
+        let (project_id, attempt, _process) = seed_active_attempt(&pool).await;
+
+        let result = TaskAttempt::ensure_active_for_project(&pool, attempt.id, project_id)
+            .await
+            .expect("active attempt should validate");
+
+        assert_eq!(result.id, attempt.id);
+    }
+
+    #[tokio::test]
+    async fn ensure_active_for_project_rejects_inactive_attempt() {
+        let pool = setup_pool().await;
+        let (project_id, attempt, process) = seed_active_attempt(&pool).await;
+
+        ExecutionProcess::update_completion(
+            &pool,
+            process.id,
+            ExecutionProcessStatus::Completed,
+            Some(0),
+        )
+        .await
+        .unwrap();
+
+        let err = TaskAttempt::ensure_active_for_project(&pool, attempt.id, project_id)
+            .await
+            .expect_err("completed attempt should not validate");
+
+        match err {
+            TaskAttemptError::ValidationError(msg) => {
+                assert!(msg.contains("not active"));
+            }
+            other => panic!("unexpected error variant: {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn ensure_active_for_project_rejects_wrong_project() {
+        let pool = setup_pool().await;
+        let (_project_id, attempt, _process) = seed_active_attempt(&pool).await;
+
+        let other_project_id = Uuid::new_v4();
+        Project::create(
+            &pool,
+            &CreateProject {
+                name: "Other".to_string(),
+                git_repo_path: format!("/tmp/{}", other_project_id),
+                use_existing_repo: false,
+                setup_script: None,
+                dev_script: None,
+                cleanup_script: None,
+                copy_files: None,
+            },
+            other_project_id,
+        )
+        .await
+        .unwrap();
+
+        let err = TaskAttempt::ensure_active_for_project(&pool, attempt.id, other_project_id)
+            .await
+            .expect_err("attempt from another project should fail");
+
+        match err {
+            TaskAttemptError::ValidationError(msg) => {
+                assert!(msg.contains("different project"));
+            }
+            other => panic!("unexpected error variant: {:?}", other),
+        }
     }
 }

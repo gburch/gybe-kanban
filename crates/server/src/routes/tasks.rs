@@ -113,6 +113,15 @@ pub async fn create_task(
         payload.project_id
     );
 
+    if let Some(parent_attempt_id) = payload.parent_task_attempt {
+        TaskAttempt::ensure_active_for_project(
+            &deployment.db().pool,
+            parent_attempt_id,
+            payload.project_id,
+        )
+        .await?;
+    }
+
     let task = Task::create(&deployment.db().pool, &payload, id).await?;
 
     if let Some(image_ids) = &payload.image_ids {
@@ -145,6 +154,15 @@ pub async fn create_task_and_start(
     State(deployment): State<DeploymentImpl>,
     Json(payload): Json<CreateAndStartTaskRequest>,
 ) -> Result<ResponseJson<ApiResponse<TaskWithAttemptStatus>>, ApiError> {
+    if let Some(parent_attempt_id) = payload.task.parent_task_attempt {
+        TaskAttempt::ensure_active_for_project(
+            &deployment.db().pool,
+            parent_attempt_id,
+            payload.task.project_id,
+        )
+        .await?;
+    }
+
     let task_id = Uuid::new_v4();
     let task = Task::create(&deployment.db().pool, &payload.task, task_id).await?;
 
@@ -208,6 +226,8 @@ pub async fn create_task_and_start(
         has_merged_attempt: false,
         last_attempt_failed: false,
         executor: task_attempt.executor,
+        parent_task_id: None,
+        child_task_count: 0,
     })))
 }
 
@@ -227,6 +247,15 @@ pub async fn update_task(
     let parent_task_attempt = payload
         .parent_task_attempt
         .or(existing_task.parent_task_attempt);
+
+    if let Some(parent_attempt_id) = payload.parent_task_attempt {
+        TaskAttempt::ensure_active_for_project(
+            &deployment.db().pool,
+            parent_attempt_id,
+            existing_task.project_id,
+        )
+        .await?;
+    }
 
     let task = Task::update(
         &deployment.db().pool,

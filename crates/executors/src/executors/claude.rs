@@ -9,6 +9,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use tokio::{io::AsyncWriteExt, process::Command, sync::OnceCell};
 use ts_rs::TS;
+use uuid::Uuid;
 use workspace_utils::{
     approvals::APPROVAL_TIMEOUT_SECONDS,
     diff::{concatenate_diff_hunks, create_unified_diff, create_unified_diff_hunk},
@@ -121,7 +122,12 @@ impl ClaudeCode {
 
 #[async_trait]
 impl StandardCodingAgentExecutor for ClaudeCode {
-    async fn spawn(&self, current_dir: &Path, prompt: &str) -> Result<SpawnedChild, ExecutorError> {
+    async fn spawn(
+        &self,
+        current_dir: &Path,
+        prompt: &str,
+        attempt_id: Option<&Uuid>,
+    ) -> Result<SpawnedChild, ExecutorError> {
         let (shell_cmd, shell_arg) = get_shell_command();
         let command_builder = self.build_command_builder().await;
         let mut base_command = command_builder.build_initial();
@@ -146,6 +152,10 @@ impl StandardCodingAgentExecutor for ClaudeCode {
             .arg(shell_arg)
             .arg(&base_command);
 
+        if let Some(attempt_id) = attempt_id {
+            command.env("VIBE_PARENT_TASK_ATTEMPT_ID", attempt_id.to_string());
+        }
+
         let mut child = command.group_spawn()?;
 
         // Feed the prompt in, then close the pipe so Claude sees EOF
@@ -162,6 +172,7 @@ impl StandardCodingAgentExecutor for ClaudeCode {
         current_dir: &Path,
         prompt: &str,
         session_id: &str,
+        attempt_id: Option<&Uuid>,
     ) -> Result<SpawnedChild, ExecutorError> {
         let (shell_cmd, shell_arg) = get_shell_command();
         let command_builder = self.build_command_builder().await;
@@ -188,6 +199,10 @@ impl StandardCodingAgentExecutor for ClaudeCode {
             .current_dir(current_dir)
             .arg(shell_arg)
             .arg(&base_command);
+
+        if let Some(attempt_id) = attempt_id {
+            command.env("VIBE_PARENT_TASK_ATTEMPT_ID", attempt_id.to_string());
+        }
 
         let mut child = command.group_spawn()?;
 
