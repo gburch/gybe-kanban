@@ -30,6 +30,10 @@ pub struct CreateTaskRequest {
         description = "Optional parent task attempt ID (UUID). Must reference an active attempt in the same project."
     )]
     pub parent_task_attempt: Option<String>,
+    #[schemars(
+        description = "Optional parent task ID (UUID). When supplied, the server will attach the new task to the currently running coding-agent attempt for that task."
+    )]
+    pub parent_task_id: Option<String>,
 }
 
 #[derive(Debug, Serialize, schemars::JsonSchema)]
@@ -161,6 +165,10 @@ pub struct UpdateTaskRequest {
         description = "Optional parent task attempt ID (UUID). Provide an empty string to clear the relationship."
     )]
     pub parent_task_attempt: Option<String>,
+    #[schemars(
+        description = "Optional parent task ID (UUID). The server will resolve it to the active coding-agent attempt for that task."
+    )]
+    pub parent_task_id: Option<String>,
 }
 
 #[derive(Debug, Serialize, schemars::JsonSchema)]
@@ -236,6 +244,7 @@ impl TaskServer {
             title,
             description,
             parent_task_attempt,
+            parent_task_id,
         }): Parameters<CreateTaskRequest>,
     ) -> Result<CallToolResult, ErrorData> {
         // Parse project_id from string to UUID
@@ -321,6 +330,111 @@ impl TaskServer {
                 }
 
                 Some(attempt_uuid)
+            }
+        } else if let Some(parent_task_id_raw) = parent_task_id.as_ref() {
+            let trimmed = parent_task_id_raw.trim();
+
+            if trimmed.is_empty() {
+                None
+            } else {
+                let parent_task_uuid = match Uuid::parse_str(trimmed) {
+                    Ok(uuid) => uuid,
+                    Err(_) => {
+                        let error_response = serde_json::json!({
+                            "success": false,
+                            "error": "Invalid parent task ID format. Must be a valid UUID.",
+                            "parent_task_id": parent_task_id_raw,
+                        });
+                        return Ok(CallToolResult::error(vec![Content::text(
+                            serde_json::to_string_pretty(&error_response)
+                                .unwrap_or_else(|_| "Invalid parent task ID".to_string()),
+                        )]));
+                    }
+                };
+
+                match Task::find_by_id_and_project_id(&self.pool, parent_task_uuid, project_uuid)
+                    .await
+                {
+                    Ok(Some(_)) => {}
+                    Ok(None) => {
+                        let error_response = serde_json::json!({
+                            "success": false,
+                            "error": "Parent task not found in the specified project",
+                            "parent_task_id": parent_task_id_raw,
+                            "project_id": project_id,
+                        });
+                        return Ok(CallToolResult::error(vec![Content::text(
+                            serde_json::to_string_pretty(&error_response)
+                                .unwrap_or_else(|_| "Parent task not found".to_string()),
+                        )]));
+                    }
+                    Err(e) => {
+                        let error_response = serde_json::json!({
+                            "success": false,
+                            "error": "Failed to look up parent task",
+                            "details": e.to_string(),
+                            "parent_task_id": parent_task_id_raw,
+                        });
+                        return Ok(CallToolResult::error(vec![Content::text(
+                            serde_json::to_string_pretty(&error_response)
+                                .unwrap_or_else(|_| "Failed to look up parent task".to_string()),
+                        )]));
+                    }
+                }
+
+                let active_attempt = match TaskAttempt::find_active_coding_agent_for_task(
+                    &self.pool,
+                    parent_task_uuid,
+                )
+                .await
+                {
+                    Ok(Some(attempt)) => attempt,
+                    Ok(None) => {
+                        let error_response = serde_json::json!({
+                            "success": false,
+                            "error": "Parent task does not have an active coding agent attempt",
+                            "parent_task_id": parent_task_id_raw,
+                        });
+                        return Ok(CallToolResult::error(vec![Content::text(
+                            serde_json::to_string_pretty(&error_response)
+                                .unwrap_or_else(|_| "No active attempt".to_string()),
+                        )]));
+                    }
+                    Err(e) => {
+                        let error_response = serde_json::json!({
+                            "success": false,
+                            "error": "Failed to resolve active attempt for parent task",
+                            "details": e.to_string(),
+                            "parent_task_id": parent_task_id_raw,
+                        });
+                        return Ok(CallToolResult::error(vec![Content::text(
+                            serde_json::to_string_pretty(&error_response)
+                                .unwrap_or_else(|_| "Failed to resolve parent attempt".to_string()),
+                        )]));
+                    }
+                };
+
+                if let Err(err) = TaskAttempt::ensure_active_for_project(
+                    &self.pool,
+                    active_attempt.id,
+                    project_uuid,
+                )
+                .await
+                {
+                    let error_response = serde_json::json!({
+                        "success": false,
+                        "error": "Resolved parent attempt is not active for this project",
+                        "details": err.to_string(),
+                        "parent_task_id": parent_task_id_raw,
+                        "project_id": project_id,
+                    });
+                    return Ok(CallToolResult::error(vec![Content::text(
+                        serde_json::to_string_pretty(&error_response)
+                            .unwrap_or_else(|_| "Invalid parent attempt".to_string()),
+                    )]));
+                }
+
+                Some(active_attempt.id)
             }
         } else {
             None
@@ -587,6 +701,7 @@ impl TaskServer {
             description,
             status,
             parent_task_attempt,
+            parent_task_id,
         }): Parameters<UpdateTaskRequest>,
     ) -> Result<CallToolResult, ErrorData> {
         let project_uuid = match Uuid::parse_str(&project_id) {
@@ -706,6 +821,110 @@ impl TaskServer {
                 }
 
                 Some(Some(attempt_uuid))
+            }
+        } else if let Some(parent_task_id_raw) = parent_task_id.as_ref() {
+            let trimmed = parent_task_id_raw.trim();
+            if trimmed.is_empty() {
+                Some(None)
+            } else {
+                let parent_task_uuid = match Uuid::parse_str(trimmed) {
+                    Ok(uuid) => uuid,
+                    Err(_) => {
+                        let error_response = serde_json::json!({
+                            "success": false,
+                            "error": "Invalid parent task ID format. Must be a valid UUID.",
+                            "parent_task_id": parent_task_id_raw,
+                        });
+                        return Ok(CallToolResult::error(vec![Content::text(
+                            serde_json::to_string_pretty(&error_response)
+                                .unwrap_or_else(|_| "Invalid parent task ID".to_string()),
+                        )]));
+                    }
+                };
+
+                match Task::find_by_id_and_project_id(&self.pool, parent_task_uuid, project_uuid)
+                    .await
+                {
+                    Ok(Some(_)) => {}
+                    Ok(None) => {
+                        let error_response = serde_json::json!({
+                            "success": false,
+                            "error": "Parent task not found in the specified project",
+                            "parent_task_id": parent_task_id_raw,
+                            "project_id": project_id,
+                        });
+                        return Ok(CallToolResult::error(vec![Content::text(
+                            serde_json::to_string_pretty(&error_response)
+                                .unwrap_or_else(|_| "Parent task not found".to_string()),
+                        )]));
+                    }
+                    Err(e) => {
+                        let error_response = serde_json::json!({
+                            "success": false,
+                            "error": "Failed to look up parent task",
+                            "details": e.to_string(),
+                            "parent_task_id": parent_task_id_raw,
+                        });
+                        return Ok(CallToolResult::error(vec![Content::text(
+                            serde_json::to_string_pretty(&error_response)
+                                .unwrap_or_else(|_| "Failed to look up parent task".to_string()),
+                        )]));
+                    }
+                }
+
+                let active_attempt = match TaskAttempt::find_active_coding_agent_for_task(
+                    &self.pool,
+                    parent_task_uuid,
+                )
+                .await
+                {
+                    Ok(Some(attempt)) => attempt,
+                    Ok(None) => {
+                        let error_response = serde_json::json!({
+                            "success": false,
+                            "error": "Parent task does not have an active coding agent attempt",
+                            "parent_task_id": parent_task_id_raw,
+                        });
+                        return Ok(CallToolResult::error(vec![Content::text(
+                            serde_json::to_string_pretty(&error_response)
+                                .unwrap_or_else(|_| "No active attempt".to_string()),
+                        )]));
+                    }
+                    Err(e) => {
+                        let error_response = serde_json::json!({
+                            "success": false,
+                            "error": "Failed to resolve active attempt for parent task",
+                            "details": e.to_string(),
+                            "parent_task_id": parent_task_id_raw,
+                        });
+                        return Ok(CallToolResult::error(vec![Content::text(
+                            serde_json::to_string_pretty(&error_response)
+                                .unwrap_or_else(|_| "Failed to resolve parent attempt".to_string()),
+                        )]));
+                    }
+                };
+
+                if let Err(err) = TaskAttempt::ensure_active_for_project(
+                    &self.pool,
+                    active_attempt.id,
+                    project_uuid,
+                )
+                .await
+                {
+                    let error_response = serde_json::json!({
+                        "success": false,
+                        "error": "Resolved parent attempt is not active for this project",
+                        "details": err.to_string(),
+                        "parent_task_id": parent_task_id_raw,
+                        "project_id": project_id,
+                    });
+                    return Ok(CallToolResult::error(vec![Content::text(
+                        serde_json::to_string_pretty(&error_response)
+                            .unwrap_or_else(|_| "Invalid parent attempt".to_string()),
+                    )]));
+                }
+
+                Some(Some(active_attempt.id))
             }
         } else {
             None
@@ -1041,7 +1260,7 @@ impl ServerHandler for TaskServer {
                 name: "vibe-kanban".to_string(),
                 version: "1.0.0".to_string(),
             },
-            instructions: Some("A task and project management server. If you need to create or update tickets or tasks then use these tools. Most of them absolutely require that you pass the `project_id` of the project that you are currently working on. This should be provided to you. Call `list_tasks` to fetch the `task_ids` of all the tasks in a project`. TOOLS: 'list_projects', 'list_tasks', 'create_task', 'get_task', 'update_task', 'delete_task'. Make sure to pass `project_id` or `task_id` where required. Use `parent_task_attempt` when creating subtasks; the active attempt id is available as the `VIBE_PARENT_TASK_ATTEMPT_ID` environment variable. You can use list tools to get the available ids.".to_string()),
+            instructions: Some("A task and project management server. If you need to create or update tickets or tasks then use these tools. Most of them absolutely require that you pass the `project_id` of the project that you are currently working on. This should be provided to you. Call `list_tasks` to fetch the `task_ids` of all the tasks in a project`. TOOLS: 'list_projects', 'list_tasks', 'create_task', 'get_task', 'update_task', 'delete_task'. Make sure to pass `project_id` or `task_id` where required. Use `parent_task_attempt` when creating subtasks; the active attempt id is available as the `VIBE_PARENT_TASK_ATTEMPT_ID` environment variable. Alternatively pass `parent_task_id` and the server will resolve it to the currently running attempt. You can use list tools to get the available ids.".to_string()),
         }
     }
 }

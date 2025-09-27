@@ -332,6 +332,36 @@ impl TaskAttempt {
         Ok(attempt)
     }
 
+    /// Find the currently running coding-agent attempt for a task, if any.
+    pub async fn find_active_coding_agent_for_task(
+        pool: &SqlitePool,
+        task_id: Uuid,
+    ) -> Result<Option<Self>, sqlx::Error> {
+        sqlx::query_as!(
+            TaskAttempt,
+            r#"SELECT ta.id                  AS "id!: Uuid",
+                     ta.task_id            AS "task_id!: Uuid",
+                     ta.container_ref,
+                     ta.branch,
+                     ta.base_branch        AS "base_branch!",
+                     ta.executor           AS "executor!",
+                     ta.worktree_deleted   AS "worktree_deleted!: bool",
+                     ta.setup_completed_at AS "setup_completed_at: DateTime<Utc>",
+                     ta.created_at         AS "created_at!: DateTime<Utc>",
+                     ta.updated_at         AS "updated_at!: DateTime<Utc>"
+              FROM task_attempts ta
+              JOIN execution_processes ep ON ep.task_attempt_id = ta.id
+             WHERE ta.task_id = $1
+               AND ep.run_reason = 'codingagent'
+               AND ep.status = 'running'
+             ORDER BY ep.created_at DESC
+             LIMIT 1"#,
+            task_id
+        )
+        .fetch_optional(pool)
+        .await
+    }
+
     /// Find task attempts by task_id with project git repo path for cleanup operations
     pub async fn find_by_task_id_with_project(
         pool: &SqlitePool,
@@ -611,6 +641,40 @@ mod tests {
             .expect("active attempt should validate");
 
         assert_eq!(result.id, attempt.id);
+    }
+
+    #[tokio::test]
+    async fn find_active_coding_agent_for_task_returns_running_attempt() {
+        let pool = setup_pool().await;
+        let (_project_id, attempt, _process) = seed_active_attempt(&pool).await;
+
+        let found = TaskAttempt::find_active_coding_agent_for_task(&pool, attempt.task_id)
+            .await
+            .expect("query should succeed")
+            .expect("expected active attempt");
+
+        assert_eq!(found.id, attempt.id);
+    }
+
+    #[tokio::test]
+    async fn find_active_coding_agent_for_task_skips_completed_attempt() {
+        let pool = setup_pool().await;
+        let (_project_id, attempt, process) = seed_active_attempt(&pool).await;
+
+        ExecutionProcess::update_completion(
+            &pool,
+            process.id,
+            ExecutionProcessStatus::Completed,
+            Some(0),
+        )
+        .await
+        .unwrap();
+
+        let found = TaskAttempt::find_active_coding_agent_for_task(&pool, attempt.task_id)
+            .await
+            .expect("query should succeed");
+
+        assert!(found.is_none(), "completed attempts should not be returned");
     }
 
     #[tokio::test]
