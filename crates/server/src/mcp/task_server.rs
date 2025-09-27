@@ -1,4 +1,4 @@
-use std::{future::Future, path::PathBuf};
+use std::{env, future::Future, path::PathBuf};
 
 use db::models::{
     project::Project,
@@ -437,7 +437,53 @@ impl TaskServer {
                 Some(active_attempt.id)
             }
         } else {
-            None
+            match env::var("VIBE_PARENT_TASK_ATTEMPT_ID") {
+                Ok(val) => {
+                    let trimmed = val.trim();
+                    if trimmed.is_empty() {
+                        None
+                    } else {
+                        let attempt_uuid = match Uuid::parse_str(trimmed) {
+                            Ok(uuid) => uuid,
+                            Err(_) => {
+                                let error_response = serde_json::json!({
+                                    "success": false,
+                                    "error": "Invalid parent task attempt ID format from environment.",
+                                    "parent_task_attempt": trimmed,
+                                });
+                                return Ok(CallToolResult::error(vec![Content::text(
+                                    serde_json::to_string_pretty(&error_response).unwrap_or_else(
+                                        |_| "Invalid parent task attempt".to_string(),
+                                    ),
+                                )]));
+                            }
+                        };
+
+                        if let Err(err) = TaskAttempt::ensure_active_for_project(
+                            &self.pool,
+                            attempt_uuid,
+                            project_uuid,
+                        )
+                        .await
+                        {
+                            let error_response = serde_json::json!({
+                                "success": false,
+                                "error": "Parent task attempt from environment is not active or not part of this project",
+                                "details": err.to_string(),
+                                "parent_task_attempt": trimmed,
+                                "project_id": project_id,
+                            });
+                            return Ok(CallToolResult::error(vec![Content::text(
+                                serde_json::to_string_pretty(&error_response)
+                                    .unwrap_or_else(|_| "Invalid parent task attempt".to_string()),
+                            )]));
+                        }
+
+                        Some(attempt_uuid)
+                    }
+                }
+                Err(_) => None,
+            }
         };
 
         let task_id = Uuid::new_v4();
