@@ -11,6 +11,7 @@ interface CommentWidgetLineProps {
   onSave: () => void;
   onCancel: () => void;
   projectId?: string;
+  repositoryId?: string | null;
 }
 
 export function CommentWidgetLine({
@@ -19,6 +20,7 @@ export function CommentWidgetLine({
   onSave,
   onCancel,
   projectId,
+  repositoryId,
 }: CommentWidgetLineProps) {
   const { setDraft, addComment } = useReview();
   const [value, setValue] = useState(draft.text);
@@ -74,6 +76,7 @@ export function CommentWidgetLine({
         maxRows={10}
         className="w-full bg-primary text-primary-foreground text-sm font-mono resize-none min-h-[60px] focus:outline-none focus:ring-1 focus:ring-primary"
         projectId={projectId}
+        repositoryId={repositoryId ?? undefined}
         onCommandEnter={handleSave}
       />
       <div className="mt-2 flex gap-2">

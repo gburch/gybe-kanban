@@ -43,8 +43,8 @@ pub struct TaskAttempt {
     pub id: Uuid,
     pub task_id: Uuid,                 // Foreign key to Task
     pub container_ref: Option<String>, // Path to a worktree (local), or cloud container id
-    pub branch: String,                // Git branch name for this task attempt
-    pub target_branch: String,         // Target branch for this attempt
+    pub branch: Option<String>,        // Git branch name for this task attempt
+    pub base_branch: String,           // Base branch this attempt is based on
     pub executor: String, // Name of the base coding agent to use ("AMP", "CLAUDE_CODE",
     // "GEMINI", etc.)
     pub worktree_deleted: bool, // Flag indicating if worktree has been cleaned up
@@ -87,7 +87,6 @@ pub struct TaskAttemptContext {
 pub struct CreateTaskAttempt {
     pub executor: BaseCodingAgent,
     pub base_branch: String,
-    pub branch: String,
 }
 
 impl TaskAttempt {
@@ -107,7 +106,7 @@ impl TaskAttempt {
                               task_id AS "task_id!: Uuid",
                               container_ref,
                               branch,
-                              target_branch,
+                              base_branch,
                               executor AS "executor!",
                               worktree_deleted AS "worktree_deleted!: bool",
                               setup_completed_at AS "setup_completed_at: DateTime<Utc>",
@@ -127,7 +126,7 @@ impl TaskAttempt {
                               task_id AS "task_id!: Uuid",
                               container_ref,
                               branch,
-                              target_branch,
+                              base_branch,
                               executor AS "executor!",
                               worktree_deleted AS "worktree_deleted!: bool",
                               setup_completed_at AS "setup_completed_at: DateTime<Utc>",
@@ -158,7 +157,7 @@ impl TaskAttempt {
                        ta.task_id           AS "task_id!: Uuid",
                        ta.container_ref,
                        ta.branch,
-                       ta.target_branch,
+                       ta.base_branch,
                        ta.executor AS "executor!",
                        ta.worktree_deleted  AS "worktree_deleted!: bool",
                        ta.setup_completed_at AS "setup_completed_at: DateTime<Utc>",
@@ -199,14 +198,80 @@ impl TaskAttempt {
         container_ref: &str,
     ) -> Result<(), sqlx::Error> {
         let now = Utc::now();
+        let mut tx = pool.begin().await?;
         sqlx::query!(
             "UPDATE task_attempts SET container_ref = $1, updated_at = $2 WHERE id = $3",
             container_ref,
             now,
             attempt_id
         )
-        .execute(pool)
+        .execute(&mut *tx)
         .await?;
+
+        let repo_result = sqlx::query!(
+            "UPDATE task_attempt_repositories SET container_ref = $2, updated_at = datetime('now', 'subsec') WHERE task_attempt_id = $1 AND is_primary = 1",
+            attempt_id,
+            container_ref
+        )
+        .execute(&mut *tx)
+        .await?;
+
+        if repo_result.rows_affected() == 0 {
+            let repo_row = sqlx::query!(
+                r#"SELECT pr.id as "id!: Uuid"
+                   FROM task_attempts ta
+                   JOIN tasks t ON ta.task_id = t.id
+                   JOIN project_repositories pr ON pr.project_id = t.project_id AND pr.is_primary = 1
+                   WHERE ta.id = $1"#,
+                attempt_id
+            )
+            .fetch_optional(&mut *tx)
+            .await?;
+
+            let project_repo_id = if let Some(row) = repo_row {
+                row.id
+            } else {
+                let project_row = sqlx::query!(
+                    r#"SELECT t.project_id as "project_id!: Uuid", p.git_repo_path
+                       FROM task_attempts ta
+                       JOIN tasks t ON ta.task_id = t.id
+                       JOIN projects p ON t.project_id = p.id
+                       WHERE ta.id = $1"#,
+                    attempt_id
+                )
+                .fetch_one(&mut *tx)
+                .await?;
+
+                let repo_id = Uuid::new_v4();
+                sqlx::query!(
+                    r#"INSERT INTO project_repositories (id, project_id, name, git_repo_path, root_path, is_primary)
+                       VALUES ($1, $2, $3, $4, $5, 1)"#,
+                    repo_id,
+                    project_row.project_id,
+                    "Primary",
+                    project_row.git_repo_path,
+                    ""
+                )
+                .execute(&mut *tx)
+                .await?;
+
+                repo_id
+            };
+
+            let task_repo_id = Uuid::new_v4();
+            sqlx::query!(
+                r#"INSERT INTO task_attempt_repositories (id, task_attempt_id, project_repository_id, is_primary, container_ref)
+                   VALUES ($1, $2, $3, 1, $4)"#,
+                task_repo_id,
+                attempt_id,
+                project_repo_id,
+                container_ref
+            )
+            .execute(&mut *tx)
+            .await?;
+        }
+
+        tx.commit().await?;
         Ok(())
     }
 
@@ -215,13 +280,81 @@ impl TaskAttempt {
         attempt_id: Uuid,
         branch: &str,
     ) -> Result<(), sqlx::Error> {
-        sqlx::query(
-            "UPDATE task_attempts SET branch = ?, updated_at = datetime('now') WHERE id = ?",
+        let now = Utc::now();
+        let mut tx = pool.begin().await?;
+        sqlx::query!(
+            "UPDATE task_attempts SET branch = $1, updated_at = $2 WHERE id = $3",
+            branch,
+            now,
+            attempt_id
         )
-        .bind(branch)
-        .bind(attempt_id)
-        .execute(pool)
+        .execute(&mut *tx)
         .await?;
+
+        let repo_result = sqlx::query!(
+            "UPDATE task_attempt_repositories SET branch = $2, updated_at = datetime('now', 'subsec') WHERE task_attempt_id = $1 AND is_primary = 1",
+            attempt_id,
+            branch
+        )
+        .execute(&mut *tx)
+        .await?;
+
+        if repo_result.rows_affected() == 0 {
+            let repo_row = sqlx::query!(
+                r#"SELECT pr.id as "id!: Uuid"
+                   FROM task_attempts ta
+                   JOIN tasks t ON ta.task_id = t.id
+                   JOIN project_repositories pr ON pr.project_id = t.project_id AND pr.is_primary = 1
+                   WHERE ta.id = $1"#,
+                attempt_id
+            )
+            .fetch_optional(&mut *tx)
+            .await?;
+
+            let project_repo_id = if let Some(row) = repo_row {
+                row.id
+            } else {
+                let project_row = sqlx::query!(
+                    r#"SELECT t.project_id as "project_id!: Uuid", p.git_repo_path
+                       FROM task_attempts ta
+                       JOIN tasks t ON ta.task_id = t.id
+                       JOIN projects p ON t.project_id = p.id
+                       WHERE ta.id = $1"#,
+                    attempt_id
+                )
+                .fetch_one(&mut *tx)
+                .await?;
+
+                let repo_id = Uuid::new_v4();
+                sqlx::query!(
+                    r#"INSERT INTO project_repositories (id, project_id, name, git_repo_path, root_path, is_primary)
+                       VALUES ($1, $2, $3, $4, $5, 1)"#,
+                    repo_id,
+                    project_row.project_id,
+                    "Primary",
+                    project_row.git_repo_path,
+                    ""
+                )
+                .execute(&mut *tx)
+                .await?;
+
+                repo_id
+            };
+
+            let task_repo_id = Uuid::new_v4();
+            sqlx::query!(
+                r#"INSERT INTO task_attempt_repositories (id, task_attempt_id, project_repository_id, is_primary, branch)
+                   VALUES ($1, $2, $3, 1, $4)"#,
+                task_repo_id,
+                attempt_id,
+                project_repo_id,
+                branch
+            )
+            .execute(&mut *tx)
+            .await?;
+        }
+
+        tx.commit().await?;
         Ok(())
     }
 
@@ -246,7 +379,7 @@ impl TaskAttempt {
                        task_id           AS "task_id!: Uuid",
                        container_ref,
                        branch,
-                       target_branch,
+                       base_branch,
                        executor AS "executor!",
                        worktree_deleted  AS "worktree_deleted!: bool",
                        setup_completed_at AS "setup_completed_at: DateTime<Utc>",
@@ -267,7 +400,7 @@ impl TaskAttempt {
                        task_id           AS "task_id!: Uuid",
                        container_ref,
                        branch,
-                       target_branch,
+                       base_branch,
                        executor AS "executor!",
                        worktree_deleted  AS "worktree_deleted!: bool",
                        setup_completed_at AS "setup_completed_at: DateTime<Utc>",
@@ -496,37 +629,110 @@ impl TaskAttempt {
     pub async fn create(
         pool: &SqlitePool,
         data: &CreateTaskAttempt,
-        id: Uuid,
         task_id: Uuid,
     ) -> Result<Self, TaskAttemptError> {
-        // let prefixed_id = format!("vibe-kanban-{}", attempt_id);
-        // Insert the record into the database
-        Ok(sqlx::query_as!(
-            TaskAttempt,
-            r#"INSERT INTO task_attempts (id, task_id, container_ref, branch, target_branch, executor, worktree_deleted, setup_completed_at)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-               RETURNING id as "id!: Uuid", task_id as "task_id!: Uuid", container_ref, branch, target_branch, executor as "executor!",  worktree_deleted as "worktree_deleted!: bool", setup_completed_at as "setup_completed_at: DateTime<Utc>", created_at as "created_at!: DateTime<Utc>", updated_at as "updated_at!: DateTime<Utc>""#,
-            id,
-            task_id,
-            Option::<String>::None, // Container isn't known yet
-            data.branch,
-            data.base_branch, // Target branch is same as base branch during creation
-            data.executor,
-            false, // worktree_deleted is false during creation
-            Option::<DateTime<Utc>>::None // setup_completed_at is None during creation
+        let attempt_id = Uuid::new_v4();
+        let mut tx = pool.begin().await?;
+        let task_row = sqlx::query!(
+            r#"SELECT project_id as "project_id!: Uuid" FROM tasks WHERE id = $1"#,
+            task_id
         )
-        .fetch_one(pool)
-        .await?)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or(TaskAttemptError::TaskNotFound)?;
+
+        let attempt = sqlx::query_as!(
+            TaskAttempt,
+            r#"INSERT INTO task_attempts (id, task_id, container_ref, branch, base_branch, executor, worktree_deleted, setup_completed_at)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+               RETURNING id as "id!: Uuid", task_id as "task_id!: Uuid", container_ref, branch, base_branch, executor as "executor!",  worktree_deleted as "worktree_deleted!: bool", setup_completed_at as "setup_completed_at: DateTime<Utc>", created_at as "created_at!: DateTime<Utc>", updated_at as "updated_at!: DateTime<Utc>""#,
+            attempt_id,
+            task_id,
+            Option::<String>::None,
+            Option::<String>::None,
+            data.base_branch,
+            data.executor,
+            false,
+            Option::<DateTime<Utc>>::None
+        )
+        .fetch_one(&mut *tx)
+        .await?;
+
+        struct RepoRow {
+            id: Uuid,
+            is_primary: bool,
+        }
+
+        let mut project_repositories: Vec<RepoRow> = sqlx::query!(
+            r#"SELECT id as "id!: Uuid", is_primary as "is_primary!: bool"
+               FROM project_repositories
+               WHERE project_id = $1
+               ORDER BY is_primary DESC, created_at ASC"#,
+            task_row.project_id
+        )
+        .fetch_all(&mut *tx)
+        .await?
+        .into_iter()
+        .map(|row| RepoRow {
+            id: row.id,
+            is_primary: row.is_primary,
+        })
+        .collect();
+
+        if project_repositories.is_empty() {
+            let project = sqlx::query!(
+                r#"SELECT git_repo_path FROM projects WHERE id = $1"#,
+                task_row.project_id
+            )
+            .fetch_one(&mut *tx)
+            .await?;
+
+            let repo_id = Uuid::new_v4();
+            sqlx::query!(
+                r#"INSERT INTO project_repositories (id, project_id, name, git_repo_path, root_path, is_primary)
+                   VALUES ($1, $2, $3, $4, $5, 1)"#,
+                repo_id,
+                task_row.project_id,
+                "Primary",
+                project.git_repo_path,
+                ""
+            )
+            .execute(&mut *tx)
+            .await?;
+
+            project_repositories.push(RepoRow {
+                id: repo_id,
+                is_primary: true,
+            });
+        }
+
+        for repo in project_repositories {
+            let task_repo_id = Uuid::new_v4();
+            sqlx::query!(
+                r#"INSERT INTO task_attempt_repositories (id, task_attempt_id, project_repository_id, is_primary)
+                   VALUES ($1, $2, $3, $4)"#,
+                task_repo_id,
+                attempt.id,
+                repo.id,
+                repo.is_primary
+            )
+            .execute(&mut *tx)
+            .await?;
+        }
+
+        tx.commit().await?;
+
+        Ok(attempt)
     }
 
-    pub async fn update_target_branch(
+    pub async fn update_base_branch(
         pool: &SqlitePool,
         attempt_id: Uuid,
-        new_target_branch: &str,
+        new_base_branch: &str,
     ) -> Result<(), TaskAttemptError> {
         sqlx::query!(
-            "UPDATE task_attempts SET target_branch = $1, updated_at = datetime('now') WHERE id = $2",
-            new_target_branch,
+            "UPDATE task_attempts SET base_branch = $1, updated_at = datetime('now') WHERE id = $2",
+            new_base_branch,
             attempt_id,
         )
         .execute(pool)
@@ -565,7 +771,9 @@ mod tests {
             ExecutionProcessStatus,
         },
         project::{CreateProject, Project},
+        project_repository::ProjectRepository,
         task::{CreateTask, Task},
+        task_attempt_repository::TaskAttemptRepository,
     };
     use executors::{
         actions::{
@@ -800,5 +1008,101 @@ mod tests {
             }
             other => panic!("unexpected error variant: {:?}", other),
         }
+    }
+
+    #[tokio::test]
+    async fn create_populates_attempt_repositories_for_multi_repo_projects() {
+        let pool = setup_pool().await;
+
+        let project_id = Uuid::new_v4();
+        let project = Project::create(
+            &pool,
+            &CreateProject {
+                name: "Multi Repo".to_string(),
+                git_repo_path: "/tmp/multi-repo".to_string(),
+                use_existing_repo: true,
+                setup_script: None,
+                dev_script: None,
+                cleanup_script: None,
+                copy_files: None,
+            },
+            project_id,
+        )
+        .await
+        .unwrap();
+
+        let secondary_repo_id = Uuid::new_v4();
+        sqlx::query(
+            r#"INSERT INTO project_repositories (
+                    id,
+                    project_id,
+                    name,
+                    git_repo_path,
+                    root_path,
+                    is_primary
+                )
+                VALUES (?, ?, ?, ?, ?, 0)"#,
+        )
+        .bind(secondary_repo_id)
+        .bind(project.id)
+        .bind("Docs")
+        .bind("/tmp/multi-repo")
+        .bind("docs")
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let repositories =
+            ProjectRepository::list_for_project(&pool, project.id).await.unwrap();
+        assert_eq!(repositories.len(), 2, "expected both repositories to be registered");
+
+        let task_id = Uuid::new_v4();
+        let task = Task::create(
+            &pool,
+            &CreateTask {
+                project_id: project.id,
+                title: "Test task".to_string(),
+                description: None,
+                parent_task_attempt: None,
+                image_ids: None,
+            },
+            task_id,
+        )
+        .await
+        .unwrap();
+
+        let attempt = TaskAttempt::create(
+            &pool,
+            &CreateTaskAttempt {
+                executor: BaseCodingAgent::ClaudeCode,
+                base_branch: "main".to_string(),
+            },
+            task.id,
+        )
+        .await
+        .unwrap();
+
+        let attempt_repositories =
+            TaskAttemptRepository::list_for_attempt(&pool, attempt.id)
+                .await
+                .unwrap();
+
+        assert_eq!(attempt_repositories.len(), 2);
+        assert_eq!(
+            attempt_repositories
+                .iter()
+                .filter(|repo| repo.is_primary)
+                .count(),
+            1,
+            "expected exactly one primary repository entry"
+        );
+
+        let secondary_entry = attempt_repositories
+            .iter()
+            .find(|repo| repo.project_repository_id == secondary_repo_id)
+            .expect("secondary repository entry should exist");
+        assert!(!secondary_entry.is_primary);
+        assert!(secondary_entry.container_ref.is_none());
+        assert!(secondary_entry.branch.is_none());
     }
 }

@@ -17,6 +17,7 @@ interface FileSearchTextareaProps {
   disabled?: boolean;
   className?: string;
   projectId?: string;
+  repositoryId?: string | null;
   onKeyDown?: (e: React.KeyboardEvent) => void;
   maxRows?: number;
   onCommandEnter?: (e: React.KeyboardEvent<HTMLTextAreaElement>) => void;
@@ -31,6 +32,7 @@ export function FileSearchTextarea({
   disabled = false,
   className,
   projectId,
+  repositoryId,
   onCommandEnter,
   onCommandShiftEnter,
   maxRows = 10,
@@ -58,7 +60,9 @@ export function FileSearchTextarea({
       setIsLoading(true);
 
       try {
-        const result = await projectsApi.searchFiles(projectId, searchQuery);
+        const result = await projectsApi.searchFiles(projectId, searchQuery, undefined, {
+          repoId: repositoryId ?? undefined,
+        });
         // Transform SearchResult to FileSearchResult by adding name field
         const fileResults: FileSearchResult[] = result.map((item) => ({
           ...item,
@@ -76,7 +80,7 @@ export function FileSearchTextarea({
 
     const debounceTimer = setTimeout(searchFiles, 300);
     return () => clearTimeout(debounceTimer);
-  }, [searchQuery, projectId]);
+  }, [searchQuery, projectId, repositoryId]);
 
   // Handle text changes and detect @ symbol
   const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {

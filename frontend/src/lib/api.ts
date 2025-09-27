@@ -22,6 +22,8 @@ import {
   GitBranch,
   Project,
   CreateProject,
+  ProjectRepository,
+  RebaseTaskAttemptRequest,
   RepositoryInfo,
   SearchResult,
   Task,
@@ -34,25 +36,21 @@ import {
   UpdateTaskTemplate,
   UserSystemInfo,
   GitHubServiceError,
-  UpdateRetryFollowUpDraftRequest,
   McpServerQuery,
   UpdateMcpServersBody,
   GetMcpServerResponse,
   ImageResponse,
-  DraftResponse,
+  FollowUpDraftResponse,
   UpdateFollowUpDraftRequest,
   GitOperationError,
   ApprovalResponse,
-  RebaseTaskAttemptRequest,
-  ChangeTargetBranchRequest,
-  ChangeTargetBranchResponse,
 } from 'shared/types';
 
 // Re-export types for convenience
 export type { RepositoryInfo } from 'shared/types';
 export type {
+  FollowUpDraftResponse,
   UpdateFollowUpDraftRequest,
-  UpdateRetryFollowUpDraftRequest,
 } from 'shared/types';
 
 class ApiError<E = unknown> extends Error {
@@ -244,8 +242,16 @@ export const projectsApi = {
     return handleApiResponse<void>(response);
   },
 
-  getBranches: async (id: string): Promise<GitBranch[]> => {
-    const response = await makeRequest(`/api/projects/${id}/branches`);
+  getRepositories: async (id: string): Promise<ProjectRepository[]> => {
+    const response = await makeRequest(`/api/projects/${id}/repositories`);
+    return handleApiResponse<ProjectRepository[]>(response);
+  },
+
+  getBranches: async (id: string, repoId?: string): Promise<GitBranch[]> => {
+    const repoQuery = repoId ? `?repo_id=${encodeURIComponent(repoId)}` : '';
+    const response = await makeRequest(
+      `/api/projects/${id}/branches${repoQuery}`
+    );
     return handleApiResponse<GitBranch[]>(response);
   },
 
@@ -253,12 +259,16 @@ export const projectsApi = {
     id: string,
     query: string,
     mode?: string,
-    options?: RequestInit
+    options?: (RequestInit & { repoId?: string }) | null
   ): Promise<SearchResult[]> => {
     const modeParam = mode ? `&mode=${encodeURIComponent(mode)}` : '';
+    const repoParam = options?.repoId
+      ? `&repo_id=${encodeURIComponent(options.repoId)}`
+      : '';
+    const { repoId: _repoId, ...requestOptions } = options ?? {};
     const response = await makeRequest(
-      `/api/projects/${id}/search?q=${encodeURIComponent(query)}${modeParam}`,
-      options
+      `/api/projects/${id}/search?q=${encodeURIComponent(query)}${modeParam}${repoParam}`,
+      requestOptions
     );
     return handleApiResponse<SearchResult[]>(response);
   },
@@ -378,51 +388,38 @@ export const attemptsApi = {
     return handleApiResponse<void>(response);
   },
 
-  getDraft: async (
-    attemptId: string,
-    type: 'follow_up' | 'retry'
-  ): Promise<DraftResponse> => {
+  getFollowUpDraft: async (
+    attemptId: string
+  ): Promise<FollowUpDraftResponse> => {
     const response = await makeRequest(
-      `/api/task-attempts/${attemptId}/draft?type=${encodeURIComponent(type)}`
+      `/api/task-attempts/${attemptId}/follow-up-draft`
     );
-    return handleApiResponse<DraftResponse>(response);
+    return handleApiResponse<FollowUpDraftResponse>(response);
   },
 
-  saveDraft: async (
+  saveFollowUpDraft: async (
     attemptId: string,
-    type: 'follow_up' | 'retry',
-    data: UpdateFollowUpDraftRequest | UpdateRetryFollowUpDraftRequest
-  ): Promise<DraftResponse> => {
+    data: UpdateFollowUpDraftRequest
+  ): Promise<FollowUpDraftResponse> => {
     const response = await makeRequest(
-      `/api/task-attempts/${attemptId}/draft?type=${encodeURIComponent(type)}`,
+      `/api/task-attempts/${attemptId}/follow-up-draft`,
       {
+        // Server expects PUT for saving/updating the draft
         method: 'PUT',
         body: JSON.stringify(data),
       }
     );
-    return handleApiResponse<DraftResponse>(response);
+    return handleApiResponse<FollowUpDraftResponse>(response);
   },
 
-  deleteDraft: async (
-    attemptId: string,
-    type: 'follow_up' | 'retry'
-  ): Promise<void> => {
-    const response = await makeRequest(
-      `/api/task-attempts/${attemptId}/draft?type=${encodeURIComponent(type)}`,
-      { method: 'DELETE' }
-    );
-    return handleApiResponse<void>(response);
-  },
-
-  setDraftQueue: async (
+  setFollowUpQueue: async (
     attemptId: string,
     queued: boolean,
     expectedQueued?: boolean,
-    expectedVersion?: number,
-    type: 'follow_up' | 'retry' = 'follow_up'
-  ): Promise<DraftResponse> => {
+    expectedVersion?: number
+  ): Promise<FollowUpDraftResponse> => {
     const response = await makeRequest(
-      `/api/task-attempts/${attemptId}/draft/queue?type=${encodeURIComponent(type)}`,
+      `/api/task-attempts/${attemptId}/follow-up-draft/queue`,
       {
         method: 'POST',
         body: JSON.stringify({
@@ -432,7 +429,7 @@ export const attemptsApi = {
         }),
       }
     );
-    return handleApiResponse<DraftResponse>(response);
+    return handleApiResponse<FollowUpDraftResponse>(response);
   },
 
   deleteFile: async (
@@ -507,20 +504,6 @@ export const attemptsApi = {
       }
     );
     return handleApiResponseAsResult<void, GitOperationError>(response);
-  },
-
-  change_target_branch: async (
-    attemptId: string,
-    data: ChangeTargetBranchRequest
-  ): Promise<ChangeTargetBranchResponse> => {
-    const response = await makeRequest(
-      `/api/task-attempts/${attemptId}/change-target-branch`,
-      {
-        method: 'POST',
-        body: JSON.stringify(data),
-      }
-    );
-    return handleApiResponse<ChangeTargetBranchResponse>(response);
   },
 
   abortConflicts: async (attemptId: string): Promise<void> => {
@@ -783,28 +766,6 @@ export const imagesApi = {
     formData.append('image', file);
 
     const response = await fetch('/api/images/upload', {
-      method: 'POST',
-      body: formData,
-      credentials: 'include',
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new ApiError(
-        `Failed to upload image: ${errorText}`,
-        response.status,
-        response
-      );
-    }
-
-    return handleApiResponse<ImageResponse>(response);
-  },
-
-  uploadForTask: async (taskId: string, file: File): Promise<ImageResponse> => {
-    const formData = new FormData();
-    formData.append('image', file);
-
-    const response = await fetch(`/api/images/task/${taskId}/upload`, {
       method: 'POST',
       body: formData,
       credentials: 'include',

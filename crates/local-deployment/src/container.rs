@@ -16,21 +16,23 @@ use command_group::AsyncGroupChild;
 use db::{
     DBService,
     models::{
-        draft::{Draft, DraftType},
         execution_process::{
             ExecutionContext, ExecutionProcess, ExecutionProcessRunReason, ExecutionProcessStatus,
         },
         executor_session::ExecutorSession,
+        follow_up_draft::FollowUpDraft,
         image::TaskImage,
         merge::Merge,
-        project::Project,
+        project_repository::ProjectRepository,
         task::{Task, TaskStatus},
         task_attempt::TaskAttempt,
+        task_attempt_repository::TaskAttemptRepository,
     },
 };
 use deployment::DeploymentError;
+use executors::payload::{ExecutorPayload, ExecutorRepositoryContext};
 use executors::{
-    actions::{Executable, ExecutorAction, ExecutorSpawnContext},
+    actions::{Executable, ExecutorAction, ExecutorPayloadEnvelope, ExecutorSpawnContext},
     logs::{
         NormalizedEntryType,
         utils::{
@@ -52,12 +54,14 @@ use services::services::{
     notification::NotificationService,
     worktree_manager::WorktreeManager,
 };
+use sqlx::Error as SqlxError;
 use tokio::{sync::RwLock, task::JoinHandle};
 use tokio_util::io::ReaderStream;
 use utils::{
+    diff::{Diff, create_unified_diff_hunk},
     log_msg::LogMsg,
     msg_store::MsgStore,
-    text::{git_branch_id, git_branch_name_with_prefix, short_uuid},
+    text::{git_branch_id, short_uuid},
 };
 use uuid::Uuid;
 
@@ -73,6 +77,11 @@ pub struct LocalContainerService {
     image_service: ImageService,
     analytics: Option<AnalyticsContext>,
 }
+struct RepositoryContext {
+    project_repo: ProjectRepository,
+    worktree_path: PathBuf,
+    branch_name: String,
+}
 
 impl LocalContainerService {
     // Max cumulative content bytes allowed per diff stream
@@ -81,15 +90,10 @@ impl LocalContainerService {
     // Apply stream-level omit policy based on cumulative bytes.
     // If adding this diff's contents exceeds the cap, strip contents and set stats.
     fn apply_stream_omit_policy(
+        &self,
         diff: &mut utils::diff::Diff,
         sent_bytes: &Arc<AtomicUsize>,
-        stats_only: bool,
     ) {
-        if stats_only {
-            Self::omit_diff_contents(diff);
-            return;
-        }
-
         // Compute size of current diff payload
         let mut size = 0usize;
         if let Some(ref s) = diff.old_content {
@@ -105,28 +109,34 @@ impl LocalContainerService {
 
         let current = sent_bytes.load(Ordering::Relaxed);
         if current.saturating_add(size) > Self::MAX_CUMULATIVE_DIFF_BYTES {
-            Self::omit_diff_contents(diff);
+            // We will omit content for this diff. If we still have both sides loaded
+            // (i.e., not already omitted by file-size guards), compute stats for UI.
+            if diff.additions.is_none() && diff.deletions.is_none() {
+                let old = diff.old_content.as_deref().unwrap_or("");
+                let new = diff.new_content.as_deref().unwrap_or("");
+                let hunk = create_unified_diff_hunk(old, new);
+                let mut add = 0usize;
+                let mut del = 0usize;
+                for line in hunk.lines() {
+                    if let Some(first) = line.chars().next() {
+                        if first == '+' {
+                            add += 1;
+                        } else if first == '-' {
+                            del += 1;
+                        }
+                    }
+                }
+                diff.additions = Some(add);
+                diff.deletions = Some(del);
+            }
+
+            diff.old_content = None;
+            diff.new_content = None;
+            diff.content_omitted = true;
         } else {
             // safe to include; account for it
             let _ = sent_bytes.fetch_add(size, Ordering::Relaxed);
         }
-    }
-
-    fn omit_diff_contents(diff: &mut utils::diff::Diff) {
-        if diff.additions.is_none()
-            && diff.deletions.is_none()
-            && (diff.old_content.is_some() || diff.new_content.is_some())
-        {
-            let old = diff.old_content.as_deref().unwrap_or("");
-            let new = diff.new_content.as_deref().unwrap_or("");
-            let (add, del) = utils::diff::compute_line_change_counts(old, new);
-            diff.additions = Some(add);
-            diff.deletions = Some(del);
-        }
-
-        diff.old_content = None;
-        diff.new_content = None;
-        diff.content_omitted = true;
     }
     pub fn new(
         db: DBService,
@@ -561,8 +571,347 @@ impl LocalContainerService {
         attempt_id: &Uuid,
         task_title: &str,
     ) -> String {
-        git_branch_name_with_prefix(branch_prefix, attempt_id, task_title)
+        let task_title_id = git_branch_id(task_title);
+        let normalized_prefix = {
+            let trimmed = branch_prefix.trim();
+            if trimmed.is_empty() {
+                String::new()
+            } else if trimmed.ends_with('/') || trimmed.ends_with('-') || trimmed.ends_with('_') {
+                trimmed.to_string()
+            } else {
+                format!("{trimmed}/")
+            }
+        };
+        let short_id = short_uuid(attempt_id);
+
+        if normalized_prefix.is_empty() {
+            format!("{}-{}", short_id, task_title_id)
+        } else {
+            format!("{}{}-{}", normalized_prefix, short_id, task_title_id)
+        }
     }
+
+    fn worktree_path_for_repo(
+        attempt_id: &Uuid,
+        task_title: &str,
+        repo: &ProjectRepository,
+    ) -> PathBuf {
+        let base_name = LocalContainerService::dir_name_from_task_attempt(attempt_id, task_title);
+        let base_dir = WorktreeManager::get_worktree_base_dir();
+        if repo.is_primary {
+            base_dir.join(base_name)
+        } else {
+            let slug = LocalContainerService::repo_slug(repo);
+            base_dir.join(format!("{base_name}--{slug}"))
+        }
+    }
+
+    fn repo_slug(repo: &ProjectRepository) -> String {
+        let slug = git_branch_id(&repo.name);
+        if slug.is_empty() {
+            format!("repo-{}", short_uuid(&repo.id))
+        } else {
+            format!("{}-{}", slug, short_uuid(&repo.id))
+        }
+    }
+
+    fn repo_env_prefix(slug: &str) -> String {
+        let candidate = slug.replace('-', "_").to_ascii_uppercase();
+        if candidate.is_empty() {
+            "REPO".to_string()
+        } else {
+            candidate
+        }
+    }
+
+    async fn build_executor_payload(
+        &self,
+        task_attempt: &TaskAttempt,
+    ) -> Result<ExecutorPayloadEnvelope, ContainerError> {
+        let refreshed_attempt = TaskAttempt::find_by_id(&self.db.pool, task_attempt.id)
+            .await?
+            .ok_or(SqlxError::RowNotFound)?;
+
+        let task = refreshed_attempt
+            .parent_task(&self.db.pool)
+            .await?
+            .ok_or(SqlxError::RowNotFound)?;
+
+        let project_repositories =
+            ProjectRepository::list_for_project(&self.db.pool, task.project_id).await?;
+        if project_repositories.is_empty() {
+            return Err(ContainerError::Other(anyhow!(
+                "No repositories configured for task attempt {}",
+                task_attempt.id
+            )));
+        }
+
+        let attempt_repositories =
+            TaskAttemptRepository::list_for_attempt(&self.db.pool, refreshed_attempt.id).await?;
+        let attempt_repo_lookup: HashMap<Uuid, TaskAttemptRepository> = attempt_repositories
+            .into_iter()
+            .map(|repo| (repo.project_repository_id, repo))
+            .collect();
+
+        let mut repositories_payload = Vec::with_capacity(project_repositories.len());
+        let mut env = HashMap::new();
+        let mut repo_prefixes = Vec::with_capacity(project_repositories.len());
+
+        let mut primary_repo_id: Option<Uuid> = None;
+        let mut primary_env_prefix: Option<String> = None;
+        let mut primary_path: Option<String> = None;
+        let mut primary_root: Option<String> = None;
+        let mut primary_branch: Option<String> = None;
+        let mut primary_name: Option<String> = None;
+
+        for repo in project_repositories {
+            let attempt_repo = attempt_repo_lookup.get(&repo.id).ok_or_else(|| {
+                ContainerError::Other(anyhow!(
+                    "Repository metadata missing for project repository {}",
+                    repo.id
+                ))
+            })?;
+
+            let container_path = attempt_repo
+                .container_ref
+                .clone()
+                .or_else(|| {
+                    if repo.is_primary {
+                        refreshed_attempt.container_ref.clone()
+                    } else {
+                        None
+                    }
+                })
+                .ok_or_else(|| {
+                    ContainerError::Other(anyhow!(
+                        "Worktree path missing for repository {}",
+                        repo.id
+                    ))
+                })?;
+
+            let branch = attempt_repo
+                .branch
+                .clone()
+                .or_else(|| refreshed_attempt.branch.clone());
+            let branch_for_env = branch.clone().unwrap_or_default();
+
+            let slug = LocalContainerService::repo_slug(&repo);
+            let env_prefix = LocalContainerService::repo_env_prefix(&slug);
+
+            if repo.is_primary {
+                primary_repo_id = Some(repo.id);
+                primary_env_prefix = Some(env_prefix.clone());
+                primary_path = Some(container_path.clone());
+                primary_root = Some(repo.root_path.clone());
+                primary_branch = Some(branch_for_env.clone());
+                primary_name = Some(repo.name.clone());
+            }
+
+            env.insert(
+                format!("VIBE_REPO_{}_PATH", env_prefix),
+                container_path.clone(),
+            );
+            env.insert(
+                format!("VIBE_REPO_{}_ROOT", env_prefix),
+                repo.root_path.clone(),
+            );
+            env.insert(format!("VIBE_REPO_{}_BRANCH", env_prefix), branch_for_env);
+            env.insert(format!("VIBE_REPO_{}_NAME", env_prefix), repo.name.clone());
+            env.insert(
+                format!("VIBE_REPO_{}_IS_PRIMARY", env_prefix),
+                if repo.is_primary { "1" } else { "0" }.to_string(),
+            );
+            env.insert(format!("VIBE_REPO_{}_ID", env_prefix), repo.id.to_string());
+
+            repo_prefixes.push(env_prefix.clone());
+
+            repositories_payload.push(ExecutorRepositoryContext {
+                id: repo.id,
+                name: repo.name.clone(),
+                slug,
+                worktree_path: container_path,
+                root_path: repo.root_path,
+                branch,
+                is_primary: repo.is_primary,
+            });
+        }
+
+        let primary_repo_id = primary_repo_id.ok_or_else(|| {
+            ContainerError::Other(anyhow!(
+                "Primary repository not configured for task attempt {}",
+                task_attempt.id
+            ))
+        })?;
+
+        env.insert(
+            "VIBE_EXECUTOR_PAYLOAD_VERSION".to_string(),
+            ExecutorPayload::CURRENT_VERSION.to_string(),
+        );
+        env.insert(
+            "VIBE_REPOSITORY_COUNT".to_string(),
+            repo_prefixes.len().to_string(),
+        );
+        env.insert("VIBE_REPOSITORIES".to_string(), repo_prefixes.join(","));
+        env.insert(
+            "VIBE_TASK_ATTEMPT_ID".to_string(),
+            refreshed_attempt.id.to_string(),
+        );
+        env.insert(
+            "VIBE_PRIMARY_REPOSITORY_ID".to_string(),
+            primary_repo_id.to_string(),
+        );
+
+        if let Some(prefix) = primary_env_prefix {
+            env.insert("VIBE_PRIMARY_REPO_PREFIX".to_string(), prefix);
+        }
+        if let Some(path) = primary_path {
+            env.insert("VIBE_PRIMARY_REPO_PATH".to_string(), path);
+        }
+        if let Some(root) = primary_root {
+            env.insert("VIBE_PRIMARY_REPO_ROOT".to_string(), root);
+        }
+        if let Some(branch) = primary_branch {
+            env.insert("VIBE_PRIMARY_REPO_BRANCH".to_string(), branch);
+        }
+        if let Some(name) = primary_name {
+            env.insert("VIBE_PRIMARY_REPO_NAME".to_string(), name);
+        }
+
+        let payload = ExecutorPayload {
+            version: ExecutorPayload::CURRENT_VERSION,
+            attempt_id: refreshed_attempt.id,
+            primary_repository_id: primary_repo_id,
+            repositories: repositories_payload,
+            env,
+        };
+
+        ExecutorPayloadEnvelope::try_new(payload).map_err(|e| {
+            ContainerError::Other(anyhow!("Failed to serialize executor payload: {}", e))
+        })
+    }
+
+    async fn resolve_repository_context(
+        &self,
+        task_attempt: &TaskAttempt,
+        repo_id: Option<Uuid>,
+    ) -> Result<RepositoryContext, ContainerError> {
+        let task = task_attempt
+            .parent_task(&self.db.pool)
+            .await?
+            .ok_or(SqlxError::RowNotFound)?;
+
+        let repositories =
+            ProjectRepository::list_for_project(&self.db.pool, task.project_id).await?;
+        if repositories.is_empty() {
+            return Err(ContainerError::Other(anyhow!(
+                "No repositories configured for project {}",
+                task.project_id
+            )));
+        }
+
+        let project_repo = if let Some(id) = repo_id {
+            repositories
+                .into_iter()
+                .find(|repo| repo.id == id)
+                .ok_or_else(|| {
+                    ContainerError::Other(anyhow!(
+                        "Repository {} not found for task attempt {}",
+                        id,
+                        task_attempt.id
+                    ))
+                })?
+        } else {
+            repositories
+                .into_iter()
+                .find(|repo| repo.is_primary)
+                .ok_or_else(|| {
+                    ContainerError::Other(anyhow!(
+                        "Primary repository not configured for task attempt {}",
+                        task_attempt.id
+                    ))
+                })?
+        };
+
+        // Ensure worktrees exist so that repository rows are populated
+        let _ = self.ensure_container_exists(task_attempt).await?;
+
+        let attempt_repo = TaskAttemptRepository::find_for_attempt(
+            &self.db.pool,
+            task_attempt.id,
+            project_repo.id,
+        )
+        .await?
+        .ok_or_else(|| {
+            ContainerError::Other(anyhow!(
+                "Attempt repository entry missing for task attempt {}",
+                task_attempt.id
+            ))
+        })?;
+
+        let container_ref = attempt_repo
+            .container_ref
+            .clone()
+            .or_else(|| {
+                if attempt_repo.is_primary {
+                    task_attempt.container_ref.clone()
+                } else {
+                    None
+                }
+            })
+            .ok_or_else(|| {
+                ContainerError::Other(anyhow!(
+                    "Worktree path missing for repository {}",
+                    project_repo.id
+                ))
+            })?;
+
+        let branch_name = attempt_repo
+            .branch
+            .clone()
+            .or_else(|| task_attempt.branch.clone())
+            .ok_or_else(|| {
+                ContainerError::Other(anyhow!(
+                    "Branch not set for task attempt {}",
+                    task_attempt.id
+                ))
+            })?;
+
+        Ok(RepositoryContext {
+            project_repo,
+            worktree_path: PathBuf::from(container_ref),
+            branch_name,
+        })
+    }
+
+    fn apply_repository_metadata(diff: &mut Diff, repo: &ProjectRepository) {
+        diff.repository_id = Some(repo.id);
+        diff.repository_name = Some(repo.name.clone());
+        diff.repository_root = Some(repo.root_path.clone());
+
+        if !repo.root_path.is_empty() {
+            LocalContainerService::relativize_path(&mut diff.old_path, &repo.root_path);
+            LocalContainerService::relativize_path(&mut diff.new_path, &repo.root_path);
+        }
+    }
+
+    fn relativize_path(path: &mut Option<String>, root: &str) {
+        if let Some(value) = path {
+            let trimmed = root.trim_matches('/');
+            if trimmed.is_empty() {
+                return;
+            }
+            let mut normalized = trimmed.replace('\\', "/");
+            if !normalized.ends_with('/') {
+                normalized.push('/');
+            }
+            if let Some(stripped) = value.strip_prefix(&normalized) {
+                *value = stripped.to_string();
+            } else if value == trimmed {
+                *value = String::new();
+            }
+        }
+    }
+
     async fn track_child_msgs_in_store(&self, id: Uuid, child: &mut AsyncGroupChild) {
         let store = Arc::new(MsgStore::new());
 
@@ -605,34 +954,17 @@ impl LocalContainerService {
 
         Ok(worktree_dir)
     }
-    /// Get the project repository path for a task attempt
-    async fn get_project_repo_path(
-        &self,
-        task_attempt: &TaskAttempt,
-    ) -> Result<PathBuf, ContainerError> {
-        let project_repo_path = task_attempt
-            .parent_task(&self.db().pool)
-            .await?
-            .ok_or(ContainerError::Other(anyhow!("Parent task not found")))?
-            .parent_project(&self.db().pool)
-            .await?
-            .ok_or(ContainerError::Other(anyhow!("Parent project not found")))?
-            .git_repo_path;
-
-        Ok(project_repo_path)
-    }
 
     /// Create a diff log stream for merged attempts (never changes) for WebSocket
     fn create_merged_diff_stream(
         &self,
-        project_repo_path: &Path,
+        repo: &ProjectRepository,
         merge_commit_id: &str,
-        stats_only: bool,
     ) -> Result<futures::stream::BoxStream<'static, Result<LogMsg, std::io::Error>>, ContainerError>
     {
         let diffs = self.git().get_diffs(
             DiffTarget::Commit {
-                repo_path: project_repo_path,
+                repo_path: &repo.git_repo_path,
                 commit_sha: merge_commit_id,
             },
             None,
@@ -642,7 +974,8 @@ impl LocalContainerService {
         let diffs: Vec<_> = diffs
             .into_iter()
             .map(|mut d| {
-                Self::apply_stream_omit_policy(&mut d, &cum, stats_only);
+                self.apply_stream_omit_policy(&mut d, &cum);
+                Self::apply_repository_metadata(&mut d, repo);
                 d
             })
             .collect();
@@ -664,16 +997,15 @@ impl LocalContainerService {
     /// Create a live diff log stream for ongoing attempts for WebSocket
     async fn create_live_diff_stream(
         &self,
-        worktree_path: &Path,
+        repo_ctx: &RepositoryContext,
         base_commit: &Commit,
-        stats_only: bool,
     ) -> Result<futures::stream::BoxStream<'static, Result<LogMsg, std::io::Error>>, ContainerError>
     {
         // Get initial snapshot
         let git_service = self.git().clone();
         let initial_diffs = git_service.get_diffs(
             DiffTarget::Worktree {
-                worktree_path,
+                worktree_path: &repo_ctx.worktree_path,
                 base_commit,
             },
             None,
@@ -684,12 +1016,12 @@ impl LocalContainerService {
         let initial_diffs: Vec<_> = initial_diffs
             .into_iter()
             .map(|mut d| {
-                Self::apply_stream_omit_policy(&mut d, &cumulative, stats_only);
+                self.apply_stream_omit_policy(&mut d, &cumulative);
+                Self::apply_repository_metadata(&mut d, &repo_ctx.project_repo);
                 d
             })
             .collect();
 
-        // Record which paths were sent with full content
         {
             let mut guard = full_sent.write().unwrap();
             for d in &initial_diffs {
@@ -708,9 +1040,9 @@ impl LocalContainerService {
         }))
         .boxed();
 
-        // Create live update stream
-        let worktree_path = worktree_path.to_path_buf();
+        let worktree_path = repo_ctx.worktree_path.clone();
         let base_commit = base_commit.clone();
+        let project_repo = repo_ctx.project_repo.clone();
 
         let live_stream = {
             let git_service = git_service.clone();
@@ -735,12 +1067,12 @@ impl LocalContainerService {
                             if !changed_paths.is_empty() {
                                 for msg in Self::process_file_changes(
                                     &git_service,
+                                    &project_repo,
                                     &worktree_path,
                                     &base_commit,
                                     &changed_paths,
                                     &cumulative,
                                     &full_sent,
-                                    stats_only,
                                 ).map_err(|e| {
                                     tracing::error!("Error processing file changes: {}", e);
                                     io::Error::other(e.to_string())
@@ -762,8 +1094,7 @@ impl LocalContainerService {
             }
         }.boxed();
 
-        let combined_stream = initial_stream.chain(live_stream);
-        Ok(combined_stream.boxed())
+        Ok(select(initial_stream, live_stream).boxed())
     }
 
     /// Extract changed file paths from filesystem events
@@ -788,12 +1119,12 @@ impl LocalContainerService {
     /// Process file changes and generate diff messages (for WS)
     fn process_file_changes(
         git_service: &GitService,
+        repo: &ProjectRepository,
         worktree_path: &Path,
         base_commit: &Commit,
         changed_paths: &[String],
         cumulative_bytes: &Arc<AtomicUsize>,
         full_sent_paths: &Arc<std::sync::RwLock<HashSet<String>>>,
-        stats_only: bool,
     ) -> Result<Vec<LogMsg>, ContainerError> {
         let path_filter: Vec<&str> = changed_paths.iter().map(|s| s.as_str()).collect();
 
@@ -810,10 +1141,52 @@ impl LocalContainerService {
 
         // Add/update files that have diffs
         for mut diff in current_diffs {
+            // Apply stream-level omit policy (affects contents and stats)
+            {
+                let mut size = 0usize;
+                if let Some(ref s) = diff.old_content {
+                    size += s.len();
+                }
+                if let Some(ref s) = diff.new_content {
+                    size += s.len();
+                }
+                if size > 0 {
+                    let current = cumulative_bytes.load(Ordering::Relaxed);
+                    if current.saturating_add(size)
+                        > LocalContainerService::MAX_CUMULATIVE_DIFF_BYTES
+                    {
+                        if diff.additions.is_none() && diff.deletions.is_none() {
+                            let old = diff.old_content.as_deref().unwrap_or("");
+                            let new = diff.new_content.as_deref().unwrap_or("");
+                            let hunk = create_unified_diff_hunk(old, new);
+                            let mut add = 0usize;
+                            let mut del = 0usize;
+                            for line in hunk.lines() {
+                                if let Some(first) = line.chars().next() {
+                                    if first == '+' {
+                                        add += 1;
+                                    } else if first == '-' {
+                                        del += 1;
+                                    }
+                                }
+                            }
+                            diff.additions = Some(add);
+                            diff.deletions = Some(del);
+                        }
+
+                        diff.old_content = None;
+                        diff.new_content = None;
+                        diff.content_omitted = true;
+                    } else {
+                        let _ = cumulative_bytes.fetch_add(size, Ordering::Relaxed);
+                    }
+                }
+            }
+
+            LocalContainerService::apply_repository_metadata(&mut diff, repo);
+
             let file_path = GitService::diff_path(&diff);
             files_with_diffs.insert(file_path.clone());
-            // Apply stream-level omit policy (affects contents and stats)
-            Self::apply_stream_omit_policy(&mut diff, cumulative_bytes, stats_only);
 
             if diff.content_omitted {
                 if full_sent_paths.read().unwrap().contains(&file_path) {
@@ -871,104 +1244,153 @@ impl ContainerService for LocalContainerService {
     fn task_attempt_to_current_dir(&self, task_attempt: &TaskAttempt) -> PathBuf {
         PathBuf::from(task_attempt.container_ref.clone().unwrap_or_default())
     }
-    /// Create a container
+    /// Create worktrees for all repositories linked to this task attempt and return the primary path
     async fn create(&self, task_attempt: &TaskAttempt) -> Result<ContainerRef, ContainerError> {
         let task = task_attempt
             .parent_task(&self.db.pool)
             .await?
-            .ok_or(sqlx::Error::RowNotFound)?;
+            .ok_or(SqlxError::RowNotFound)?;
 
-        let worktree_dir_name =
-            LocalContainerService::dir_name_from_task_attempt(&task_attempt.id, &task.title);
-        let worktree_path = WorktreeManager::get_worktree_base_dir().join(&worktree_dir_name);
+        let project = task
+            .parent_project(&self.db.pool)
+            .await?
+            .ok_or(SqlxError::RowNotFound)?;
 
         let branch_prefix = {
             let cfg = self.config.read().await;
             cfg.github.resolved_branch_prefix()
         };
+        let git_branch_name = LocalContainerService::git_branch_from_task_attempt(
+            &branch_prefix,
+            &task_attempt.id,
+            &task.title,
+        );
+        let branch_str = git_branch_name.as_str();
 
-        let git_branch_name = if task_attempt.branch.trim().is_empty() {
-            let generated = LocalContainerService::git_branch_from_task_attempt(
-                &branch_prefix,
-                &task_attempt.id,
-                &task.title,
-            );
-            TaskAttempt::update_branch(&self.db.pool, task_attempt.id, &generated).await?;
-            generated
-        } else {
-            task_attempt.branch.clone()
-        };
-        let project = task
-            .parent_project(&self.db.pool)
-            .await?
-            .ok_or(sqlx::Error::RowNotFound)?;
-
-        WorktreeManager::create_worktree(
-            &project.git_repo_path,
-            &git_branch_name,
-            &worktree_path,
-            &task_attempt.target_branch,
-            true, // create new branch
-        )
-        .await?;
-
-        // Copy files specified in the project's copy_files field
-        if let Some(copy_files) = &project.copy_files
-            && !copy_files.trim().is_empty()
-        {
-            self.copy_project_files(&project.git_repo_path, &worktree_path, copy_files)
-                .await
-                .unwrap_or_else(|e| {
-                    tracing::warn!("Failed to copy project files: {}", e);
-                });
+        let mut repositories =
+            ProjectRepository::list_for_project(&self.db.pool, project.id).await?;
+        if repositories.is_empty() {
+            return Err(ContainerError::Other(anyhow!(
+                "No repositories configured for project {}",
+                project.id
+            )));
         }
 
-        // Copy task images from cache to worktree
-        if let Err(e) = self
-            .image_service
-            .copy_images_by_task_to_worktree(&worktree_path, task.id)
-            .await
-        {
-            tracing::warn!("Failed to copy task images to worktree: {}", e);
+        let mut visited_repo_paths = HashSet::new();
+        let mut primary_path: Option<PathBuf> = None;
+
+        for repo in repositories.drain(..) {
+            let repo_path = repo.git_repo_path.clone();
+            let worktree_path =
+                LocalContainerService::worktree_path_for_repo(&task_attempt.id, &task.title, &repo);
+            let create_branch = visited_repo_paths.insert(repo_path.clone());
+
+            WorktreeManager::create_worktree(
+                &repo_path,
+                branch_str,
+                &worktree_path,
+                &task_attempt.base_branch,
+                create_branch,
+            )
+            .await?;
+
+            let worktree_owned = worktree_path.to_string_lossy().to_string();
+            TaskAttemptRepository::upsert_container_ref(
+                &self.db.pool,
+                task_attempt.id,
+                repo.id,
+                repo.is_primary,
+                Some(worktree_owned.as_str()),
+            )
+            .await?;
+            TaskAttemptRepository::upsert_branch(
+                &self.db.pool,
+                task_attempt.id,
+                repo.id,
+                repo.is_primary,
+                Some(branch_str),
+            )
+            .await?;
+
+            if repo.is_primary {
+                if let Some(copy_files) = &project.copy_files
+                    && !copy_files.trim().is_empty()
+                {
+                    self.copy_project_files(&repo_path, &worktree_path, copy_files)
+                        .await
+                        .unwrap_or_else(|e| {
+                            tracing::warn!("Failed to copy project files: {}", e);
+                        });
+                }
+
+                if let Err(e) = self
+                    .image_service
+                    .copy_images_by_task_to_worktree(&worktree_path, task.id)
+                    .await
+                {
+                    tracing::warn!("Failed to copy task images to worktree: {}", e);
+                }
+
+                TaskAttempt::update_container_ref(&self.db.pool, task_attempt.id, &worktree_owned)
+                    .await?;
+                TaskAttempt::update_branch(&self.db.pool, task_attempt.id, branch_str).await?;
+                primary_path = Some(worktree_path.clone());
+            }
         }
 
-        // Update container_ref in the database
-        TaskAttempt::update_container_ref(
-            &self.db.pool,
-            task_attempt.id,
-            &worktree_path.to_string_lossy(),
-        )
-        .await?;
+        let primary_path = primary_path.ok_or_else(|| {
+            ContainerError::Other(anyhow!(
+                "Primary repository not configured for task attempt {}",
+                task_attempt.id
+            ))
+        })?;
 
-        Ok(worktree_path.to_string_lossy().to_string())
+        Ok(primary_path.to_string_lossy().to_string())
     }
 
     async fn delete_inner(&self, task_attempt: &TaskAttempt) -> Result<(), ContainerError> {
-        // cleanup the container, here that means deleting the worktree
         let task = task_attempt
             .parent_task(&self.db.pool)
             .await?
-            .ok_or(sqlx::Error::RowNotFound)?;
-        let git_repo_path = match Project::find_by_id(&self.db.pool, task.project_id).await {
-            Ok(Some(project)) => Some(project.git_repo_path.clone()),
-            Ok(None) => None,
-            Err(e) => {
-                tracing::error!("Failed to fetch project {}: {}", task.project_id, e);
-                None
+            .ok_or(SqlxError::RowNotFound)?;
+
+        let project_repositories =
+            ProjectRepository::list_for_project(&self.db.pool, task.project_id).await?;
+        let attempt_repositories =
+            TaskAttemptRepository::list_for_attempt(&self.db.pool, task_attempt.id).await?;
+
+        let repo_lookup: std::collections::HashMap<Uuid, PathBuf> = project_repositories
+            .into_iter()
+            .map(|repo| (repo.id, repo.git_repo_path))
+            .collect();
+
+        for attempt_repo in attempt_repositories {
+            let container_path = attempt_repo.container_ref.clone().or_else(|| {
+                if attempt_repo.is_primary {
+                    task_attempt.container_ref.clone()
+                } else {
+                    None
+                }
+            });
+
+            let Some(path) = container_path else {
+                continue;
+            };
+
+            let worktree_path = PathBuf::from(path);
+            let git_repo_path = repo_lookup
+                .get(&attempt_repo.project_repository_id)
+                .map(PathBuf::as_path);
+
+            if let Err(e) = WorktreeManager::cleanup_worktree(&worktree_path, git_repo_path).await {
+                tracing::warn!(
+                    "Failed to clean up worktree for task attempt {}: {}",
+                    task_attempt.id,
+                    e
+                );
             }
-        };
-        WorktreeManager::cleanup_worktree(
-            &PathBuf::from(task_attempt.container_ref.clone().unwrap_or_default()),
-            git_repo_path.as_deref(),
-        )
-        .await
-        .unwrap_or_else(|e| {
-            tracing::warn!(
-                "Failed to clean up worktree for task attempt {}: {}",
-                task_attempt.id,
-                e
-            );
-        });
+        }
+
         Ok(())
     }
 
@@ -976,30 +1398,82 @@ impl ContainerService for LocalContainerService {
         &self,
         task_attempt: &TaskAttempt,
     ) -> Result<ContainerRef, ContainerError> {
-        // Get required context
         let task = task_attempt
             .parent_task(&self.db.pool)
             .await?
-            .ok_or(sqlx::Error::RowNotFound)?;
+            .ok_or(SqlxError::RowNotFound)?;
 
-        let project = task
-            .parent_project(&self.db.pool)
-            .await?
-            .ok_or(sqlx::Error::RowNotFound)?;
+        let branch_name = task_attempt
+            .branch
+            .as_ref()
+            .ok_or_else(|| ContainerError::Other(anyhow!("Branch not found for task attempt")))?
+            .to_owned();
 
-        let container_ref = task_attempt.container_ref.as_ref().ok_or_else(|| {
-            ContainerError::Other(anyhow!("Container ref not found for task attempt"))
-        })?;
-        let worktree_path = PathBuf::from(container_ref);
+        let project_repositories =
+            ProjectRepository::list_for_project(&self.db.pool, task.project_id).await?;
+        if project_repositories.is_empty() {
+            return Err(ContainerError::Other(anyhow!(
+                "No repositories configured for task attempt {}",
+                task_attempt.id
+            )));
+        }
 
-        WorktreeManager::ensure_worktree_exists(
-            &project.git_repo_path,
-            &task_attempt.branch,
-            &worktree_path,
-        )
-        .await?;
+        let mut primary_path: Option<String> = None;
 
-        Ok(container_ref.to_string())
+        for repo in project_repositories {
+            let worktree_path =
+                LocalContainerService::worktree_path_for_repo(&task_attempt.id, &task.title, &repo);
+
+            WorktreeManager::ensure_worktree_exists(
+                &repo.git_repo_path,
+                &branch_name,
+                &worktree_path,
+            )
+            .await?;
+
+            let worktree_str = worktree_path.to_string_lossy().to_string();
+
+            TaskAttemptRepository::upsert_container_ref(
+                &self.db.pool,
+                task_attempt.id,
+                repo.id,
+                repo.is_primary,
+                Some(worktree_str.as_str()),
+            )
+            .await?;
+            TaskAttemptRepository::upsert_branch(
+                &self.db.pool,
+                task_attempt.id,
+                repo.id,
+                repo.is_primary,
+                Some(branch_name.as_str()),
+            )
+            .await?;
+
+            if repo.is_primary {
+                if task_attempt.container_ref.as_deref() != Some(worktree_str.as_str()) {
+                    TaskAttempt::update_container_ref(
+                        &self.db.pool,
+                        task_attempt.id,
+                        &worktree_str,
+                    )
+                    .await?;
+                }
+                TaskAttempt::update_branch(&self.db.pool, task_attempt.id, &branch_name).await?;
+                primary_path = Some(worktree_str.clone());
+            }
+        }
+
+        let container_ref = primary_path
+            .or_else(|| task_attempt.container_ref.clone())
+            .ok_or_else(|| {
+                ContainerError::Other(anyhow!(
+                    "Primary repository not found for task attempt {}",
+                    task_attempt.id
+                ))
+            })?;
+
+        Ok(container_ref)
     }
 
     async fn is_container_clean(&self, task_attempt: &TaskAttempt) -> Result<bool, ContainerError> {
@@ -1022,19 +1496,16 @@ impl ContainerService for LocalContainerService {
         execution_process: &ExecutionProcess,
         executor_action: &ExecutorAction,
     ) -> Result<(), ContainerError> {
-        // Get the worktree path
-        let container_ref = task_attempt
-            .container_ref
-            .as_ref()
-            .ok_or(ContainerError::Other(anyhow!(
-                "Container ref not found for task attempt"
-            )))?;
-        let current_dir = PathBuf::from(container_ref);
+        // Ensure worktrees exist and gather payload metadata
+        let container_ref = self.ensure_container_exists(task_attempt).await?;
+        let current_dir = PathBuf::from(&container_ref);
+        let payload_envelope = self.build_executor_payload(task_attempt).await?;
 
         // Create the child and stream, add to execution tracker
         let spawn_ctx = ExecutorSpawnContext {
             current_dir: &current_dir,
             task_attempt_id: Some(&task_attempt.id),
+            payload: &payload_envelope,
         };
         let mut spawned = executor_action.spawn(spawn_ctx).await?;
 
@@ -1123,41 +1594,46 @@ impl ContainerService for LocalContainerService {
     async fn stream_diff(
         &self,
         task_attempt: &TaskAttempt,
-        stats_only: bool,
+        project_repository_id: Option<Uuid>,
     ) -> Result<futures::stream::BoxStream<'static, Result<LogMsg, std::io::Error>>, ContainerError>
     {
-        let project_repo_path = self.get_project_repo_path(task_attempt).await?;
+        let repo_ctx = self
+            .resolve_repository_context(task_attempt, project_repository_id)
+            .await?;
+
         let latest_merge =
             Merge::find_latest_by_task_attempt_id(&self.db.pool, task_attempt.id).await?;
 
         let is_ahead = if let Ok((ahead, _)) = self.git().get_branch_status(
-            &project_repo_path,
-            &task_attempt.branch,
-            &task_attempt.target_branch,
+            &repo_ctx.project_repo.git_repo_path,
+            &repo_ctx.branch_name,
+            &task_attempt.base_branch,
         ) {
             ahead > 0
         } else {
             false
         };
 
+        let worktree_clean = self
+            .git()
+            .is_worktree_clean(&repo_ctx.worktree_path)
+            .unwrap_or(false);
+
         if let Some(merge) = &latest_merge
             && let Some(commit) = merge.merge_commit()
-            && self.is_container_clean(task_attempt).await?
+            && worktree_clean
             && !is_ahead
         {
-            return self.create_merged_diff_stream(&project_repo_path, &commit, stats_only);
+            return self.create_merged_diff_stream(&repo_ctx.project_repo, commit.as_str());
         }
 
-        let container_ref = self.ensure_container_exists(task_attempt).await?;
-        let worktree_path = PathBuf::from(container_ref);
         let base_commit = self.git().get_base_commit(
-            &project_repo_path,
-            &task_attempt.branch,
-            &task_attempt.target_branch,
+            &repo_ctx.project_repo.git_repo_path,
+            &repo_ctx.branch_name,
+            &task_attempt.base_branch,
         )?;
 
-        self.create_live_diff_stream(&worktree_path, &base_commit, stats_only)
-            .await
+        self.create_live_diff_stream(&repo_ctx, &base_commit).await
     }
 
     async fn try_commit_changes(&self, ctx: &ExecutionContext) -> Result<bool, ContainerError> {
@@ -1272,6 +1748,286 @@ impl ContainerService for LocalContainerService {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use db::models::{
+        project::{CreateProject, Project},
+        project_repository::ProjectRepository,
+        task::{CreateTask, Task},
+        task_attempt::{CreateTaskAttempt, TaskAttempt},
+        task_attempt_repository::TaskAttemptRepository,
+    };
+    use executors::executors::BaseCodingAgent;
+    use std::{collections::HashMap, path::Path, sync::Arc};
+    use tempfile::TempDir;
+    use tokio::sync::RwLock;
+    use uuid::Uuid;
+
+    struct EnvGuard {
+        key: &'static str,
+        previous: Option<String>,
+    }
+
+    impl EnvGuard {
+        fn set(key: &'static str, value: &str) -> Self {
+            let previous = std::env::var(key).ok();
+            // std::env::{set_var, remove_var} are currently unsafe under edition 2024.
+            // Wrap the calls so tests can manipulate the environment without leaking state.
+            unsafe {
+                std::env::set_var(key, value);
+            }
+            Self { key, previous }
+        }
+
+        fn set_from_path(key: &'static str, path: &Path) -> Self {
+            Self::set(key, &path.to_string_lossy())
+        }
+    }
+
+    impl Drop for EnvGuard {
+        fn drop(&mut self) {
+            unsafe {
+                if let Some(prev) = &self.previous {
+                    std::env::set_var(self.key, prev);
+                } else {
+                    std::env::remove_var(self.key);
+                }
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn multi_repo_workflow_creates_worktrees_and_payload() {
+        let temp = TempDir::new().expect("failed to create tempdir");
+
+        let assets_dir = temp.path().join("assets");
+        std::fs::create_dir_all(&assets_dir).unwrap();
+        let _assets_guard = EnvGuard::set_from_path("VIBE_ASSETS_DIR", &assets_dir);
+
+        let home_dir = temp.path().join("home");
+        std::fs::create_dir_all(&home_dir).unwrap();
+        let _home_guard = EnvGuard::set_from_path("HOME", &home_dir);
+
+        let cache_dir = temp.path().join("cache");
+        std::fs::create_dir_all(&cache_dir).unwrap();
+        let _cache_guard = EnvGuard::set_from_path("XDG_CACHE_HOME", &cache_dir);
+
+        let tmp_dir = temp.path().join("tmp");
+        std::fs::create_dir_all(&tmp_dir).unwrap();
+        let _tmp_guard = EnvGuard::set_from_path("TMPDIR", &tmp_dir);
+
+        let db = DBService::new().await.expect("failed to create DB");
+        let msg_stores = Arc::new(RwLock::new(HashMap::<Uuid, Arc<MsgStore>>::new()));
+        let config = Arc::new(RwLock::new(Config::default()));
+        let git = GitService::new();
+        let image_service = ImageService::new(db.pool.clone()).expect("failed to init image service");
+        let container = LocalContainerService::new(
+            db.clone(),
+            msg_stores,
+            config.clone(),
+            git.clone(),
+            image_service.clone(),
+            None,
+        );
+
+        let repo_root = temp.path().join("primary_repo");
+        git.initialize_repo_with_main_branch(&repo_root)
+            .expect("failed to create primary repo");
+
+        let secondary_root = temp.path().join("docs_repo");
+        git.initialize_repo_with_main_branch(&secondary_root)
+            .expect("failed to create secondary repo");
+        std::fs::create_dir_all(secondary_root.join("docs")).unwrap();
+
+        let project_id = Uuid::new_v4();
+        let project = Project::create(
+            &db.pool,
+            &CreateProject {
+                name: "Multi Repo Project".to_string(),
+                git_repo_path: repo_root.to_string_lossy().to_string(),
+                use_existing_repo: true,
+                setup_script: None,
+                dev_script: None,
+                cleanup_script: None,
+                copy_files: None,
+            },
+            project_id,
+        )
+        .await
+        .expect("failed to create project");
+
+        let secondary_repo_id = Uuid::new_v4();
+        sqlx::query(
+            r#"INSERT INTO project_repositories (
+                    id,
+                    project_id,
+                    name,
+                    git_repo_path,
+                    root_path,
+                    is_primary
+                )
+                VALUES (?, ?, ?, ?, ?, 0)"#,
+        )
+        .bind(secondary_repo_id)
+        .bind(project.id)
+        .bind("Docs")
+        .bind(secondary_root.to_string_lossy().to_string())
+        .bind("docs")
+        .execute(&db.pool)
+        .await
+        .expect("failed to insert secondary repository");
+
+        let task_id = Uuid::new_v4();
+        let task = Task::create(
+            &db.pool,
+            &CreateTask {
+                project_id: project.id,
+                title: "QA multi repo flow".to_string(),
+                description: None,
+                parent_task_attempt: None,
+                image_ids: None,
+            },
+            task_id,
+        )
+        .await
+        .expect("failed to create task");
+
+        let attempt = TaskAttempt::create(
+            &db.pool,
+            &CreateTaskAttempt {
+                executor: BaseCodingAgent::ClaudeCode,
+                base_branch: "main".to_string(),
+            },
+            task.id,
+        )
+        .await
+        .expect("failed to create attempt");
+
+        let container_ref = container
+            .create(&attempt)
+            .await
+            .expect("worktree creation should succeed");
+        assert!(Path::new(&container_ref).exists());
+
+        let refreshed_attempt = TaskAttempt::find_by_id(&db.pool, attempt.id)
+            .await
+            .unwrap()
+            .expect("attempt should exist");
+        let attempt_repositories = TaskAttemptRepository::list_for_attempt(&db.pool, attempt.id)
+            .await
+            .expect("attempt repositories should load");
+        assert_eq!(attempt_repositories.len(), 2);
+
+        let branch_prefix = config.read().await.github.resolved_branch_prefix();
+        let expected_branch = LocalContainerService::git_branch_from_task_attempt(
+            &branch_prefix,
+            &attempt.id,
+            &task.title,
+        );
+        assert_eq!(
+            refreshed_attempt.branch.as_deref(),
+            Some(expected_branch.as_str())
+        );
+
+        let project_repositories = ProjectRepository::list_for_project(&db.pool, project.id)
+            .await
+            .expect("project repositories should load");
+        assert_eq!(project_repositories.len(), 2);
+
+        for repo in &project_repositories {
+            let expected_path = LocalContainerService::worktree_path_for_repo(
+                &attempt.id,
+                &task.title,
+                repo,
+            );
+            let entry = attempt_repositories
+                .iter()
+                .find(|r| r.project_repository_id == repo.id)
+                .expect("missing attempt repository entry");
+            let worktree = entry
+                .container_ref
+                .as_ref()
+                .expect("worktree path should be recorded");
+            assert_eq!(
+                worktree,
+                &expected_path.to_string_lossy().to_string()
+            );
+            assert_eq!(
+                entry.branch.as_deref(),
+                Some(expected_branch.as_str())
+            );
+            if repo.is_primary {
+                assert_eq!(worktree, &container_ref);
+            } else {
+                assert_ne!(worktree, &container_ref);
+            }
+        }
+
+        let payload_envelope = container
+            .build_executor_payload(&refreshed_attempt)
+            .await
+            .expect("payload generation should succeed");
+        let payload = payload_envelope.payload.as_ref();
+        assert_eq!(payload.repositories.len(), 2);
+
+        let primary_repo_id = project_repositories
+            .iter()
+            .find(|repo| repo.is_primary)
+            .expect("primary repo missing")
+            .id;
+        assert_eq!(payload.primary_repository_id, primary_repo_id);
+
+        let prefixes: Vec<&str> = payload
+            .env
+            .get("VIBE_REPOSITORIES")
+            .expect("repo prefixes env missing")
+            .split(',')
+            .collect();
+        assert_eq!(prefixes.len(), 2);
+
+        for repo_ctx in &payload.repositories {
+            let prefix = LocalContainerService::repo_env_prefix(&repo_ctx.slug);
+            assert_eq!(
+                payload
+                    .env
+                    .get(&format!("VIBE_REPO_{}_ID", prefix))
+                    .expect("repo id env missing"),
+                &repo_ctx.id.to_string()
+            );
+            assert_eq!(
+                payload
+                    .env
+                    .get(&format!("VIBE_REPO_{}_PATH", prefix))
+                    .expect("repo path env missing"),
+                &repo_ctx.worktree_path
+            );
+        }
+
+        assert_eq!(
+            payload
+                .env
+                .get("VIBE_PRIMARY_REPO_PATH")
+                .expect("primary path missing"),
+            &container_ref
+        );
+        assert_eq!(
+            payload
+                .env
+                .get("VIBE_PRIMARY_REPO_BRANCH")
+                .expect("primary branch missing"),
+            &expected_branch
+        );
+        assert_eq!(
+            payload
+                .env
+                .get("VIBE_PRIMARY_REPOSITORY_ID")
+                .expect("primary id missing"),
+            &primary_repo_id.to_string()
+        );
+    }
+}
+
 impl LocalContainerService {
     /// Extract the last assistant message from the MsgStore history
     fn extract_last_assistant_message(&self, exec_id: &Uuid) -> Option<String> {
@@ -1350,12 +2106,8 @@ impl LocalContainerService {
         }
 
         // Load draft and ensure it's eligible
-        let Some(draft) = Draft::find_by_task_attempt_and_type(
-            &self.db.pool,
-            ctx.task_attempt.id,
-            DraftType::FollowUp,
-        )
-        .await?
+        let Some(draft) =
+            FollowUpDraft::find_by_task_attempt_id(&self.db.pool, ctx.task_attempt.id).await?
         else {
             return Ok(());
         };
@@ -1365,7 +2117,7 @@ impl LocalContainerService {
         }
 
         // Atomically acquire sending lock; if not acquired, someone else is sending.
-        if !Draft::try_mark_sending(&self.db.pool, ctx.task_attempt.id, DraftType::FollowUp)
+        if !FollowUpDraft::try_mark_sending(&self.db.pool, ctx.task_attempt.id)
             .await
             .unwrap_or(false)
         {
@@ -1427,7 +2179,19 @@ impl LocalContainerService {
             .task
             .parent_project(&self.db.pool)
             .await?
-            .and_then(|project| self.cleanup_action(project.cleanup_script));
+            .and_then(|p| p.cleanup_script)
+            .map(|script| {
+                Box::new(executors::actions::ExecutorAction::new(
+                    executors::actions::ExecutorActionType::ScriptRequest(
+                        executors::actions::script::ScriptRequest {
+                            script,
+                            language: executors::actions::script::ScriptRequestLanguage::Bash,
+                            context: executors::actions::script::ScriptContext::CleanupScript,
+                        },
+                    ),
+                    None,
+                ))
+            });
 
         // Handle images: associate, copy to worktree, canonicalize prompt
         let mut prompt = draft.prompt.clone();
@@ -1470,8 +2234,7 @@ impl LocalContainerService {
             .await?;
 
         // Clear the draft to reflect that it has been consumed
-        let _ =
-            Draft::clear_after_send(&self.db.pool, ctx.task_attempt.id, DraftType::FollowUp).await;
+        let _ = FollowUpDraft::clear_after_send(&self.db.pool, ctx.task_attempt.id).await;
 
         Ok(())
     }

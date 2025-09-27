@@ -15,6 +15,9 @@ import { CreateProject, Project, UpdateProject } from 'shared/types';
 import { projectsApi } from '@/lib/api';
 import { generateProjectNameFromPath } from '@/utils/string';
 import NiceModal, { useModal } from '@ebay/nice-modal-react';
+import { useProject } from '@/contexts/project-context';
+import { Badge } from '@/components/ui/badge';
+import { Loader2 } from 'lucide-react';
 
 export interface ProjectFormDialogProps {
   project?: Project | null;
@@ -42,6 +45,9 @@ export const ProjectFormDialog = NiceModal.create<ProjectFormDialogProps>(
     const [folderName, setFolderName] = useState('');
 
     const isEditing = !!project;
+    const { repositories, isRepositoriesLoading } = useProject();
+    const showRepositorySummary =
+      isEditing && (isRepositoriesLoading || repositories.length > 0);
 
     // Update form fields when project prop changes
     useEffect(() => {
@@ -204,6 +210,55 @@ export const ProjectFormDialog = NiceModal.create<ProjectFormDialogProps>(
                 </TabsList>
                 <TabsContent value="general" className="space-y-4">
                   <form onSubmit={handleSubmit} className="space-y-4">
+                    {showRepositorySummary && (
+                      <div className="border border-border rounded-md bg-muted/40 p-4 space-y-3">
+                        <div className="flex items-center justify-between gap-2">
+                          <div>
+                            <p className="text-sm font-medium text-foreground">
+                              Connected repositories
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              Manage repositories from project settings. Updates
+                              here apply to the primary repository only.
+                            </p>
+                          </div>
+                        </div>
+                        {isRepositoriesLoading ? (
+                          <div className="flex items-center text-xs text-muted-foreground">
+                            <Loader2 className="mr-2 h-3 w-3 animate-spin" />
+                            Loading repositories…
+                          </div>
+                        ) : (
+                          <div className="space-y-2">
+                            {repositories.map((repo) => (
+                              <div
+                                key={repo.id}
+                                className="rounded border border-border bg-background p-3 text-xs"
+                              >
+                                <div className="flex items-center gap-2">
+                                  <span className="font-medium text-foreground truncate" title={repo.name}>
+                                    {repo.name}
+                                  </span>
+                                  {repo.is_primary && (
+                                    <Badge variant="outline" className="text-[10px]">
+                                      Primary
+                                    </Badge>
+                                  )}
+                                </div>
+                                <div className="mt-1 text-muted-foreground break-all" title={repo.git_repo_path}>
+                                  <span className="font-medium text-foreground">Path:</span> {repo.git_repo_path}
+                                </div>
+                                {repo.root_path ? (
+                                  <div className="mt-1 text-muted-foreground break-all" title={repo.root_path}>
+                                    <span className="font-medium text-foreground">Root:</span> {repo.root_path}
+                                  </div>
+                                ) : null}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
                     <ProjectFormFields
                       isEditing={isEditing}
                       repoMode={repoMode}

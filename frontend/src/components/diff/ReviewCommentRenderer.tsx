@@ -7,11 +7,13 @@ import { useReview, type ReviewComment } from '@/contexts/ReviewProvider';
 interface ReviewCommentRendererProps {
   comment: ReviewComment;
   projectId?: string;
+  repositoryId?: string | null;
 }
 
 export function ReviewCommentRenderer({
   comment,
   projectId,
+  repositoryId,
 }: ReviewCommentRendererProps) {
   const { deleteComment, updateComment } = useReview();
   const [isEditing, setIsEditing] = useState(false);
@@ -56,6 +58,7 @@ export function ReviewCommentRenderer({
           maxRows={10}
           className="w-full bg-background text-foreground text-sm font-mono resize-none min-h-[60px] focus:outline-none"
           projectId={projectId}
+          repositoryId={repositoryId ?? undefined}
         />
         <div className="mt-2 flex gap-2">
           <Button size="xs" onClick={handleSave} disabled={!editText.trim()}>

@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::{path::Path, sync::Arc};
 
 use async_trait::async_trait;
 use enum_dispatch::enum_dispatch;
@@ -12,10 +12,28 @@ use crate::{
         coding_agent_initial::CodingAgentInitialRequest, script::ScriptRequest,
     },
     executors::{ExecutorError, SpawnedChild},
+    payload::ExecutorPayload,
 };
+use tokio::process::Command as TokioCommand;
 pub mod coding_agent_follow_up;
 pub mod coding_agent_initial;
 pub mod script;
+
+#[derive(Debug, Clone)]
+pub struct ExecutorPayloadEnvelope {
+    pub payload: Arc<ExecutorPayload>,
+    pub payload_json: Arc<String>,
+}
+
+impl ExecutorPayloadEnvelope {
+    pub fn try_new(payload: ExecutorPayload) -> Result<Self, serde_json::Error> {
+        let json = serde_json::to_string(&payload)?;
+        Ok(Self {
+            payload: Arc::new(payload),
+            payload_json: Arc::new(json),
+        })
+    }
+}
 
 #[enum_dispatch]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
@@ -50,6 +68,21 @@ impl ExecutorAction {
 pub struct ExecutorSpawnContext<'a> {
     pub current_dir: &'a Path,
     pub task_attempt_id: Option<&'a Uuid>,
+    pub payload: &'a ExecutorPayloadEnvelope,
+}
+
+impl<'a> ExecutorSpawnContext<'a> {
+    pub fn apply_environment(&self, command: &mut TokioCommand) {
+        if let Some(attempt_id) = self.task_attempt_id {
+            command.env("VIBE_PARENT_TASK_ATTEMPT_ID", attempt_id.to_string());
+        }
+
+        command.env("VIBE_EXECUTOR_PAYLOAD", self.payload.payload_json.as_str());
+
+        for (key, value) in &self.payload.payload.env {
+            command.env(key, value);
+        }
+    }
 }
 
 #[async_trait]

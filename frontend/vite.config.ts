@@ -128,4 +128,10 @@ export default defineConfig({
     open: process.env.VITE_OPEN === "true",
   },
   build: { sourcemap: true },
+  test: {
+    globals: true,
+    environment: 'jsdom',
+    setupFiles: ['./src/test/setup.ts'],
+    css: true,
+  },
 });

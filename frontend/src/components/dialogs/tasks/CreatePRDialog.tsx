@@ -24,6 +24,7 @@ import {
 import { projectsApi } from '@/lib/api.ts';
 import { Loader2 } from 'lucide-react';
 import NiceModal, { useModal } from '@ebay/nice-modal-react';
+import { useProject } from '@/contexts/project-context';
 const CreatePrDialog = NiceModal.create(() => {
   const modal = useModal();
   const data = modal.args as
@@ -36,6 +37,7 @@ const CreatePrDialog = NiceModal.create(() => {
   const [error, setError] = useState<string | null>(null);
   const [branches, setBranches] = useState<GitBranch[]>([]);
   const [branchesLoading, setBranchesLoading] = useState(false);
+  const { selectedRepositoryId } = useProject();
 
   useEffect(() => {
     if (modal.visible && data) {
@@ -46,7 +48,7 @@ const CreatePrDialog = NiceModal.create(() => {
       if (data.projectId) {
         setBranchesLoading(true);
         projectsApi
-          .getBranches(data.projectId)
+          .getBranches(data.projectId, selectedRepositoryId ?? undefined)
           .then((projectBranches) => {
             setBranches(projectBranches);
 
@@ -66,7 +68,7 @@ const CreatePrDialog = NiceModal.create(() => {
 
       setError(null); // Reset error when opening
     }
-  }, [modal.visible, data]);
+  }, [modal.visible, data, selectedRepositoryId]);
 
   const handleConfirmCreatePR = useCallback(async () => {
     if (!data?.projectId || !data?.attempt.id) return;

@@ -36,12 +36,7 @@ impl Executable for CodingAgentFollowUpRequest {
             ))?;
 
         agent
-            .spawn_follow_up(
-                ctx.current_dir,
-                &self.prompt,
-                &self.session_id,
-                ctx.task_attempt_id,
-            )
+            .spawn_follow_up(ctx, &self.prompt, &self.session_id)
             .await
     }
 }

@@ -68,33 +68,33 @@ fn adjust_preconfigured(mut value: Value) -> Value {
         .map(|root| root.join("dev_assets"))
         .and_then(|path| path.to_str().map(|s| s.to_string()));
 
-    if let Value::Object(ref mut root) = value {
-        if let Some(Value::Object(server_obj)) = root.get_mut("vibe_kanban") {
-            server_obj.insert("command".to_string(), Value::String("node".to_string()));
-            server_obj.insert(
-                "args".to_string(),
-                Value::Array(vec![
-                    Value::String(cli_path),
-                    Value::String("--mcp".to_string()),
-                ]),
-            );
+    if let Value::Object(ref mut root) = value
+        && let Some(Value::Object(server_obj)) = root.get_mut("vibe_kanban")
+    {
+        server_obj.insert("command".to_string(), Value::String("node".to_string()));
+        server_obj.insert(
+            "args".to_string(),
+            Value::Array(vec![
+                Value::String(cli_path),
+                Value::String("--mcp".to_string()),
+            ]),
+        );
 
-            let mut env_map = server_obj
-                .get("env")
-                .and_then(|v| v.as_object().cloned())
-                .unwrap_or_default();
+        let mut env_map = server_obj
+            .get("env")
+            .and_then(|v| v.as_object().cloned())
+            .unwrap_or_default();
+        env_map.insert(
+            "VIBE_USE_LOCAL_MCP".to_string(),
+            Value::String("1".to_string()),
+        );
+        if let Some(dev_assets_path) = dev_assets {
             env_map.insert(
-                "VIBE_USE_LOCAL_MCP".to_string(),
-                Value::String("1".to_string()),
+                "VIBE_ASSETS_DIR".to_string(),
+                Value::String(dev_assets_path),
             );
-            if let Some(dev_assets_path) = dev_assets {
-                env_map.insert(
-                    "VIBE_ASSETS_DIR".to_string(),
-                    Value::String(dev_assets_path),
-                );
-            }
-            server_obj.insert("env".to_string(), Value::Object(env_map));
         }
+        server_obj.insert("env".to_string(), Value::Object(env_map));
     }
 
     value

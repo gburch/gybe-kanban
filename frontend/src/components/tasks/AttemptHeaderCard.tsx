@@ -18,7 +18,7 @@ import { useAttemptExecution } from '@/hooks/useAttemptExecution';
 import { useMemo, useState } from 'react';
 import NiceModal from '@ebay/nice-modal-react';
 import { OpenInIdeButton } from '@/components/ide/OpenInIdeButton';
-import { useTranslation } from 'react-i18next';
+import { useProject } from '@/contexts/project-context';
 
 interface AttemptHeaderCardProps {
   attemptNumber: number;
@@ -38,7 +38,6 @@ export function AttemptHeaderCard({
   projectId,
   onJumpToDiffFullScreen,
 }: AttemptHeaderCardProps) {
-  const { t } = useTranslation('tasks');
   const {
     start: startDevServer,
     stop: stopDevServer,
@@ -46,9 +45,11 @@ export function AttemptHeaderCard({
   } = useDevServer(selectedAttempt?.id);
   const rebaseMutation = useRebase(selectedAttempt?.id, projectId);
   const mergeMutation = useMerge(selectedAttempt?.id);
-  const openInEditor = useOpenInEditor(selectedAttempt?.id);
+  const openInEditor = useOpenInEditor(selectedAttempt);
+  const { selectedRepositoryId } = useProject();
   const { fileCount, added, deleted } = useDiffSummary(
-    selectedAttempt?.id ?? null
+    selectedAttempt?.id ?? null,
+    selectedRepositoryId
   );
 
   // Branch status and execution state
@@ -115,7 +116,7 @@ export function AttemptHeaderCard({
   const handleRebaseClick = async () => {
     setRebasing(true);
     try {
-      await rebaseMutation.mutateAsync({});
+      await rebaseMutation.mutateAsync(undefined);
     } catch (error) {
       // Error handling is done by the mutation
     } finally {
@@ -138,22 +139,16 @@ export function AttemptHeaderCard({
     <Card className="border-b border-dashed bg-background flex items-center text-sm">
       <div className="flex-1 min-w-0 flex items-center gap-3 p-3 flex-nowrap">
         <p className="shrink-0 whitespace-nowrap">
-          <span className="text-secondary-foreground">
-            {t('attempt.labels.attempt')} &middot;{' '}
-          </span>
+          <span className="text-secondary-foreground">Attempt &middot; </span>
           {attemptNumber}/{totalAttempts}
         </p>
         <p className="shrink-0 whitespace-nowrap">
-          <span className="text-secondary-foreground">
-            {t('attempt.labels.agent')} &middot;{' '}
-          </span>
+          <span className="text-secondary-foreground">Agent &middot; </span>
           {selectedAttempt?.executor}
         </p>
         {selectedAttempt?.branch && (
           <p className="flex-1 min-w-0 truncate">
-            <span className="text-secondary-foreground">
-              {t('attempt.labels.branch')} &middot;{' '}
-            </span>
+            <span className="text-secondary-foreground">Branch &middot; </span>
             {selectedAttempt.branch}
           </p>
         )}
@@ -165,7 +160,7 @@ export function AttemptHeaderCard({
               className="h-4 p-0"
               onClick={onJumpToDiffFullScreen}
             >
-              {t('attempt.labels.diffs')}
+              Diffs
             </Button>{' '}
             &middot; <span className="text-console-success">+{added}</span>{' '}
             <span className="text-console-error">-{deleted}</span>
@@ -187,7 +182,7 @@ export function AttemptHeaderCard({
               className="h-10 w-10 p-0 shrink-0"
             >
               <MoreHorizontal className="h-4 w-4" />
-              <span className="sr-only">{t('attempt.actions.openMenu')}</span>
+              <span className="sr-only">Open menu</span>
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
@@ -195,7 +190,7 @@ export function AttemptHeaderCard({
               onClick={() => openInEditor()}
               disabled={!selectedAttempt}
             >
-              {t('attempt.actions.openInIde')}
+              Open in IDE
             </DropdownMenuItem>
             <DropdownMenuItem
               onClick={() =>
@@ -204,9 +199,7 @@ export function AttemptHeaderCard({
               disabled={!selectedAttempt}
               className={runningDevServer ? 'text-destructive' : ''}
             >
-              {runningDevServer
-                ? t('attempt.actions.stopDevServer')
-                : t('attempt.actions.startDevServer')}
+              {runningDevServer ? 'Stop dev server' : 'Start dev server'}
             </DropdownMenuItem>
             {selectedAttempt &&
               branchStatus &&
@@ -216,16 +209,14 @@ export function AttemptHeaderCard({
                   onClick={handleRebaseClick}
                   disabled={rebasing || isAttemptRunning || hasConflicts}
                 >
-                  {rebasing
-                    ? t('rebase.common.inProgress')
-                    : t('rebase.common.action')}
+                  {rebasing ? 'Rebasing...' : 'Rebase'}
                 </DropdownMenuItem>
               )}
             <DropdownMenuItem
               onClick={handleCreatePR}
               disabled={!selectedAttempt}
             >
-              {t('git.states.createPr')}
+              Create PR
             </DropdownMenuItem>
             {selectedAttempt && branchStatus && !mergeInfo.hasMergedPR && (
               <DropdownMenuItem
@@ -239,7 +230,7 @@ export function AttemptHeaderCard({
                   (branchStatus.commits_ahead ?? 0) === 0
                 }
               >
-                {merging ? t('git.states.merging') : t('git.states.merge')}
+                {merging ? 'Merging...' : 'Merge'}
               </DropdownMenuItem>
             )}
             {/* <DropdownMenuItem

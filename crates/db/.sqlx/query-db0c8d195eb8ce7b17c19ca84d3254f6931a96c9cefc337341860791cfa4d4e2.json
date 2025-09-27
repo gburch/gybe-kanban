@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE task_attempt_repositories SET container_ref = $2, updated_at = datetime('now', 'subsec') WHERE task_attempt_id = $1 AND is_primary = 1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "db0c8d195eb8ce7b17c19ca84d3254f6931a96c9cefc337341860791cfa4d4e2"
+}

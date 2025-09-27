@@ -55,6 +55,12 @@
           "integrations/mcp-server-configuration",
           "integrations/vibe-kanban-mcp-server"
         ]
+      },
+      {
+        "group": "Operations",
+        "pages": [
+          "operations/multi-repo-rollout-checklist"
+        ]
       }
     ]
   },

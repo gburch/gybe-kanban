@@ -9,7 +9,6 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use tokio::{io::AsyncWriteExt, process::Command, sync::OnceCell};
 use ts_rs::TS;
-use uuid::Uuid;
 use workspace_utils::{
     approvals::APPROVAL_TIMEOUT_SECONDS,
     diff::{concatenate_diff_hunks, create_unified_diff, create_unified_diff_hunk},
@@ -21,6 +20,7 @@ use workspace_utils::{
 };
 
 use crate::{
+    actions::ExecutorSpawnContext,
     command::{CmdOverrides, CommandBuilder, apply_overrides},
     executors::{AppendPrompt, ExecutorError, SpawnedChild, StandardCodingAgentExecutor},
     logs::{
@@ -124,9 +124,8 @@ impl ClaudeCode {
 impl StandardCodingAgentExecutor for ClaudeCode {
     async fn spawn(
         &self,
-        current_dir: &Path,
+        ctx: ExecutorSpawnContext<'_>,
         prompt: &str,
-        attempt_id: Option<&Uuid>,
     ) -> Result<SpawnedChild, ExecutorError> {
         let (shell_cmd, shell_arg) = get_shell_command();
         let command_builder = self.build_command_builder().await;
@@ -137,7 +136,7 @@ impl StandardCodingAgentExecutor for ClaudeCode {
         }
 
         if self.approvals.unwrap_or(false) || self.plan.unwrap_or(false) {
-            write_python_hook(current_dir).await?
+            write_python_hook(ctx.current_dir).await?
         }
 
         let combined_prompt = self.append_prompt.combine_prompt(prompt);
@@ -148,13 +147,11 @@ impl StandardCodingAgentExecutor for ClaudeCode {
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
-            .current_dir(current_dir)
+            .current_dir(ctx.current_dir)
             .arg(shell_arg)
             .arg(&base_command);
 
-        if let Some(attempt_id) = attempt_id {
-            command.env("VIBE_PARENT_TASK_ATTEMPT_ID", attempt_id.to_string());
-        }
+        ctx.apply_environment(&mut command);
 
         let mut child = command.group_spawn()?;
 
@@ -169,10 +166,9 @@ impl StandardCodingAgentExecutor for ClaudeCode {
 
     async fn spawn_follow_up(
         &self,
-        current_dir: &Path,
+        ctx: ExecutorSpawnContext<'_>,
         prompt: &str,
         session_id: &str,
-        attempt_id: Option<&Uuid>,
     ) -> Result<SpawnedChild, ExecutorError> {
         let (shell_cmd, shell_arg) = get_shell_command();
         let command_builder = self.build_command_builder().await;
@@ -185,7 +181,7 @@ impl StandardCodingAgentExecutor for ClaudeCode {
         }
 
         if self.approvals.unwrap_or(false) || self.plan.unwrap_or(false) {
-            write_python_hook(current_dir).await?
+            write_python_hook(ctx.current_dir).await?
         }
 
         let combined_prompt = self.append_prompt.combine_prompt(prompt);
@@ -196,13 +192,11 @@ impl StandardCodingAgentExecutor for ClaudeCode {
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
-            .current_dir(current_dir)
+            .current_dir(ctx.current_dir)
             .arg(shell_arg)
             .arg(&base_command);
 
-        if let Some(attempt_id) = attempt_id {
-            command.env("VIBE_PARENT_TASK_ATTEMPT_ID", attempt_id.to_string());
-        }
+        ctx.apply_environment(&mut command);
 
         let mut child = command.group_spawn()?;
 

@@ -148,3 +148,36 @@ By default, Vibe Kanban uses Bloop AI's GitHub OAuth app for authentication. To 
    ```bash
    GITHUB_CLIENT_ID=your_client_id_here pnpm run build
    ```
+
+## Multi-Repository Projects
+
+Vibe Kanban projects can link more than one Git repository, letting a single task attempt coordinate changes across services, SDKs, or documentation. Each linked repository is cloned into its own worktree when an attempt starts, and the UI provides a repository switcher so you can jump between diffs and searches for each codebase.
+
+### Example: `web` (primary) + `core-api`
+
+1. **Create the project** using your primary repository (for example, `~/code/web`). This becomes the default worktree that merge/push operations act on.
+2. Open the project, click **Repositories → Add repository**, and register the secondary repo:
+
+   | Field | Value |
+   |-------|-------|
+   | Name | `Core API` |
+   | Git repo path | `~/code/core-api` |
+   | Root path (optional) | leave blank to use the repo root |
+
+3. Repeat for any additional repos. Task attempts now clone both `web` and `core-api`, expose both paths to agents (`VIBE_REPO_*` environment variables), and surface diffs per repository.
+
+### Limitations
+
+- Merge, push, and PR actions currently operate on the **primary** repository only. Commit or push changes in secondary repos manually if needed.
+- All linked repositories are cloned for every attempt; avoid adding large repos you do not need.
+- Root paths scope a repo to a subdirectory. Leave the field empty unless you want to restrict the exposed files (e.g., `packages/web` inside a monorepo).
+
+### Upgrading existing installations
+
+Multi-repository support introduces new database tables (`project_repositories`, `task_attempt_repositories`). Apply the migration before running agents by executing:
+
+```bash
+npm run prepare-db
+```
+
+or simply start the backend (`pnpm run dev`) and allow it to run migrations automatically. Once upgraded you can add repositories without recreating projects.

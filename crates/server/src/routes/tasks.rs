@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 use anyhow;
@@ -14,8 +15,10 @@ use axum::{
 };
 use db::models::{
     image::TaskImage,
+    project_repository::ProjectRepository,
     task::{CreateTask, Task, TaskWithAttemptStatus, UpdateTask},
     task_attempt::{CreateTaskAttempt, TaskAttempt},
+    task_attempt_repository::TaskAttemptRepository,
 };
 use deployment::Deployment;
 use executors::profile::ExecutorProfileId;
@@ -303,19 +306,61 @@ pub async fn delete_task(
         .await?
         .ok_or_else(|| ApiError::Database(SqlxError::RowNotFound))?;
 
-    let cleanup_data: Vec<WorktreeCleanupData> = attempts
-        .iter()
-        .filter_map(|attempt| {
-            attempt
-                .container_ref
-                .as_ref()
-                .map(|worktree_path| WorktreeCleanupData {
-                    attempt_id: attempt.id,
-                    worktree_path: PathBuf::from(worktree_path),
-                    git_repo_path: Some(project.git_repo_path.clone()),
-                })
-        })
+    let project_repositories =
+        ProjectRepository::list_for_project(&deployment.db().pool, project.id)
+            .await
+            .map_err(|e| {
+                tracing::error!(
+                    "Failed to load project repositories for project {}: {}",
+                    project.id,
+                    e
+                );
+                ApiError::Database(e)
+            })?;
+
+    let repo_lookup: HashMap<Uuid, PathBuf> = project_repositories
+        .into_iter()
+        .map(|repo| (repo.id, repo.git_repo_path))
         .collect();
+
+    let mut cleanup_data: Vec<WorktreeCleanupData> = Vec::new();
+    for attempt in &attempts {
+        match TaskAttemptRepository::list_for_attempt(&deployment.db().pool, attempt.id).await {
+            Ok(repo_entries) => {
+                for repo_entry in repo_entries {
+                    let container_path = repo_entry.container_ref.clone().or_else(|| {
+                        if repo_entry.is_primary {
+                            attempt.container_ref.clone()
+                        } else {
+                            None
+                        }
+                    });
+
+                    let Some(container_ref) = container_path else {
+                        continue;
+                    };
+
+                    let git_repo_path = repo_lookup
+                        .get(&repo_entry.project_repository_id)
+                        .cloned()
+                        .or_else(|| Some(project.git_repo_path.clone()));
+
+                    cleanup_data.push(WorktreeCleanupData {
+                        attempt_id: attempt.id,
+                        worktree_path: PathBuf::from(container_ref),
+                        git_repo_path,
+                    });
+                }
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "Failed to load attempt repositories for attempt {}: {}",
+                    attempt.id,
+                    e
+                );
+            }
+        }
+    }
 
     // Delete task from database (FK CASCADE will handle task_attempts)
     let rows_affected = Task::delete(&deployment.db().pool, task.id).await?;

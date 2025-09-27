@@ -3,6 +3,7 @@ use std::borrow::Cow;
 use serde::{Deserialize, Serialize};
 use similar::{ChangeTag, TextDiff};
 use ts_rs::TS;
+use uuid::Uuid;
 
 // Structs compatable with props: https://github.com/MrWangJustToDo/git-diff-view
 
@@ -17,6 +18,11 @@ pub struct FileDiffDetails {
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct Diff {
+    #[ts(type = "string | null")]
+    pub repository_id: Option<Uuid>,
+    pub repository_name: Option<String>,
+    pub repository_root: Option<String>,
+
     pub change: DiffChangeKind,
     pub old_path: Option<String>,
     pub new_path: Option<String>,

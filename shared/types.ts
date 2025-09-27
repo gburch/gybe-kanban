@@ -14,6 +14,8 @@ export type CreateProject = { name: string, git_repo_path: string, use_existing_
 
 export type UpdateProject = { name: string | null, git_repo_path: string | null, setup_script: string | null, dev_script: string | null, cleanup_script: string | null, copy_files: string | null, };
 
+export type ProjectRepository = { id: string, project_id: string, name: string, git_repo_path: string, root_path: string, is_primary: boolean, created_at: Date, updated_at: Date, };
+
 export type SearchResult = { path: string, is_file: boolean, match_type: SearchMatchType, };
 
 export type SearchMatchType = "FileName" | "DirectoryName" | "FullPath";
@@ -21,6 +23,58 @@ export type SearchMatchType = "FileName" | "DirectoryName" | "FullPath";
 export type ExecutorAction = { typ: ExecutorActionType, next_action: ExecutorAction | null, };
 
 export type McpConfig = { servers: { [key in string]?: JsonValue }, servers_path: Array<string>, template: JsonValue, preconfigured: JsonValue, is_toml_config: boolean, };
+
+export type ExecutorPayload = { 
+/**
+ * Schema version for the payload; increment when breaking changes are introduced.
+ */
+version: number, 
+/**
+ * Identifier of the running task attempt.
+ */
+attempt_id: string, 
+/**
+ * Identifier of the primary repository for this attempt.
+ */
+primary_repository_id: string, 
+/**
+ * Repository metadata keyed by repository identifier.
+ */
+repositories: Array<ExecutorRepositoryContext>, 
+/**
+ * Environment variables that should be exported for the executor process.
+ */
+env: { [key in string]?: string }, };
+
+export type ExecutorRepositoryContext = { 
+/**
+ * Identifier of the project repository.
+ */
+id: string, 
+/**
+ * Human-readable repository name.
+ */
+name: string, 
+/**
+ * Slugified identifier (lowercase, hyphen-separated) for referencing this repo.
+ */
+slug: string, 
+/**
+ * Absolute filesystem path to the worktree that the executor should operate on.
+ */
+worktree_path: string, 
+/**
+ * Root path within the repository that should be treated as the execution root.
+ */
+root_path: string, 
+/**
+ * Current branch checked out inside the worktree.
+ */
+branch: string | null, 
+/**
+ * Whether this repository is the primary repository for the task.
+ */
+is_primary: boolean, };
 
 export type ExecutorActionType = { "type": "CodingAgentInitialRequest" } & CodingAgentInitialRequest | { "type": "CodingAgentFollowUpRequest" } & CodingAgentFollowUpRequest | { "type": "ScriptRequest" } & ScriptRequest;
 
@@ -116,7 +170,7 @@ export enum CheckTokenResponse { VALID = "VALID", INVALID = "INVALID" }
 
 export type GitBranch = { name: string, is_current: boolean, is_remote: boolean, last_commit_date: Date, };
 
-export type Diff = { change: DiffChangeKind, oldPath: string | null, newPath: string | null, oldContent: string | null, newContent: string | null, 
+export type Diff = { repositoryId: string | null, repositoryName: string | null, repositoryRoot: string | null, change: DiffChangeKind, oldPath: string | null, newPath: string | null, oldContent: string | null, newContent: string | null, 
 /**
  * True when file contents are intentionally omitted (e.g., too large)
  */
@@ -243,6 +297,8 @@ conflicted_files: Array<string>, };
 export type ConflictOp = "rebase" | "merge" | "cherry_pick" | "revert";
 
 export type TaskAttempt = { id: string, task_id: string, container_ref: string | null, branch: string, target_branch: string, executor: string, worktree_deleted: boolean, setup_completed_at: string | null, created_at: string, updated_at: string, };
+
+export type TaskAttemptRepository = { id: string, task_attempt_id: string, project_repository_id: string, is_primary: boolean, container_ref: string | null, branch: string | null, created_at: Date, updated_at: Date, };
 
 export type ExecutionProcess = { id: string, task_attempt_id: string, run_reason: ExecutionProcessRunReason, executor_action: ExecutorAction, 
 /**

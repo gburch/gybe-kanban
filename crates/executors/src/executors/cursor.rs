@@ -8,7 +8,6 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use tokio::{io::AsyncWriteExt, process::Command};
 use ts_rs::TS;
-use uuid::Uuid;
 use workspace_utils::{
     diff::{
         concatenate_diff_hunks, create_unified_diff, create_unified_diff_hunk,
@@ -20,6 +19,7 @@ use workspace_utils::{
 };
 
 use crate::{
+    actions::ExecutorSpawnContext,
     command::{CmdOverrides, CommandBuilder, apply_overrides},
     executors::{AppendPrompt, ExecutorError, SpawnedChild, StandardCodingAgentExecutor},
     logs::{
@@ -64,9 +64,8 @@ impl Cursor {
 impl StandardCodingAgentExecutor for Cursor {
     async fn spawn(
         &self,
-        current_dir: &Path,
+        ctx: ExecutorSpawnContext<'_>,
         prompt: &str,
-        attempt_id: Option<&Uuid>,
     ) -> Result<SpawnedChild, ExecutorError> {
         let (shell_cmd, shell_arg) = get_shell_command();
         let agent_cmd = self.build_command_builder().build_initial();
@@ -79,13 +78,11 @@ impl StandardCodingAgentExecutor for Cursor {
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
-            .current_dir(current_dir)
+            .current_dir(ctx.current_dir)
             .arg(shell_arg)
             .arg(&agent_cmd);
 
-        if let Some(attempt_id) = attempt_id {
-            command.env("VIBE_PARENT_TASK_ATTEMPT_ID", attempt_id.to_string());
-        }
+        ctx.apply_environment(&mut command);
 
         let mut child = command.group_spawn()?;
 
@@ -99,10 +96,9 @@ impl StandardCodingAgentExecutor for Cursor {
 
     async fn spawn_follow_up(
         &self,
-        current_dir: &Path,
+        ctx: ExecutorSpawnContext<'_>,
         prompt: &str,
         session_id: &str,
-        attempt_id: Option<&Uuid>,
     ) -> Result<SpawnedChild, ExecutorError> {
         let (shell_cmd, shell_arg) = get_shell_command();
         let agent_cmd = self
@@ -117,13 +113,11 @@ impl StandardCodingAgentExecutor for Cursor {
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
-            .current_dir(current_dir)
+            .current_dir(ctx.current_dir)
             .arg(shell_arg)
             .arg(&agent_cmd);
 
-        if let Some(attempt_id) = attempt_id {
-            command.env("VIBE_PARENT_TASK_ATTEMPT_ID", attempt_id.to_string());
-        }
+        ctx.apply_environment(&mut command);
 
         let mut child = command.group_spawn()?;
 

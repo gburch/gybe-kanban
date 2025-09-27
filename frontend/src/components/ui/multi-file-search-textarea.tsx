@@ -17,6 +17,7 @@ interface MultiFileSearchTextareaProps {
   disabled?: boolean;
   className?: string;
   projectId: string;
+  repositoryId?: string | null;
   onKeyDown?: (e: React.KeyboardEvent) => void;
   maxRows?: number;
 }
@@ -29,6 +30,7 @@ export function MultiFileSearchTextarea({
   disabled = false,
   className,
   projectId,
+  repositoryId,
   onKeyDown,
   maxRows = 10,
 }: MultiFileSearchTextareaProps) {
@@ -74,14 +76,10 @@ export function MultiFileSearchTextarea({
       abortControllerRef.current = abortController;
 
       try {
-        const result = await projectsApi.searchFiles(
-          projectId,
-          searchQuery,
-          'settings',
-          {
-            signal: abortController.signal,
-          }
-        );
+        const result = await projectsApi.searchFiles(projectId, searchQuery, 'settings', {
+          signal: abortController.signal,
+          repoId: repositoryId ?? undefined,
+        });
 
         // Only process if this request wasn't aborted
         if (!abortController.signal.aborted) {
@@ -115,7 +113,7 @@ export function MultiFileSearchTextarea({
         abortControllerRef.current.abort();
       }
     };
-  }, [searchQuery, projectId]);
+  }, [searchQuery, projectId, repositoryId]);
 
   // Find current token boundaries based on cursor position
   const findCurrentToken = (text: string, cursorPosition: number) => {

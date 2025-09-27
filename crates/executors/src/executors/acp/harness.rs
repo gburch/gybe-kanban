@@ -1,8 +1,4 @@
-use std::{
-    path::{Path, PathBuf},
-    process::Stdio,
-    sync::Arc,
-};
+use std::{path::PathBuf, process::Stdio, sync::Arc};
 
 use agent_client_protocol as proto;
 use agent_client_protocol::Agent as _;
@@ -11,11 +7,13 @@ use futures::StreamExt;
 use tokio::{io::AsyncWriteExt, process::Command, sync::mpsc};
 use tokio_util::compat::{TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt};
 use tracing::error;
-use uuid::Uuid;
 use workspace_utils::shell::get_shell_command;
 
 use super::{AcpClient, SessionManager};
-use crate::executors::{ExecutorError, SpawnedChild, acp::AcpEvent};
+use crate::{
+    actions::ExecutorSpawnContext,
+    executors::{ExecutorError, SpawnedChild, acp::AcpEvent},
+};
 
 /// Reusable harness for ACP-based conns (Gemini, Qwen, etc.)
 pub struct AcpAgentHarness {
@@ -46,10 +44,9 @@ impl AcpAgentHarness {
 
     pub async fn spawn_with_command(
         &self,
-        current_dir: &Path,
+        ctx: ExecutorSpawnContext<'_>,
         prompt: String,
         full_command: String,
-        attempt_id: Option<&Uuid>,
     ) -> Result<SpawnedChild, ExecutorError> {
         let (shell_cmd, shell_arg) = get_shell_command();
         let mut command = Command::new(shell_cmd);
@@ -58,21 +55,19 @@ impl AcpAgentHarness {
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
-            .current_dir(current_dir)
+            .current_dir(ctx.current_dir)
             .arg(shell_arg)
             .arg(full_command)
             .env("NODE_NO_WARNINGS", "1");
 
-        if let Some(attempt_id) = attempt_id {
-            command.env("VIBE_PARENT_TASK_ATTEMPT_ID", attempt_id.to_string());
-        }
+        ctx.apply_environment(&mut command);
 
         let mut child = command.group_spawn()?;
 
         let (exit_tx, exit_rx) = tokio::sync::oneshot::channel::<()>();
         Self::bootstrap_acp_connection(
             &mut child,
-            current_dir.to_path_buf(),
+            ctx.current_dir.to_path_buf(),
             None,
             prompt,
             Some(exit_tx),
@@ -88,11 +83,10 @@ impl AcpAgentHarness {
 
     pub async fn spawn_follow_up_with_command(
         &self,
-        current_dir: &Path,
+        ctx: ExecutorSpawnContext<'_>,
         prompt: String,
         session_id: &str,
         full_command: String,
-        attempt_id: Option<&Uuid>,
     ) -> Result<SpawnedChild, ExecutorError> {
         let (shell_cmd, shell_arg) = get_shell_command();
         let mut command = Command::new(shell_cmd);
@@ -101,21 +95,19 @@ impl AcpAgentHarness {
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
-            .current_dir(current_dir)
+            .current_dir(ctx.current_dir)
             .arg(shell_arg)
             .arg(full_command)
             .env("NODE_NO_WARNINGS", "1");
 
-        if let Some(attempt_id) = attempt_id {
-            command.env("VIBE_PARENT_TASK_ATTEMPT_ID", attempt_id.to_string());
-        }
+        ctx.apply_environment(&mut command);
 
         let mut child = command.group_spawn()?;
 
         let (exit_tx, exit_rx) = tokio::sync::oneshot::channel::<()>();
         Self::bootstrap_acp_connection(
             &mut child,
-            current_dir.to_path_buf(),
+            ctx.current_dir.to_path_buf(),
             Some(session_id.to_string()),
             prompt,
             Some(exit_tx),

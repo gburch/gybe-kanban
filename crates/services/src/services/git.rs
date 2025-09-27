@@ -532,6 +532,9 @@ impl GitService {
                     content_omitted,
                     additions,
                     deletions,
+                    repository_id: None,
+                    repository_name: None,
+                    repository_root: None,
                 });
 
                 delta_index += 1;
@@ -736,6 +739,9 @@ impl GitService {
             content_omitted,
             additions: None,
             deletions: None,
+            repository_id: None,
+            repository_name: None,
+            repository_root: None,
         }
     }
 

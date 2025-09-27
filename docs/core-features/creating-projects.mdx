@@ -55,3 +55,48 @@ Cleanup scripts run after a coding agent finishes. You can use these to tidy up 
 ```bash
 npm run clean
 ```
+
+## Managing Multiple Repositories
+
+Projects can reference more than one Git repository. This is useful when a feature spans a frontend and backend repo, or when only a subdirectory of a large monorepo should be exposed to agents.
+
+### Adding repositories to an existing project
+
+1. Open the project and choose **Repositories** in the detail view.
+2. Click **Add repository** and fill in:
+   - **Name** – how the repository appears in the switcher.
+   - **Git repo path** – absolute path to the repository root on disk.
+   - **Root path (optional)** – limit access to a subdirectory (e.g., `packages/web`). Leave blank to expose the full repo.
+3. Mark one repository as **Primary**. Merge/push/PR actions operate on this repository.
+4. Repeat for each additional repository you need. Task attempts will now clone all linked repos into sibling worktrees.
+
+### Worked example: `web` + `core-api`
+
+| Repository | Primary? | Git repo path      | Root path |
+|------------|----------|--------------------|-----------|
+| Web        | ✅       | `~/code/web`       | _(blank)_ |
+| Core API   | ❌       | `~/code/core-api`  | _(blank)_ |
+
+With this configuration:
+
+- Agents receive environment variables such as `VIBE_REPO_WEB_PATH` and `VIBE_REPO_CORE_API_PATH` that point to each worktree.
+- The repository switcher lets reviewers jump between diffs for `web` and `core-api`.
+- Searches can be scoped per repository by selecting it in the toolbar.
+
+If you only want a subdirectory of a monorepo, point **Git repo path** at the repo and set **Root path** to the folder you need (for example, `packages/mobile-app`). The worktree still clones the whole repository, but diffs and searches are rooted inside the subdirectory.
+
+### How multi-repo attempts behave
+
+- Every task attempt creates a worktree for each configured repository. Long-lived tasks therefore keep the different codebases in sync.
+- Cleanup, setup, and dev server scripts run from the primary repository’s worktree. Use script logic (or custom scripts) if secondary repos need additional setup.
+- Diffs, review comments, and file searches store repository metadata so you always know which repo a change belongs to.
+
+### Limitations
+
+- Merge, push, and pull request actions currently target the **primary** repository only. Commit or push changes in secondary repositories manually.
+- All repositories are cloned for every attempt. Avoid adding repos you rarely need to reduce setup time.
+- Dev server shortcuts run once; if your secondary repo needs a different server, add a custom script to start it.
+
+### Upgrade notes
+
+Multi-repository support requires new database tables. If you are upgrading an existing installation, run `npm run prepare-db` (or start the backend once) so migrations apply before linking additional repositories.

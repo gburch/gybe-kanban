@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT pr.id as \"id!: Uuid\"\n                   FROM task_attempts ta\n                   JOIN tasks t ON ta.task_id = t.id\n                   JOIN project_repositories pr ON pr.project_id = t.project_id AND pr.is_primary = 1\n                   WHERE ta.id = $1",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!: Uuid",
+        "ordinal": 0,
+        "type_info": "Blob"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "ba17b86671a84c204f474ac3526c4fb3f8646f91892c01714721e5a672b37c7e"
+}

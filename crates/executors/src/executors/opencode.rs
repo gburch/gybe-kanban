@@ -16,10 +16,10 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use tokio::{io::AsyncWriteExt, process::Command};
 use ts_rs::TS;
-use uuid::Uuid;
 use workspace_utils::{msg_store::MsgStore, path::make_path_relative, shell::get_shell_command};
 
 use crate::{
+    actions::ExecutorSpawnContext,
     command::{CmdOverrides, CommandBuilder, apply_overrides},
     executors::{
         AppendPrompt, ExecutorError, SpawnedChild, StandardCodingAgentExecutor,
@@ -131,9 +131,8 @@ impl Opencode {
 impl StandardCodingAgentExecutor for Opencode {
     async fn spawn(
         &self,
-        current_dir: &Path,
+        ctx: ExecutorSpawnContext<'_>,
         prompt: &str,
-        attempt_id: Option<&Uuid>,
     ) -> Result<SpawnedChild, ExecutorError> {
         // Start a dedicated local share bridge bound to this opencode process
         let bridge = ShareBridge::start().await.map_err(ExecutorError::Io)?;
@@ -148,16 +147,14 @@ impl StandardCodingAgentExecutor for Opencode {
             .stdin(Stdio::piped())
             .stdout(Stdio::piped()) // Keep stdout but we won't use it
             .stderr(Stdio::piped())
-            .current_dir(current_dir)
+            .current_dir(ctx.current_dir)
             .arg(shell_arg)
             .arg(&opencode_command)
             .env("NODE_NO_WARNINGS", "1")
             .env("OPENCODE_AUTO_SHARE", "1")
             .env("OPENCODE_API", bridge.base_url.clone());
 
-        if let Some(attempt_id) = attempt_id {
-            command.env("VIBE_PARENT_TASK_ATTEMPT_ID", attempt_id.to_string());
-        }
+        ctx.apply_environment(&mut command);
 
         let mut child = match command.group_spawn() {
             Ok(c) => c,
@@ -200,10 +197,9 @@ impl StandardCodingAgentExecutor for Opencode {
 
     async fn spawn_follow_up(
         &self,
-        current_dir: &Path,
+        ctx: ExecutorSpawnContext<'_>,
         prompt: &str,
         session_id: &str,
-        attempt_id: Option<&Uuid>,
     ) -> Result<SpawnedChild, ExecutorError> {
         // Start a dedicated local share bridge bound to this opencode process
         let bridge = ShareBridge::start().await.map_err(ExecutorError::Io)?;
@@ -220,16 +216,14 @@ impl StandardCodingAgentExecutor for Opencode {
             .stdin(Stdio::piped())
             .stdout(Stdio::piped()) // Keep stdout but we won't use it
             .stderr(Stdio::piped())
-            .current_dir(current_dir)
+            .current_dir(ctx.current_dir)
             .arg(shell_arg)
             .arg(&opencode_command)
             .env("NODE_NO_WARNINGS", "1")
             .env("OPENCODE_AUTO_SHARE", "1")
             .env("OPENCODE_API", bridge.base_url.clone());
 
-        if let Some(attempt_id) = attempt_id {
-            command.env("VIBE_PARENT_TASK_ATTEMPT_ID", attempt_id.to_string());
-        }
+        ctx.apply_environment(&mut command);
 
         let mut child = match command.group_spawn() {
             Ok(c) => c,

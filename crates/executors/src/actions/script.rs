@@ -42,6 +42,8 @@ impl Executable for ScriptRequest {
             .arg(&self.script)
             .current_dir(ctx.current_dir);
 
+        ctx.apply_environment(&mut command);
+
         let child = command.group_spawn()?;
 
         Ok(child.into())

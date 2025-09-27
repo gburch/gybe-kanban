@@ -27,8 +27,6 @@ impl Executable for CodingAgentInitialRequest {
                 executor_profile_id.to_string(),
             ))?;
 
-        agent
-            .spawn(ctx.current_dir, &self.prompt, ctx.task_attempt_id)
-            .await
+        agent.spawn(ctx, &self.prompt).await
     }
 }

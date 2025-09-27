@@ -569,7 +569,7 @@ export function GeneralSettings() {
                   return;
                 }
 
-                const needsSuffix = !/[\/_-]$/.test(trimmed);
+                const needsSuffix = !/[/_-]$/.test(trimmed);
                 const normalized = needsSuffix ? `${trimmed}/` : trimmed;
                 updateDraft({
                   github: {

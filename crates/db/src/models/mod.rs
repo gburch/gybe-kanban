@@ -5,6 +5,8 @@ pub mod executor_session;
 pub mod image;
 pub mod merge;
 pub mod project;
+pub mod project_repository;
 pub mod task;
 pub mod task_attempt;
+pub mod task_attempt_repository;
 pub mod task_template;

@@ -31,6 +31,7 @@ import type {
   ExecutorProfileId,
 } from 'shared/types';
 import NiceModal, { useModal } from '@ebay/nice-modal-react';
+import { useProject } from '@/contexts/project-context';
 
 interface Task {
   id: string;
@@ -64,6 +65,7 @@ export const TaskFormDialog = NiceModal.create<TaskFormDialogProps>(
     const { createTask, createAndStart, updateTask } =
       useTaskMutations(projectId);
     const { system, profiles } = useUserSystem();
+    const { selectedRepositoryId } = useProject();
     const [title, setTitle] = useState('');
     const [description, setDescription] = useState('');
     const [status, setStatus] = useState<TaskStatus>('todo');
@@ -179,7 +181,7 @@ export const TaskFormDialog = NiceModal.create<TaskFormDialogProps>(
         Promise.all([
           templatesApi.listByProject(projectId),
           templatesApi.listGlobal(),
-          projectsApi.getBranches(projectId),
+          projectsApi.getBranches(projectId, selectedRepositoryId ?? undefined),
         ])
           .then(([projectTemplates, globalTemplates, projectBranches]) => {
             // Combine templates with project templates first
@@ -205,7 +207,13 @@ export const TaskFormDialog = NiceModal.create<TaskFormDialogProps>(
           })
           .catch(console.error);
       }
-    }, [modal.visible, isEditMode, projectId, initialBaseBranch]);
+    }, [
+      modal.visible,
+      isEditMode,
+      projectId,
+      initialBaseBranch,
+      selectedRepositoryId,
+    ]);
 
     // Fetch parent base branch when parentTaskAttemptId is provided
     useEffect(() => {
@@ -488,6 +496,7 @@ export const TaskFormDialog = NiceModal.create<TaskFormDialogProps>(
                   className="mt-1.5"
                   disabled={isSubmitting || isSubmittingAndStart}
                   projectId={projectId}
+                  repositoryId={selectedRepositoryId ?? undefined}
                   onCommandEnter={
                     isEditMode ? handleSubmit : handleCreateAndStart
                   }

@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, SqlitePool};
+
 use thiserror::Error;
 use ts_rs::TS;
 use uuid::Uuid;
@@ -153,7 +154,8 @@ impl Project {
         data: &CreateProject,
         project_id: Uuid,
     ) -> Result<Self, sqlx::Error> {
-        sqlx::query_as!(
+        let mut tx = pool.begin().await?;
+        let project = sqlx::query_as!(
             Project,
             r#"INSERT INTO projects (id, name, git_repo_path, setup_script, dev_script, cleanup_script, copy_files) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id as "id!: Uuid", name, git_repo_path, setup_script, dev_script, cleanup_script, copy_files, created_at as "created_at!: DateTime<Utc>", updated_at as "updated_at!: DateTime<Utc>""#,
             project_id,
@@ -164,8 +166,25 @@ impl Project {
             data.cleanup_script,
             data.copy_files
         )
-        .fetch_one(pool)
-        .await
+        .fetch_one(&mut *tx)
+        .await?;
+
+        let repo_id = Uuid::new_v4();
+        sqlx::query!(
+            r#"INSERT INTO project_repositories (id, project_id, name, git_repo_path, root_path, is_primary)
+               VALUES ($1, $2, $3, $4, $5, 1)"#,
+            repo_id,
+            project.id,
+            "Primary",
+            data.git_repo_path,
+            ""
+        )
+        .execute(&mut *tx)
+        .await?;
+
+        tx.commit().await?;
+
+        Ok(project)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -179,7 +198,8 @@ impl Project {
         cleanup_script: Option<String>,
         copy_files: Option<String>,
     ) -> Result<Self, sqlx::Error> {
-        sqlx::query_as!(
+        let mut tx = pool.begin().await?;
+        let project = sqlx::query_as!(
             Project,
             r#"UPDATE projects SET name = $2, git_repo_path = $3, setup_script = $4, dev_script = $5, cleanup_script = $6, copy_files = $7 WHERE id = $1 RETURNING id as "id!: Uuid", name, git_repo_path, setup_script, dev_script, cleanup_script, copy_files, created_at as "created_at!: DateTime<Utc>", updated_at as "updated_at!: DateTime<Utc>""#,
             id,
@@ -190,8 +210,38 @@ impl Project {
             cleanup_script,
             copy_files
         )
-        .fetch_one(pool)
-        .await
+        .fetch_one(&mut *tx)
+        .await?;
+
+        let result = sqlx::query!(
+            r#"UPDATE project_repositories
+               SET git_repo_path = $2,
+                   updated_at = datetime('now', 'subsec')
+               WHERE project_id = $1 AND is_primary = 1"#,
+            id,
+            git_repo_path
+        )
+        .execute(&mut *tx)
+        .await?;
+
+        if result.rows_affected() == 0 {
+            let repo_id = Uuid::new_v4();
+            sqlx::query!(
+                r#"INSERT INTO project_repositories (id, project_id, name, git_repo_path, root_path, is_primary)
+                   VALUES ($1, $2, $3, $4, $5, 1)"#,
+                repo_id,
+                id,
+                "Primary",
+                git_repo_path,
+                ""
+            )
+            .execute(&mut *tx)
+            .await?;
+        }
+
+        tx.commit().await?;
+
+        Ok(project)
     }
 
     pub async fn delete(pool: &SqlitePool, id: Uuid) -> Result<u64, sqlx::Error> {

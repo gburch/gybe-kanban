@@ -14,7 +14,6 @@ use serde::{Deserialize, Serialize};
 use strum_macros::AsRefStr;
 use tokio::{io::AsyncWriteExt, process::Command};
 use ts_rs::TS;
-use uuid::Uuid;
 use workspace_utils::{
     diff::{concatenate_diff_hunks, extract_unified_diff_hunks},
     msg_store::MsgStore,
@@ -23,6 +22,7 @@ use workspace_utils::{
 };
 
 use crate::{
+    actions::ExecutorSpawnContext,
     command::{CmdOverrides, CommandBuilder, apply_overrides},
     executors::{
         AppendPrompt, ExecutorError, SpawnedChild, StandardCodingAgentExecutor,
@@ -150,9 +150,8 @@ impl Codex {
 impl StandardCodingAgentExecutor for Codex {
     async fn spawn(
         &self,
-        current_dir: &Path,
+        ctx: ExecutorSpawnContext<'_>,
         prompt: &str,
-        attempt_id: Option<&Uuid>,
     ) -> Result<SpawnedChild, ExecutorError> {
         let (shell_cmd, shell_arg) = get_shell_command();
         let codex_command = self.build_command_builder().build_initial();
@@ -165,15 +164,13 @@ impl StandardCodingAgentExecutor for Codex {
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
-            .current_dir(current_dir)
+            .current_dir(ctx.current_dir)
             .arg(shell_arg)
             .arg(&codex_command)
             .env("NODE_NO_WARNINGS", "1")
             .env("RUST_LOG", "info");
 
-        if let Some(attempt_id) = attempt_id {
-            command.env("VIBE_PARENT_TASK_ATTEMPT_ID", attempt_id.to_string());
-        }
+        ctx.apply_environment(&mut command);
 
         let mut child = command.group_spawn()?;
 
@@ -188,10 +185,9 @@ impl StandardCodingAgentExecutor for Codex {
 
     async fn spawn_follow_up(
         &self,
-        current_dir: &Path,
+        ctx: ExecutorSpawnContext<'_>,
         prompt: &str,
         session_id: &str,
-        attempt_id: Option<&Uuid>,
     ) -> Result<SpawnedChild, ExecutorError> {
         // Fork rollout: copy and assign a new session id so each execution has a unique session
         let (_rollout_file_path, new_session_id) = SessionHandler::fork_rollout_file(session_id)
@@ -210,15 +206,13 @@ impl StandardCodingAgentExecutor for Codex {
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
-            .current_dir(current_dir)
+            .current_dir(ctx.current_dir)
             .arg(shell_arg)
             .arg(&codex_command)
             .env("NODE_NO_WARNINGS", "1")
             .env("RUST_LOG", "info");
 
-        if let Some(attempt_id) = attempt_id {
-            command.env("VIBE_PARENT_TASK_ATTEMPT_ID", attempt_id.to_string());
-        }
+        ctx.apply_environment(&mut command);
 
         let mut child = command.group_spawn()?;
 

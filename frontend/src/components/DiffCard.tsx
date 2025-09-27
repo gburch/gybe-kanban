@@ -7,6 +7,7 @@ import { getHighLightLanguageFromPath } from '@/utils/extToLanguage';
 import { getActualTheme } from '@/utils/theme';
 import { stripLineEnding } from '@/utils/string';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import {
   ChevronRight,
   ChevronUp,
@@ -76,10 +77,14 @@ export default function DiffCard({
   const theme = getActualTheme(config?.theme);
   const { comments, drafts, setDraft } = useReview();
   const globalMode = useDiffViewMode();
-  const { projectId } = useProject();
+  const { projectId, repositoriesById } = useProject();
 
   const oldName = diff.oldPath || undefined;
   const newName = diff.newPath || oldName || 'unknown';
+  const repositoryId = diff.repositoryId ?? null;
+  const repositoryName =
+    diff.repositoryName ||
+    (repositoryId ? repositoriesById[repositoryId]?.name : undefined);
   const oldLang =
     getHighLightLanguageFromPath(oldName || newName || '') || 'plaintext';
   const newLang =
@@ -182,24 +187,34 @@ export default function DiffCard({
         onSave={props.onClose}
         onCancel={props.onClose}
         projectId={projectId}
+        repositoryId={repositoryId}
       />
     );
   };
 
   const renderExtendLine = (lineData: any) => {
     return (
-      <ReviewCommentRenderer comment={lineData.data} projectId={projectId} />
+      <ReviewCommentRenderer
+        comment={lineData.data}
+        projectId={projectId}
+        repositoryId={repositoryId}
+      />
     );
   };
 
   // Title row
   const title = (
-    <p
+    <div
       className="text-xs font-mono overflow-x-auto flex-1"
       style={{ color: 'hsl(var(--muted-foreground) / 0.7)' }}
     >
       <Icon className="h-3 w-3 inline mr-2" aria-hidden />
       {label && <span className="mr-2">{label}</span>}
+      {repositoryName && (
+        <Badge variant="outline" className="mr-2 text-[10px]">
+          {repositoryName}
+        </Badge>
+      )}
       {diff.change === 'renamed' && oldName ? (
         <span className="inline-flex items-center gap-2">
           <span>{oldName}</span>
@@ -221,7 +236,7 @@ export default function DiffCard({
           {commentsForFile.length}
         </span>
       )}
-    </p>
+    </div>
   );
 
   const handleOpenInIDE = async () => {

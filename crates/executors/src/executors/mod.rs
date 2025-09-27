@@ -10,10 +10,10 @@ use sqlx::Type;
 use strum_macros::{Display, EnumDiscriminants, EnumString, VariantNames};
 use thiserror::Error;
 use ts_rs::TS;
-use uuid::Uuid;
 use workspace_utils::msg_store::MsgStore;
 
 use crate::{
+    actions::ExecutorSpawnContext,
     executors::{
         amp::Amp, claude::ClaudeCode, codex::Codex, cursor::Cursor, gemini::Gemini,
         opencode::Opencode, qwen::QwenCode,
@@ -139,16 +139,14 @@ impl CodingAgent {
 pub trait StandardCodingAgentExecutor {
     async fn spawn(
         &self,
-        current_dir: &Path,
+        ctx: ExecutorSpawnContext<'_>,
         prompt: &str,
-        attempt_id: Option<&Uuid>,
     ) -> Result<SpawnedChild, ExecutorError>;
     async fn spawn_follow_up(
         &self,
-        current_dir: &Path,
+        ctx: ExecutorSpawnContext<'_>,
         prompt: &str,
         session_id: &str,
-        attempt_id: Option<&Uuid>,
     ) -> Result<SpawnedChild, ExecutorError>;
     fn normalize_logs(&self, _raw_logs_event_store: Arc<MsgStore>, _worktree_path: &Path);
 

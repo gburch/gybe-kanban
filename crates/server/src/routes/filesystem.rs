@@ -1,3 +1,5 @@
+use std::path::Path;
+
 use axum::{
     Router,
     extract::{Query, State},
@@ -14,13 +16,21 @@ use crate::{DeploymentImpl, error::ApiError};
 #[derive(Debug, Deserialize)]
 pub struct ListDirectoryQuery {
     path: Option<String>,
+    base: Option<String>,
 }
 
 pub async fn list_directory(
     State(deployment): State<DeploymentImpl>,
     Query(query): Query<ListDirectoryQuery>,
 ) -> Result<ResponseJson<ApiResponse<DirectoryListResponse>>, ApiError> {
-    match deployment.filesystem().list_directory(query.path).await {
+    let target_path = match (query.base.as_deref(), query.path.as_deref()) {
+        (Some(base), Some(path)) => Some(Path::new(base).join(path).to_string_lossy().to_string()),
+        (Some(base), None) => Some(base.to_string()),
+        (None, Some(path)) => Some(path.to_string()),
+        (None, None) => None,
+    };
+
+    match deployment.filesystem().list_directory(target_path).await {
         Ok(response) => Ok(ResponseJson(ApiResponse::success(response))),
         Err(FilesystemError::DirectoryDoesNotExist) => {
             Ok(ResponseJson(ApiResponse::error("Directory does not exist")))

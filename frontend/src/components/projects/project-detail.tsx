@@ -19,10 +19,12 @@ import {
   Calendar,
   CheckSquare,
   Clock,
+  Folder,
   Edit,
   Loader2,
   Trash2,
 } from 'lucide-react';
+import { useProject } from '@/contexts/project-context';
 
 interface ProjectDetailProps {
   projectId: string;
@@ -34,6 +36,7 @@ export function ProjectDetail({ projectId, onBack }: ProjectDetailProps) {
   const [project, setProject] = useState<Project | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const { repositories, isRepositoriesLoading } = useProject();
 
   const fetchProject = useCallback(async () => {
     setLoading(true);
@@ -230,6 +233,63 @@ export function ProjectDetail({ projectId, onBack }: ProjectDetailProps) {
                 {new Date(project.updated_at).toLocaleString()}
               </p>
             </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center">
+              <Folder className="mr-2 h-5 w-5" />
+              Repositories
+            </CardTitle>
+            <CardDescription>
+              Connected repositories for this project
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {isRepositoriesLoading ? (
+              <div className="flex items-center text-sm text-muted-foreground">
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Loading
+                repositories…
+              </div>
+            ) : repositories.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                No repositories configured yet.
+              </p>
+            ) : (
+              <div className="space-y-3">
+                {repositories.map((repo) => (
+                  <div
+                    key={repo.id}
+                    className="rounded border border-border p-3 text-sm"
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium truncate" title={repo.name}>
+                        {repo.name}
+                      </span>
+                      {repo.is_primary && (
+                        <Badge variant="outline" className="text-[10px]">
+                          Primary
+                        </Badge>
+                      )}
+                    </div>
+                    <div className="mt-1 text-xs text-muted-foreground break-all">
+                      <span className="font-medium">Path:</span>{' '}
+                      <span title={repo.git_repo_path}>{repo.git_repo_path}</span>
+                    </div>
+                    {repo.root_path ? (
+                      <div className="mt-1 text-xs text-muted-foreground break-all">
+                        <span className="font-medium">Root:</span>{' '}
+                        <span title={repo.root_path}>{repo.root_path}</span>
+                      </div>
+                    ) : null}
+                    <div className="mt-1 text-xs text-muted-foreground">
+                      Updated{' '}
+                      {new Date(repo.updated_at).toLocaleString()}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>

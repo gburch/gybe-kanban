@@ -1,4 +1,4 @@
-import { useDiffStream } from '@/hooks/useDiffStream';
+import { useDiffEntries } from '@/hooks/useDiffEntries';
 import { useMemo, useCallback, useState, useEffect } from 'react';
 import { Loader } from '@/components/ui/loader';
 import { Button } from '@/components/ui/button';
@@ -6,6 +6,7 @@ import DiffViewSwitch from '@/components/diff-view-switch';
 import DiffCard from '@/components/DiffCard';
 import { useDiffSummary } from '@/hooks/useDiffSummary';
 import type { TaskAttempt } from 'shared/types';
+import { useProject } from '@/contexts/project-context';
 
 interface DiffTabProps {
   selectedAttempt: TaskAttempt | null;
@@ -15,19 +16,25 @@ function DiffTab({ selectedAttempt }: DiffTabProps) {
   const [loading, setLoading] = useState(true);
   const [collapsedIds, setCollapsedIds] = useState<Set<string>>(new Set());
   const [hasInitialized, setHasInitialized] = useState(false);
-  const { diffs, error } = useDiffStream(selectedAttempt?.id ?? null, true);
+  const { selectedRepositoryId } = useProject();
+  const { diffs, error } = useDiffEntries(
+    selectedAttempt?.id ?? null,
+    true,
+    selectedRepositoryId
+  );
   const { fileCount, added, deleted } = useDiffSummary(
-    selectedAttempt?.id ?? null
+    selectedAttempt?.id ?? null,
+    selectedRepositoryId
   );
 
   useEffect(() => {
     setLoading(true);
     setHasInitialized(false);
-  }, [selectedAttempt?.id]);
+  }, [selectedAttempt?.id, selectedRepositoryId]);
 
   useEffect(() => {
     setLoading(true);
-  }, [selectedAttempt?.id]);
+  }, [selectedAttempt?.id, selectedRepositoryId]);
 
   useEffect(() => {
     if (diffs.length > 0 && loading) {

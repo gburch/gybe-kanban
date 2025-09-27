@@ -11,8 +11,10 @@ use axum::{
 use db::models::project::{
     CreateProject, Project, ProjectError, SearchMatchType, SearchResult, UpdateProject,
 };
+use db::models::project_repository::ProjectRepository;
 use deployment::Deployment;
 use ignore::WalkBuilder;
+use serde::Deserialize;
 use services::services::{
     file_ranker::FileRanker,
     file_search_cache::{CacheError, SearchMode, SearchQuery},
@@ -22,6 +24,18 @@ use utils::{path::expand_tilde, response::ApiResponse};
 use uuid::Uuid;
 
 use crate::{DeploymentImpl, error::ApiError, middleware::load_project_middleware};
+
+#[derive(Debug, Deserialize)]
+pub struct RepositoryQuery {
+    pub repo_id: Option<Uuid>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ProjectSearchQuery {
+    #[serde(flatten)]
+    pub search: SearchQuery,
+    pub repo_id: Option<Uuid>,
+}
 
 pub async fn get_projects(
     State(deployment): State<DeploymentImpl>,
@@ -39,9 +53,30 @@ pub async fn get_project(
 pub async fn get_project_branches(
     Extension(project): Extension<Project>,
     State(deployment): State<DeploymentImpl>,
+    Query(repo_query): Query<RepositoryQuery>,
 ) -> Result<ResponseJson<ApiResponse<Vec<GitBranch>>>, ApiError> {
-    let branches = deployment.git().get_all_branches(&project.git_repo_path)?;
+    let repo_path = if let Some(repo_id) = repo_query.repo_id {
+        match ProjectRepository::find_by_id(&deployment.db().pool, repo_id).await? {
+            Some(repo) if repo.project_id == project.id => repo.git_repo_path,
+            _ => {
+                return Ok(ResponseJson(ApiResponse::error(
+                    "Repository not found for this project",
+                )));
+            }
+        }
+    } else {
+        project.git_repo_path.clone()
+    };
+
+    let branches = deployment.git().get_all_branches(&repo_path)?;
     Ok(ResponseJson(ApiResponse::success(branches)))
+}
+pub async fn get_project_repositories(
+    Extension(project): Extension<Project>,
+    State(deployment): State<DeploymentImpl>,
+) -> Result<ResponseJson<ApiResponse<Vec<ProjectRepository>>>, ApiError> {
+    let repos = ProjectRepository::list_for_project(&deployment.db().pool, project.id).await?;
+    Ok(ResponseJson(ApiResponse::success(repos)))
 }
 
 pub async fn create_project(
@@ -283,10 +318,10 @@ pub async fn open_project_in_editor(
 pub async fn search_project_files(
     State(deployment): State<DeploymentImpl>,
     Extension(project): Extension<Project>,
-    Query(search_query): Query<SearchQuery>,
+    Query(params): Query<ProjectSearchQuery>,
 ) -> Result<ResponseJson<ApiResponse<Vec<SearchResult>>>, StatusCode> {
-    let query = search_query.q.trim();
-    let mode = search_query.mode;
+    let query = params.search.q.trim();
+    let mode = params.search.mode.clone();
 
     if query.is_empty() {
         return Ok(ResponseJson(ApiResponse::error(
@@ -294,57 +329,104 @@ pub async fn search_project_files(
         )));
     }
 
-    let repo_path = &project.git_repo_path;
+    let pool = &deployment.db().pool;
+    let (repo_path, repo_root) = if let Some(repo_id) = params.repo_id {
+        match ProjectRepository::find_by_id(pool, repo_id).await {
+            Ok(Some(repo)) if repo.project_id == project.id => {
+                (repo.git_repo_path.clone(), repo.root_path.clone())
+            }
+            Ok(Some(_)) => {
+                return Ok(ResponseJson(ApiResponse::error(
+                    "Repository not found for this project",
+                )));
+            }
+            Ok(None) => {
+                return Ok(ResponseJson(ApiResponse::error("Repository not found")));
+            }
+            Err(e) => {
+                tracing::error!("Failed to load repository {}: {}", repo_id, e);
+                return Err(StatusCode::INTERNAL_SERVER_ERROR);
+            }
+        }
+    } else {
+        (project.git_repo_path.clone(), String::new())
+    };
+
+    let search_root = if repo_root.is_empty() {
+        repo_path.clone()
+    } else {
+        repo_path.join(&repo_root)
+    };
+
+    if !search_root.exists() {
+        tracing::warn!(
+            "Search root {:?} does not exist for project {}",
+            search_root,
+            project.id
+        );
+        return Ok(ResponseJson(ApiResponse::error(
+            "Selected repository root does not exist",
+        )));
+    }
+
     let file_search_cache = deployment.file_search_cache();
 
-    // Try cache first
-    match file_search_cache
-        .search(repo_path, query, mode.clone())
+    let results = match file_search_cache
+        .search(&search_root, query, mode.clone())
         .await
     {
         Ok(results) => {
             tracing::debug!(
-                "Cache hit for repo {:?}, query: {}, mode: {:?}",
-                repo_path,
+                "Cache hit for repo root {:?}, query: {}, mode: {:?}",
+                search_root,
                 query,
                 mode
             );
-            Ok(ResponseJson(ApiResponse::success(results)))
+            results
         }
         Err(CacheError::Miss) => {
-            // Cache miss - fall back to filesystem search
             tracing::debug!(
-                "Cache miss for repo {:?}, query: {}, mode: {:?}",
-                repo_path,
+                "Cache miss for repo root {:?}, query: {}, mode: {:?}",
+                search_root,
                 query,
                 mode
             );
-            match search_files_in_repo(&project.git_repo_path.to_string_lossy(), query, mode).await
-            {
-                Ok(results) => Ok(ResponseJson(ApiResponse::success(results))),
+            let root_opt = if repo_root.is_empty() {
+                None
+            } else {
+                Some(repo_root.as_str())
+            };
+            match search_files_in_repo(&repo_path.to_string_lossy(), root_opt, query, mode).await {
+                Ok(results) => results,
                 Err(e) => {
                     tracing::error!("Failed to search files: {}", e);
-                    Err(StatusCode::INTERNAL_SERVER_ERROR)
+                    return Err(StatusCode::INTERNAL_SERVER_ERROR);
                 }
             }
         }
-        Err(CacheError::BuildError(e)) => {
-            tracing::error!("Cache build error for repo {:?}: {}", repo_path, e);
-            // Fall back to filesystem search
-            match search_files_in_repo(&project.git_repo_path.to_string_lossy(), query, mode).await
-            {
-                Ok(results) => Ok(ResponseJson(ApiResponse::success(results))),
+        Err(CacheError::BuildError(err)) => {
+            tracing::error!("Cache build error for repo root {:?}: {}", search_root, err);
+            let root_opt = if repo_root.is_empty() {
+                None
+            } else {
+                Some(repo_root.as_str())
+            };
+            match search_files_in_repo(&repo_path.to_string_lossy(), root_opt, query, mode).await {
+                Ok(results) => results,
                 Err(e) => {
                     tracing::error!("Failed to search files: {}", e);
-                    Err(StatusCode::INTERNAL_SERVER_ERROR)
+                    return Err(StatusCode::INTERNAL_SERVER_ERROR);
                 }
             }
         }
-    }
+    };
+
+    Ok(ResponseJson(ApiResponse::success(results)))
 }
 
 async fn search_files_in_repo(
     repo_path: &str,
+    root_path: Option<&str>,
     query: &str,
     mode: SearchMode,
 ) -> Result<Vec<SearchResult>, Box<dyn std::error::Error + Send + Sync>> {
@@ -354,54 +436,52 @@ async fn search_files_in_repo(
         return Err("Repository path does not exist".into());
     }
 
+    let root_dir = if let Some(root) = root_path.filter(|r| !r.is_empty()) {
+        repo_path.join(root)
+    } else {
+        repo_path.to_path_buf()
+    };
+
+    if !root_dir.exists() {
+        return Err("Repository root does not exist".into());
+    }
+
     let mut results = Vec::new();
     let query_lower = query.to_lowercase();
 
-    // Configure walker based on mode
     let walker = match mode {
-        SearchMode::Settings => {
-            // Settings mode: Include ignored files but exclude performance killers
-            WalkBuilder::new(repo_path)
-                .git_ignore(false) // Include ignored files like .env
-                .git_global(false)
-                .git_exclude(false)
-                .hidden(false)
-                .filter_entry(|entry| {
-                    let name = entry.file_name().to_string_lossy();
-                    // Always exclude .git directories and performance killers
-                    name != ".git"
-                        && name != "node_modules"
-                        && name != "target"
-                        && name != "dist"
-                        && name != "build"
-                })
-                .build()
-        }
-        SearchMode::TaskForm => {
-            // Task form mode: Respect gitignore (cleaner results)
-            WalkBuilder::new(repo_path)
-                .git_ignore(true) // Respect .gitignore
-                .git_global(true) // Respect global .gitignore
-                .git_exclude(true) // Respect .git/info/exclude
-                .hidden(false) // Still show hidden files like .env (if not gitignored)
-                .filter_entry(|entry| {
-                    let name = entry.file_name().to_string_lossy();
-                    name != ".git"
-                })
-                .build()
-        }
+        SearchMode::Settings => WalkBuilder::new(&root_dir)
+            .git_ignore(false)
+            .git_global(false)
+            .git_exclude(false)
+            .hidden(false)
+            .filter_entry(|entry| {
+                let name = entry.file_name().to_string_lossy();
+                name != ".git"
+                    && name != "node_modules"
+                    && name != "target"
+                    && name != "dist"
+                    && name != "build"
+            })
+            .build(),
+        SearchMode::TaskForm => WalkBuilder::new(&root_dir)
+            .git_ignore(true)
+            .git_global(true)
+            .git_exclude(true)
+            .hidden(false)
+            .filter_entry(|entry| entry.file_name().to_string_lossy() != ".git")
+            .build(),
     };
 
     for result in walker {
         let entry = result?;
         let path = entry.path();
 
-        // Skip the root directory itself
-        if path == repo_path {
+        if path == root_dir {
             continue;
         }
 
-        let relative_path = path.strip_prefix(repo_path)?;
+        let relative_path = path.strip_prefix(&root_dir)?;
         let relative_path_str = relative_path.to_string_lossy().to_lowercase();
 
         let file_name = path
@@ -409,7 +489,6 @@ async fn search_files_in_repo(
             .map(|name| name.to_string_lossy().to_lowercase())
             .unwrap_or_default();
 
-        // Check for matches
         if file_name.contains(&query_lower) {
             results.push(SearchResult {
                 path: relative_path.to_string_lossy().to_string(),
@@ -417,7 +496,6 @@ async fn search_files_in_repo(
                 match_type: SearchMatchType::FileName,
             });
         } else if relative_path_str.contains(&query_lower) {
-            // Check if it's a directory name match or full path match
             let match_type = if path
                 .parent()
                 .and_then(|p| p.file_name())
@@ -438,19 +516,14 @@ async fn search_files_in_repo(
         }
     }
 
-    // Apply git history-based ranking
     let file_ranker = FileRanker::new();
     match file_ranker.get_stats(repo_path).await {
-        Ok(stats) => {
-            // Re-rank results using git history
-            file_ranker.rerank(&mut results, &stats);
-        }
+        Ok(stats) => file_ranker.rerank(&mut results, &stats),
         Err(e) => {
             tracing::warn!(
                 "Failed to get git stats for ranking, using basic sort: {}",
                 e
             );
-            // Fallback to basic priority sorting
             results.sort_by(|a, b| {
                 let priority = |match_type: &SearchMatchType| match match_type {
                     SearchMatchType::FileName => 0,
@@ -465,7 +538,6 @@ async fn search_files_in_repo(
         }
     }
 
-    // Limit to top 10 results
     results.truncate(10);
 
     Ok(results)
@@ -478,6 +550,7 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
             get(get_project).put(update_project).delete(delete_project),
         )
         .route("/branches", get(get_project_branches))
+        .route("/repositories", get(get_project_repositories))
         .route("/search", get(search_project_files))
         .route("/open-editor", post(open_project_in_editor))
         .layer(from_fn_with_state(

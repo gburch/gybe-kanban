@@ -144,19 +144,6 @@ pub trait ContainerService {
         Ok(())
     }
 
-    fn cleanup_action(&self, cleanup_script: Option<String>) -> Option<Box<ExecutorAction>> {
-        cleanup_script.map(|script| {
-            Box::new(ExecutorAction::new(
-                ExecutorActionType::ScriptRequest(ScriptRequest {
-                    script,
-                    language: ScriptRequestLanguage::Bash,
-                    context: ScriptContext::CleanupScript,
-                }),
-                None,
-            ))
-        })
-    }
-
     async fn try_stop(&self, task_attempt: &TaskAttempt) {
         // stop all execution processes for this attempt
         if let Ok(processes) =
@@ -210,7 +197,7 @@ pub trait ContainerService {
     async fn stream_diff(
         &self,
         task_attempt: &TaskAttempt,
-        stats_only: bool,
+        project_repository_id: Option<Uuid>,
     ) -> Result<futures::stream::BoxStream<'static, Result<LogMsg, std::io::Error>>, ContainerError>;
 
     /// Fetch the MsgStore for a given execution ID, panicking if missing.
@@ -503,7 +490,16 @@ pub trait ContainerService {
         );
         let prompt = ImageService::canonicalise_image_paths(&task.to_prompt(), &worktree_path);
 
-        let cleanup_action = self.cleanup_action(project.cleanup_script);
+        let cleanup_action = project.cleanup_script.map(|script| {
+            Box::new(ExecutorAction::new(
+                ExecutorActionType::ScriptRequest(ScriptRequest {
+                    script,
+                    language: ScriptRequestLanguage::Bash,
+                    context: ScriptContext::CleanupScript,
+                }),
+                None,
+            ))
+        });
 
         // Choose whether to execute the setup_script or coding agent first
         let execution_process = if let Some(setup_script) = project.setup_script {

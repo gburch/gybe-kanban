@@ -1,0 +1,41 @@
+---
+title: "Multi-Repo Rollout & Monitoring Checklist"
+description: "Step-by-step QA, migration verification, rollout, and monitoring guidance for enabling multi-repository projects."
+---
+
+Multi-repository support introduces new database tables, executor payload metadata, and UI flows. Follow this checklist whenever you enable the feature in a new environment or cut a release that includes multi-repo changes.
+
+## 1. Pre-Deployment QA
+- Run `pnpm install` and ensure the workspace builds locally.
+- Execute `cargo test --workspace` to cover the new Rust integration tests, including the multi-repo container flow.
+- Verify the frontend renders multi-repo controls by running `cd frontend && npm run test -- --run`.
+- Smoke-test manual flows: create a project, attach an additional repository, start an attempt, and confirm both worktrees are created.
+
+## 2. Migration Smoke Tests
+- Copy the seed database and apply migrations with `cargo test -p db --test migration_smoke` (this is the same smoke test executed in CI).
+- For production-like data, run `node scripts/prepare-db.js` against a staging snapshot to confirm the SQL migrations and `sqlx` prepared statements succeed end-to-end.
+- Capture the resulting `project_repositories` and `task_attempt_repositories` row counts for reference; the totals should match the number of projects and task attempts.
+
+## 3. Staged Rollout Steps
+- Upgrade staging nodes first and confirm agents can start attempts that reference multiple repositories.
+- Publish frontend assets and backend binaries together so the new executor payload fields are always available.
+- Announce the rollout window and expected downtime (if any) to internal users.
+- Take a fresh backup of the staging database before promoting to production.
+
+## 4. Production Monitoring & Guardrails
+- Enable structured logging for container creation: look for `Repository metadata missing` or `Worktree path missing` warnings and alert if they appear.
+- Track the following metrics for the first 48 hours after release:
+  - Count of task attempts with more than one repository (`SELECT COUNT(*) FROM task_attempt_repositories WHERE is_primary = 0`).
+  - Average executor bootstrap duration (watch for regressions above historical p95).
+  - Error rates from `/tasks/:id/repositories` API responses.
+- If errors spike, pause new attempt creation, run `WorktreeManager::cleanup_worktree` on affected worktrees, and confirm the database rows were not partially written.
+
+## 5. Rollback & Recovery Plan
+- To roll back, redeploy the previous backend build and run `rollback` on the latest migration with `cargo sqlx migrate revert` (only if the environment can tolerate schema downgrades).
+- Restore the pre-release database backup if migration data integrity is in question.
+- Communicate status updates in the shared ops channel, including the commands executed and timestamps.
+
+## 6. Post-Deployment Follow-Up
+- After 24 hours, confirm automated tests remain green in the default branch and close the rollout ticket.
+- Document any anomalies in this page so future releases can reuse the learnings.
+- Schedule a retrospective with QA to review coverage gaps and update fixtures if new edge cases were found.
