@@ -116,6 +116,7 @@ impl SessionHandler {
         // Generate new UUID for forked session
         let new_id = uuid::Uuid::new_v4().to_string();
         Self::set_session_id_in_rollout_meta(&mut meta, &new_id)?;
+        Self::inject_parent_attempt_instruction(&mut meta);
 
         // Prepare destination path in the same directory, following Codex rollout naming convention.
         // Always create a fresh filename: rollout-<YYYY>-<MM>-<DD>T<HH>-<mm>-<ss>-<session_id>.jsonl
@@ -263,6 +264,56 @@ impl SessionHandler {
     fn new_rollout_filename(new_id: &str) -> String {
         let now_ts = chrono::Local::now().format("%Y-%m-%dT%H-%M-%S").to_string();
         format!("rollout-{now_ts}-{new_id}.jsonl")
+    }
+
+    fn inject_parent_attempt_instruction(meta: &mut serde_json::Value) {
+        let attempt_id = match std::env::var("VIBE_PARENT_TASK_ATTEMPT_ID") {
+            Ok(val) => {
+                let trimmed = val.trim();
+                if trimmed.is_empty() {
+                    return;
+                }
+                trimmed.to_string()
+            }
+            Err(_) => return,
+        };
+
+        let note = format!(
+            "IMPORTANT: Active parent task attempt id: {attempt_id}. When you call the \"create_task\" MCP tool, include `\"parent_task_attempt\": \"{attempt_id}\"` so the new task is linked as a subtask."
+        );
+
+        fn append_note(target: &mut serde_json::Value, note: &str, attempt_id: &str) {
+            match target {
+                serde_json::Value::String(existing) => {
+                    if !existing.contains(attempt_id) {
+                        if existing.trim().is_empty() {
+                            *existing = note.to_string();
+                        } else {
+                            existing.push_str("\n\n");
+                            existing.push_str(note);
+                        }
+                    }
+                }
+                serde_json::Value::Null => {
+                    *target = serde_json::Value::String(note.to_string());
+                }
+                _ => {}
+            }
+        }
+
+        if let Some(obj) = meta.as_object_mut() {
+            if let Some(payload) = obj.get_mut("payload") {
+                if let Some(payload_obj) = payload.as_object_mut() {
+                    let entry = payload_obj
+                        .entry("instructions")
+                        .or_insert(serde_json::Value::Null);
+                    append_note(entry, &note, &attempt_id);
+                }
+            } else {
+                let entry = obj.entry("instructions").or_insert(serde_json::Value::Null);
+                append_note(entry, &note, &attempt_id);
+            }
+        }
     }
 }
 

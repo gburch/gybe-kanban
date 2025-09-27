@@ -437,7 +437,7 @@ impl TaskServer {
                 Some(active_attempt.id)
             }
         } else {
-            match env::var("VIBE_PARENT_TASK_ATTEMPT_ID") {
+            let env_candidate = match env::var("VIBE_PARENT_TASK_ATTEMPT_ID") {
                 Ok(val) => {
                     let trimmed = val.trim();
                     if trimmed.is_empty() {
@@ -483,6 +483,29 @@ impl TaskServer {
                     }
                 }
                 Err(_) => None,
+            };
+
+            if let Some(candidate) = env_candidate {
+                Some(candidate)
+            } else {
+                match TaskAttempt::find_active_coding_agent_for_project(&self.pool, project_uuid)
+                    .await
+                {
+                    Ok(Some(attempt)) => Some(attempt.id),
+                    Ok(None) => None,
+                    Err(e) => {
+                        let error_response = serde_json::json!({
+                            "success": false,
+                            "error": "Failed to resolve active attempt for this project",
+                            "details": e.to_string(),
+                            "project_id": project_id,
+                        });
+                        return Ok(CallToolResult::error(vec![Content::text(
+                            serde_json::to_string_pretty(&error_response)
+                                .unwrap_or_else(|_| "Failed to resolve active attempt".to_string()),
+                        )]));
+                    }
+                }
             }
         };
 
