@@ -73,10 +73,13 @@ function CurrentAttempt({
   setSelectedAttempt,
 }: Props) {
   const { config } = useUserSystem();
-  const { isAttemptRunning, stopExecution, isStopping } = useAttemptExecution(
-    selectedAttempt?.id,
-    task.id
-  );
+  const {
+    isAttemptRunning,
+    stopExecution,
+    isStopping,
+    isLoading: isAttemptExecutionLoading,
+    isFetching: isAttemptExecutionFetching,
+  } = useAttemptExecution(selectedAttempt?.id, task.id);
   const { data: branchStatus, refetch: refetchBranchStatus } = useBranchStatus(
     selectedAttempt?.id
   );
@@ -98,6 +101,26 @@ function CurrentAttempt({
 
   const [copied, setCopied] = useState(false);
 
+  const attemptWorktreeDeleted = selectedAttempt?.worktree_deleted ?? false;
+  const isAttemptStatusKnown =
+    !isAttemptExecutionLoading && !isAttemptExecutionFetching;
+  const canCreateSubtask =
+    Boolean(selectedAttempt?.id) &&
+    !attemptWorktreeDeleted &&
+    (!isAttemptStatusKnown || isAttemptRunning);
+  const subtaskDisabledReason = (() => {
+    if (!selectedAttempt?.id) {
+      return 'Select an attempt before creating a subtask.';
+    }
+    if (attemptWorktreeDeleted) {
+      return "This attempt's workspace has been cleaned up. Start a new attempt to create subtasks.";
+    }
+    if (isAttemptStatusKnown && !isAttemptRunning) {
+      return 'Subtasks require an active coding agent attempt.';
+    }
+    return null;
+  })();
+
   const handleViewDevServerLogs = () => {
     if (latestDevServerProcess) {
       jumpToProcess(latestDevServerProcess.id);
@@ -105,6 +128,9 @@ function CurrentAttempt({
   };
 
   const handleCreateSubtaskClick = () => {
+    if (!canCreateSubtask) {
+      return;
+    }
     openTaskForm({
       projectId,
       initialBaseBranch:
@@ -319,15 +345,40 @@ function CurrentAttempt({
           </div>
 
           {/* Column 3: Create Subtask */}
-          <Button
-            onClick={handleCreateSubtaskClick}
-            variant="outline"
-            size="xs"
-            className="gap-1 flex-1"
-          >
-            <GitFork className="h-3 w-3" />
-            Create Subtask
-          </Button>
+          {subtaskDisabledReason ? (
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="inline-flex">
+                    <Button
+                      onClick={handleCreateSubtaskClick}
+                      variant="outline"
+                      size="xs"
+                      className="gap-1 min-w-[120px]"
+                      disabled={!canCreateSubtask}
+                    >
+                      <GitFork className="h-3 w-3" />
+                      Create Subtask
+                    </Button>
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>{subtaskDisabledReason}</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          ) : (
+            <Button
+              onClick={handleCreateSubtaskClick}
+              variant="outline"
+              size="xs"
+              className="gap-1 min-w-[120px]"
+              disabled={!canCreateSubtask}
+            >
+              <GitFork className="h-3 w-3" />
+              Create Subtask
+            </Button>
+          )}
         </div>
       </div>
     </div>
