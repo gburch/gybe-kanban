@@ -11,7 +11,6 @@ interface SearchBarProps {
   disabled?: boolean;
   onClear?: () => void;
   project: Project | null;
-  repositoryName?: string | null;
 }
 
 export const SearchBar = React.forwardRef<HTMLInputElement, SearchBarProps>(
@@ -22,7 +21,6 @@ export const SearchBar = React.forwardRef<HTMLInputElement, SearchBarProps>(
       onChange,
       disabled = false,
       project,
-      repositoryName,
     },
     ref
   ) => {
@@ -30,7 +28,7 @@ export const SearchBar = React.forwardRef<HTMLInputElement, SearchBarProps>(
       return null;
     }
 
-    const scopeLabel = repositoryName || project?.name || null;
+    const scopeLabel = project?.name || null;
 
     return (
       <div className={cn('relative w-64 sm:w-72', className)}>
@@ -40,7 +38,7 @@ export const SearchBar = React.forwardRef<HTMLInputElement, SearchBarProps>(
           value={value}
           onChange={(e) => onChange?.(e.target.value)}
           disabled={disabled}
-          placeholder={scopeLabel ? `Search ${scopeLabel}...` : 'Search...'}
+          placeholder={scopeLabel ? `Search ${scopeLabel} tasks...` : 'Search tasks...'}
           className="pl-8 pr-14 h-8 bg-muted"
         />
       </div>

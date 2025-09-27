@@ -21,7 +21,6 @@ import { SearchBar } from '@/components/search-bar';
 import { useSearch } from '@/contexts/search-context';
 import { openTaskForm } from '@/lib/openTaskForm';
 import { useProject } from '@/contexts/project-context';
-import { ProjectRepositorySwitcher } from '@/components/projects/ProjectRepositorySwitcher';
 import { showProjectForm } from '@/lib/modals';
 import { useOpenProjectInEditor } from '@/hooks/useOpenProjectInEditor';
 
@@ -45,8 +44,8 @@ const EXTERNAL_LINKS = [
 
 export function Navbar() {
   const location = useLocation();
-  const { projectId, project, repositories, activeRepository } = useProject();
-  const { query, setQuery, active, clear, registerInputRef } = useSearch();
+  const { projectId, project } = useProject();
+  const { query, setQuery, active, registerInputRef } = useSearch();
   const handleOpenInEditor = useOpenProjectInEditor(project || null);
 
   const setSearchBarRef = useCallback(
@@ -91,17 +90,8 @@ export function Navbar() {
               value={query}
               onChange={setQuery}
               disabled={!active}
-              onClear={clear}
               project={project || null}
-              repositoryName={activeRepository?.name ?? null}
             />
-            {active && projectId && repositories.length > 0 ? (
-              <ProjectRepositorySwitcher
-                hideIfSingle={false}
-                size="sm"
-                className="w-[200px]"
-              />
-            ) : null}
           </div>
 
           <div className="flex-1 flex justify-end">

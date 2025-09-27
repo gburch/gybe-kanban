@@ -39,7 +39,6 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import NiceModal from '@ebay/nice-modal-react';
 import { useHotkeysContext } from 'react-hotkeys-hook';
 import { useProject } from '@/contexts/project-context';
-import { ProjectRepositorySwitcher } from '@/components/projects/ProjectRepositorySwitcher';
 
 type Task = TaskWithAttemptStatus;
 
@@ -65,8 +64,6 @@ export function ProjectTasks() {
     project,
     isLoading: isProjectLoading,
     error: projectError,
-    repositories,
-    activeRepository,
   } = useProject();
   const [pageError, setPageError] = useState<string | null>(null);
   // Helper functions to open task forms
@@ -471,15 +468,6 @@ export function ProjectTasks() {
       : String(projectError)
     : null;
   const combinedError = pageError ?? projectErrorMessage;
-  const repositoryPath =
-    activeRepository?.git_repo_path ?? project?.git_repo_path ?? null;
-  const repositoryRoot =
-    activeRepository?.root_path && activeRepository.root_path.length > 0
-      ? activeRepository.root_path
-      : null;
-  const showRepositoryToolbar =
-    (repositories.length > 0 || isProjectLoading) && !!projectId;
-
   if (isInitialLoading) {
     return <Loader message={t('loading')} size={32} className="py-8" />;
   }
@@ -502,31 +490,6 @@ export function ProjectTasks() {
     <div
       className={`min-h-full ${getMainContainerClasses(isPanelOpen, isFullscreen)}`}
     >
-      {showRepositoryToolbar && (
-        <div className="border-b border-border bg-muted/40">
-          <div className="max-w-7xl mx-auto flex flex-col gap-1 px-4 py-2 sm:flex-row sm:items-center sm:justify-between">
-            <ProjectRepositorySwitcher
-              hideIfSingle={false}
-              size="sm"
-              className="w-[240px]"
-              label="Repository"
-            />
-            {repositoryPath ? (
-              <div className="text-xs text-muted-foreground flex flex-col sm:flex-row sm:items-center sm:gap-3 gap-1 truncate">
-                <span className="truncate" title={repositoryPath}>
-                  {repositoryPath}
-                </span>
-                {repositoryRoot ? (
-                  <span className="truncate" title={repositoryRoot}>
-                    root: {repositoryRoot}
-                  </span>
-                ) : null}
-              </div>
-            ) : null}
-          </div>
-        </div>
-      )}
-
       {streamError && (
         <Alert className="w-full z-30 xl:sticky xl:top-0">
           <AlertTitle className="flex items-center gap-2">
