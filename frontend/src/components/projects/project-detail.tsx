@@ -10,8 +10,12 @@ import {
 } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Project } from 'shared/types';
-import { showProjectForm } from '@/lib/modals';
+import { Project, type ProjectRepository } from 'shared/types';
+import {
+  showProjectForm,
+  showRepositoryForm,
+  showDeleteRepository,
+} from '@/lib/modals';
 import { projectsApi } from '@/lib/api';
 import {
   AlertCircle,
@@ -23,8 +27,19 @@ import {
   Edit,
   Loader2,
   Trash2,
+  Plus,
+  MoreHorizontal,
+  Pencil,
+  Star,
 } from 'lucide-react';
 import { useProject } from '@/contexts/project-context';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 
 interface ProjectDetailProps {
   projectId: string;
@@ -36,7 +51,16 @@ export function ProjectDetail({ projectId, onBack }: ProjectDetailProps) {
   const [project, setProject] = useState<Project | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const { repositories, isRepositoriesLoading } = useProject();
+  const {
+    repositories,
+    isRepositoriesLoading,
+    updateRepository,
+    isRepositoryMutating,
+  } = useProject();
+  const [repositoryError, setRepositoryError] = useState<string | null>(null);
+  const [pendingRepositoryId, setPendingRepositoryId] = useState<string | null>(
+    null
+  );
 
   const fetchProject = useCallback(async () => {
     setLoading(true);
@@ -81,6 +105,55 @@ export function ProjectDetail({ projectId, onBack }: ProjectDetailProps) {
       }
     } catch (error) {
       // User cancelled - do nothing
+    }
+  };
+
+  const handleAddRepository = async () => {
+    setRepositoryError(null);
+
+    try {
+      await showRepositoryForm({});
+    } catch (err) {
+      // Modal rejected or closed; ignore.
+    }
+  };
+
+  const handleEditRepository = async (repository: ProjectRepository) => {
+    setRepositoryError(null);
+
+    try {
+      await showRepositoryForm({ repository });
+    } catch (err) {
+      // Modal rejected or closed; ignore.
+    }
+  };
+
+  const handleSetPrimary = async (repository: ProjectRepository) => {
+    if (repository.is_primary) return;
+
+    setRepositoryError(null);
+    setPendingRepositoryId(repository.id);
+
+    try {
+      await updateRepository(repository.id, { is_primary: true });
+    } catch (err) {
+      setRepositoryError(
+        err instanceof Error
+          ? err.message
+          : 'Failed to update primary repository'
+      );
+    } finally {
+      setPendingRepositoryId(null);
+    }
+  };
+
+  const handleDeleteRepository = async (repository: ProjectRepository) => {
+    setRepositoryError(null);
+
+    try {
+      await showDeleteRepository({ repository });
+    } catch (err) {
+      // Modal rejected or closed; ignore.
     }
   };
 
@@ -246,6 +319,25 @@ export function ProjectDetail({ projectId, onBack }: ProjectDetailProps) {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
+            <div className="flex items-center justify-between">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handleAddRepository}
+                disabled={isRepositoryMutating}
+              >
+                <Plus className="mr-2 h-4 w-4" /> Add repository
+              </Button>
+            </div>
+
+            {repositoryError ? (
+              <Alert variant="destructive">
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription>{repositoryError}</AlertDescription>
+              </Alert>
+            ) : null}
+
             {isRepositoriesLoading ? (
               <div className="flex items-center text-sm text-muted-foreground">
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Loading
@@ -262,29 +354,94 @@ export function ProjectDetail({ projectId, onBack }: ProjectDetailProps) {
                     key={repo.id}
                     className="rounded border border-border p-3 text-sm"
                   >
-                    <div className="flex items-center gap-2">
-                      <span className="font-medium truncate" title={repo.name}>
-                        {repo.name}
-                      </span>
-                      {repo.is_primary && (
-                        <Badge variant="outline" className="text-[10px]">
-                          Primary
-                        </Badge>
-                      )}
-                    </div>
-                    <div className="mt-1 text-xs text-muted-foreground break-all">
-                      <span className="font-medium">Path:</span>{' '}
-                      <span title={repo.git_repo_path}>{repo.git_repo_path}</span>
-                    </div>
-                    {repo.root_path ? (
-                      <div className="mt-1 text-xs text-muted-foreground break-all">
-                        <span className="font-medium">Root:</span>{' '}
-                        <span title={repo.root_path}>{repo.root_path}</span>
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex flex-col gap-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span
+                            className="font-medium truncate"
+                            title={repo.name}
+                          >
+                            {repo.name}
+                          </span>
+                          {repo.is_primary && (
+                            <Badge variant="outline" className="text-[10px]">
+                              Primary
+                            </Badge>
+                          )}
+                        </div>
+                        <div className="mt-1 text-xs text-muted-foreground break-all">
+                          <span className="font-medium">Path:</span>{' '}
+                          <span title={repo.git_repo_path}>
+                            {repo.git_repo_path}
+                          </span>
+                        </div>
+                        {repo.root_path ? (
+                          <div className="mt-1 text-xs text-muted-foreground break-all">
+                            <span className="font-medium">Root:</span>{' '}
+                            <span title={repo.root_path}>{repo.root_path}</span>
+                          </div>
+                        ) : null}
+                        <div className="mt-1 text-xs text-muted-foreground">
+                          Updated{' '}
+                          {new Date(repo.updated_at).toLocaleString()}
+                        </div>
                       </div>
-                    ) : null}
-                    <div className="mt-1 text-xs text-muted-foreground">
-                      Updated{' '}
-                      {new Date(repo.updated_at).toLocaleString()}
+                      <div className="flex items-center gap-2">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => handleEditRepository(repo)}
+                          disabled={isRepositoryMutating}
+                          aria-label={`Edit ${repo.name}`}
+                        >
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              disabled={
+                                isRepositoryMutating ||
+                                pendingRepositoryId === repo.id
+                              }
+                              aria-label={`Repository actions for ${repo.name}`}
+                            >
+                              <MoreHorizontal className="h-4 w-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" className="w-48">
+                            {!repo.is_primary ? (
+                              <DropdownMenuItem
+                                onSelect={(event) => {
+                                  event.preventDefault();
+                                  handleSetPrimary(repo);
+                                }}
+                                disabled={
+                                  isRepositoryMutating ||
+                                  pendingRepositoryId === repo.id
+                                }
+                              >
+                                <Star className="mr-2 h-4 w-4" /> Make primary
+                              </DropdownMenuItem>
+                            ) : null}
+                            {!repo.is_primary && (
+                              <DropdownMenuSeparator />
+                            )}
+                            <DropdownMenuItem
+                              onSelect={(event) => {
+                                event.preventDefault();
+                                handleDeleteRepository(repo);
+                              }}
+                              className="text-destructive focus:text-destructive"
+                            >
+                              <Trash2 className="mr-2 h-4 w-4" /> Remove
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </div>
                     </div>
                   </div>
                 ))}

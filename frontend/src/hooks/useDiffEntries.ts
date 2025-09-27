@@ -13,7 +13,11 @@ export const useDiffEntries = (
   enabled: boolean,
   repositoryId?: string | null
 ): UseDiffEntriesResult => {
-  const { data, isConnected, error } = useDiffStream(attemptId, enabled);
+  const { data, isConnected, error } = useDiffStream(
+    attemptId,
+    enabled,
+    repositoryId
+  );
 
   const diffs = useMemo(() => {
     if (!data) return [];

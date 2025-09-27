@@ -1,17 +1,19 @@
-use std::path::Path;
+use std::path::{Component, Path, PathBuf};
 
 use axum::{
     Extension, Json, Router,
-    extract::{Query, State},
+    extract::{Path as AxumPath, Query, State},
     http::StatusCode,
     middleware::from_fn_with_state,
     response::Json as ResponseJson,
-    routing::{get, post},
+    routing::{get, post, put},
 };
 use db::models::project::{
     CreateProject, Project, ProjectError, SearchMatchType, SearchResult, UpdateProject,
 };
-use db::models::project_repository::ProjectRepository;
+use db::models::project_repository::{
+    CreateProjectRepository, ProjectRepository, ProjectRepositoryError, UpdateProjectRepository,
+};
 use deployment::Deployment;
 use ignore::WalkBuilder;
 use serde::Deserialize;
@@ -55,20 +57,41 @@ pub async fn get_project_branches(
     State(deployment): State<DeploymentImpl>,
     Query(repo_query): Query<RepositoryQuery>,
 ) -> Result<ResponseJson<ApiResponse<Vec<GitBranch>>>, ApiError> {
-    let repo_path = if let Some(repo_id) = repo_query.repo_id {
-        match ProjectRepository::find_by_id(&deployment.db().pool, repo_id).await? {
-            Some(repo) if repo.project_id == project.id => repo.git_repo_path,
-            _ => {
-                return Ok(ResponseJson(ApiResponse::error(
-                    "Repository not found for this project",
-                )));
+    let pool = &deployment.db().pool;
+    let (repo_path, repo_meta): (PathBuf, Option<ProjectRepository>) =
+        if let Some(repo_id) = repo_query.repo_id {
+            match ProjectRepository::find_by_id(pool, repo_id).await? {
+                Some(repo) if repo.project_id == project.id => {
+                    let repo_path = repo.git_repo_path.clone();
+                    (repo_path, Some(repo))
+                }
+                Some(_) => {
+                    return Ok(ResponseJson(ApiResponse::error(
+                        "Repository not found for this project",
+                    )));
+                }
+                None => {
+                    return Ok(ResponseJson(ApiResponse::error("Repository not found")));
+                }
             }
-        }
-    } else {
-        project.git_repo_path.clone()
-    };
+        } else {
+            match ProjectRepository::find_primary(pool, project.id).await? {
+                Some(primary) => {
+                    let repo_path = primary.git_repo_path.clone();
+                    (repo_path, Some(primary))
+                }
+                None => (project.git_repo_path.clone(), None),
+            }
+        };
 
-    let branches = deployment.git().get_all_branches(&repo_path)?;
+    let mut branches = deployment.git().get_all_branches(&repo_path)?;
+    if let Some(repo) = repo_meta.as_ref() {
+        for branch in branches.iter_mut() {
+            branch.repository_id = Some(repo.id);
+            branch.repository_name = Some(repo.name.clone());
+        }
+    }
+
     Ok(ResponseJson(ApiResponse::success(branches)))
 }
 pub async fn get_project_repositories(
@@ -77,6 +100,265 @@ pub async fn get_project_repositories(
 ) -> Result<ResponseJson<ApiResponse<Vec<ProjectRepository>>>, ApiError> {
     let repos = ProjectRepository::list_for_project(&deployment.db().pool, project.id).await?;
     Ok(ResponseJson(ApiResponse::success(repos)))
+}
+
+pub async fn create_project_repository(
+    Extension(project): Extension<Project>,
+    State(deployment): State<DeploymentImpl>,
+    Json(payload): Json<CreateProjectRepository>,
+) -> Result<ResponseJson<ApiResponse<ProjectRepository>>, StatusCode> {
+    if payload.name.trim().is_empty() {
+        return Ok(ResponseJson(ApiResponse::error(
+            "Repository name cannot be empty",
+        )));
+    }
+
+    let CreateProjectRepository {
+        name,
+        git_repo_path,
+        root_path,
+        is_primary,
+    } = payload;
+
+    let expanded_path = expand_tilde(&git_repo_path);
+    let absolute_path = match std::path::absolute(&expanded_path) {
+        Ok(path) => path,
+        Err(e) => {
+            tracing::warn!("Failed to resolve repository path {}: {}", git_repo_path, e);
+            return Ok(ResponseJson(ApiResponse::error(
+                "Failed to resolve repository path on disk",
+            )));
+        }
+    };
+
+    if !absolute_path.exists() {
+        return Ok(ResponseJson(ApiResponse::error(
+            "The specified repository path does not exist",
+        )));
+    }
+
+    if !absolute_path.is_dir() {
+        return Ok(ResponseJson(ApiResponse::error(
+            "The specified repository path is not a directory",
+        )));
+    }
+
+    if !absolute_path.join(".git").exists() {
+        return Ok(ResponseJson(ApiResponse::error(
+            "The specified directory is not a git repository",
+        )));
+    }
+
+    let sanitized_root = root_path.and_then(|value| {
+        let trimmed = value.trim();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed.to_string())
+        }
+    });
+
+    if let Some(root) = sanitized_root.as_ref() {
+        let relative_root = Path::new(root);
+        if relative_root.is_absolute()
+            || relative_root
+                .components()
+                .any(|component| matches!(component, Component::ParentDir | Component::Prefix(_)))
+        {
+            return Ok(ResponseJson(ApiResponse::error(
+                "Repository root path must be relative to the repository",
+            )));
+        }
+
+        let candidate = absolute_path.join(relative_root);
+        if !candidate.exists() {
+            return Ok(ResponseJson(ApiResponse::error(
+                "The specified root path does not exist within the repository",
+            )));
+        }
+    }
+
+    let request = CreateProjectRepository {
+        name,
+        git_repo_path: absolute_path.to_string_lossy().to_string(),
+        root_path: sanitized_root,
+        is_primary,
+    };
+
+    match ProjectRepository::create(&deployment.db().pool, project.id, &request).await {
+        Ok(repository) => Ok(ResponseJson(ApiResponse::success(repository))),
+        Err(ProjectRepositoryError::DuplicateName) => Ok(ResponseJson(ApiResponse::error(
+            "A repository with this name already exists for this project",
+        ))),
+        Err(ProjectRepositoryError::DuplicatePath) => Ok(ResponseJson(ApiResponse::error(
+            "This repository path and root are already connected to the project",
+        ))),
+        Err(ProjectRepositoryError::Validation(message)) => {
+            Ok(ResponseJson(ApiResponse::error(&message)))
+        }
+        Err(ProjectRepositoryError::PrimaryRequired) => Ok(ResponseJson(ApiResponse::error(
+            "At least one primary repository must remain configured",
+        ))),
+        Err(ProjectRepositoryError::NotFound) => Err(StatusCode::NOT_FOUND),
+        Err(ProjectRepositoryError::Database(err)) => {
+            tracing::error!(
+                "Failed to create project repository for project {}: {}",
+                project.id,
+                err
+            );
+            Err(StatusCode::INTERNAL_SERVER_ERROR)
+        }
+    }
+}
+
+pub async fn update_project_repository(
+    Extension(project): Extension<Project>,
+    State(deployment): State<DeploymentImpl>,
+    AxumPath(repo_id): AxumPath<Uuid>,
+    Json(mut payload): Json<UpdateProjectRepository>,
+) -> Result<ResponseJson<ApiResponse<ProjectRepository>>, StatusCode> {
+    let existing_repo = match ProjectRepository::find_by_id(&deployment.db().pool, repo_id).await {
+        Ok(Some(repo)) if repo.project_id == project.id => repo,
+        Ok(Some(_)) => return Err(StatusCode::NOT_FOUND),
+        Ok(None) => return Err(StatusCode::NOT_FOUND),
+        Err(e) => {
+            tracing::error!(
+                "Failed to load repository {} for project {}: {}",
+                repo_id,
+                project.id,
+                e
+            );
+            return Err(StatusCode::INTERNAL_SERVER_ERROR);
+        }
+    };
+
+    if let Some(name) = payload.name.as_ref() {
+        if name.trim().is_empty() {
+            return Ok(ResponseJson(ApiResponse::error(
+                "Repository name cannot be empty",
+            )));
+        }
+    }
+
+    let mut effective_repo_path = existing_repo.git_repo_path.clone();
+
+    if let Some(path) = payload.git_repo_path.as_mut() {
+        let expanded = expand_tilde(path);
+        let absolute = match std::path::absolute(&expanded) {
+            Ok(value) => value,
+            Err(e) => {
+                tracing::warn!("Failed to resolve repository path {}: {}", path, e);
+                return Ok(ResponseJson(ApiResponse::error(
+                    "Failed to resolve repository path on disk",
+                )));
+            }
+        };
+
+        if !absolute.exists() {
+            return Ok(ResponseJson(ApiResponse::error(
+                "The specified repository path does not exist",
+            )));
+        }
+
+        if !absolute.is_dir() {
+            return Ok(ResponseJson(ApiResponse::error(
+                "The specified repository path is not a directory",
+            )));
+        }
+
+        if !absolute.join(".git").exists() {
+            return Ok(ResponseJson(ApiResponse::error(
+                "The specified directory is not a git repository",
+            )));
+        }
+
+        *path = absolute.to_string_lossy().to_string();
+        effective_repo_path = Path::new(path.as_str()).to_path_buf();
+    }
+
+    if let Some(root) = payload.root_path.as_mut() {
+        let trimmed = root.trim();
+        if trimmed.is_empty() {
+            *root = String::new();
+        } else {
+            let relative_root = Path::new(trimmed);
+            if relative_root.is_absolute()
+                || relative_root.components().any(|component| {
+                    matches!(component, Component::ParentDir | Component::Prefix(_))
+                })
+            {
+                return Ok(ResponseJson(ApiResponse::error(
+                    "Repository root path must be relative to the repository",
+                )));
+            }
+
+            let candidate = effective_repo_path.join(relative_root);
+            if !candidate.exists() {
+                return Ok(ResponseJson(ApiResponse::error(
+                    "The specified root path does not exist within the repository",
+                )));
+            }
+
+            *root = trimmed.to_string();
+        }
+    }
+
+    match ProjectRepository::update(&deployment.db().pool, project.id, repo_id, &payload).await {
+        Ok(repository) => Ok(ResponseJson(ApiResponse::success(repository))),
+        Err(ProjectRepositoryError::DuplicateName) => Ok(ResponseJson(ApiResponse::error(
+            "A repository with this name already exists for this project",
+        ))),
+        Err(ProjectRepositoryError::DuplicatePath) => Ok(ResponseJson(ApiResponse::error(
+            "This repository path and root are already connected to the project",
+        ))),
+        Err(ProjectRepositoryError::Validation(message)) => {
+            Ok(ResponseJson(ApiResponse::error(&message)))
+        }
+        Err(ProjectRepositoryError::PrimaryRequired) => Ok(ResponseJson(ApiResponse::error(
+            "At least one primary repository must remain configured",
+        ))),
+        Err(ProjectRepositoryError::NotFound) => Err(StatusCode::NOT_FOUND),
+        Err(ProjectRepositoryError::Database(err)) => {
+            tracing::error!(
+                "Failed to update project repository {} for project {}: {}",
+                repo_id,
+                project.id,
+                err
+            );
+            Err(StatusCode::INTERNAL_SERVER_ERROR)
+        }
+    }
+}
+
+pub async fn delete_project_repository(
+    Extension(project): Extension<Project>,
+    State(deployment): State<DeploymentImpl>,
+    AxumPath(repo_id): AxumPath<Uuid>,
+) -> Result<ResponseJson<ApiResponse<()>>, StatusCode> {
+    match ProjectRepository::delete(&deployment.db().pool, project.id, repo_id).await {
+        Ok(()) => Ok(ResponseJson(ApiResponse::success(()))),
+        Err(ProjectRepositoryError::PrimaryRequired) => Ok(ResponseJson(ApiResponse::error(
+            "Cannot delete the only primary repository. Promote another repository first.",
+        ))),
+        Err(ProjectRepositoryError::NotFound) => Err(StatusCode::NOT_FOUND),
+        Err(ProjectRepositoryError::Validation(message)) => {
+            Ok(ResponseJson(ApiResponse::error(&message)))
+        }
+        Err(ProjectRepositoryError::DuplicateName) | Err(ProjectRepositoryError::DuplicatePath) => {
+            Ok(ResponseJson(ApiResponse::error(
+                "Unable to delete repository due to conflicting configuration",
+            )))
+        }
+        Err(ProjectRepositoryError::Database(err)) => {
+            tracing::error!(
+                "Failed to delete repository {} for project {}: {}",
+                repo_id,
+                project.id,
+                err
+            );
+            Err(StatusCode::INTERNAL_SERVER_ERROR)
+        }
+    }
 }
 
 pub async fn create_project(
@@ -550,7 +832,14 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
             get(get_project).put(update_project).delete(delete_project),
         )
         .route("/branches", get(get_project_branches))
-        .route("/repositories", get(get_project_repositories))
+        .route(
+            "/repositories",
+            get(get_project_repositories).post(create_project_repository),
+        )
+        .route(
+            "/repositories/{repo_id}",
+            put(update_project_repository).delete(delete_project_repository),
+        )
         .route("/search", get(search_project_files))
         .route("/open-editor", post(open_project_in_editor))
         .layer(from_fn_with_state(

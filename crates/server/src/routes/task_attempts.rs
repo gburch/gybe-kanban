@@ -18,7 +18,7 @@ use db::models::{
     merge::{Merge, MergeStatus, PrMerge, PullRequestInfo},
     project::{Project, ProjectError},
     task::{Task, TaskRelationships, TaskStatus},
-    task_attempt::{CreateTaskAttempt, TaskAttempt, TaskAttemptError},
+    task_attempt::{CreateTaskAttempt, CreateTaskAttemptRepository, TaskAttempt, TaskAttemptError},
 };
 use deployment::Deployment;
 use executors::{
@@ -32,7 +32,7 @@ use executors::{
 use git2::BranchType;
 use serde::{Deserialize, Serialize};
 use services::services::{
-    container::ContainerService,
+    container::{ContainerError, ContainerService},
     git::ConflictOp,
     github_service::{CreatePrRequest, GitHubService, GitHubServiceError},
     image::ImageService,
@@ -80,11 +80,21 @@ pub struct ReplaceProcessResult {
     pub new_execution_id: Option<Uuid>,
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+pub struct AttemptRepositorySelection {
+    pub project_repository_id: Uuid,
+    #[serde(default)]
+    pub is_primary: bool,
+}
+
 #[derive(Debug, Deserialize, Serialize, TS)]
 pub struct CreateGitHubPrRequest {
     pub title: String,
     pub body: Option<String>,
     pub base_branch: Option<String>,
+    #[serde(default)]
+    #[ts(type = "string | null")]
+    pub project_repository_id: Option<Uuid>,
 }
 
 #[derive(Debug, Serialize)]
@@ -126,6 +136,8 @@ pub struct CreateTaskAttemptBody {
     /// Executor profile specification
     pub executor_profile_id: ExecutorProfileId,
     pub base_branch: String,
+    #[serde(default)]
+    pub repositories: Vec<AttemptRepositorySelection>,
 }
 
 impl CreateTaskAttemptBody {
@@ -142,11 +154,27 @@ pub async fn create_task_attempt(
 ) -> Result<ResponseJson<ApiResponse<TaskAttempt>>, ApiError> {
     let executor_profile_id = payload.get_executor_profile_id();
 
+    let repository_links = if payload.repositories.is_empty() {
+        None
+    } else {
+        Some(
+            payload
+                .repositories
+                .iter()
+                .map(|repo| CreateTaskAttemptRepository {
+                    project_repository_id: repo.project_repository_id,
+                    is_primary: repo.is_primary,
+                })
+                .collect::<Vec<_>>(),
+        )
+    };
+
     let task_attempt = TaskAttempt::create(
         &deployment.db().pool,
         &CreateTaskAttempt {
             executor: executor_profile_id.executor,
             base_branch: payload.base_branch.clone(),
+            repositories: repository_links,
         },
         payload.task_id,
     )
@@ -1236,23 +1264,26 @@ pub async fn create_github_pr(
         .await?
         .ok_or(ApiError::Project(ProjectError::ProjectNotFound))?;
 
-    // Get branch name from task attempt
-    let branch_name = task_attempt.branch.as_ref().ok_or_else(|| {
-        ApiError::TaskAttempt(TaskAttemptError::ValidationError(
-            "No branch found for task attempt".to_string(),
-        ))
-    })?;
-    let workspace_path = PathBuf::from(
-        deployment
-            .container()
-            .ensure_container_exists(&task_attempt)
-            .await?,
-    );
+    let repo_context = match deployment
+        .container()
+        .resolve_attempt_repository(&task_attempt, request.project_repository_id)
+        .await
+    {
+        Ok(ctx) => ctx,
+        Err(ContainerError::Other(err)) => {
+            let message = format!("Repository validation failed: {err}");
+            return Ok(ResponseJson(ApiResponse::error(&message)));
+        }
+        Err(err) => return Err(err.into()),
+    };
+
+    let branch_name = repo_context.branch_name.clone();
 
     // Push the branch to GitHub first
-    if let Err(e) = deployment
-        .git()
-        .push_to_github(&workspace_path, branch_name, &github_token)
+    if let Err(e) =
+        deployment
+            .git()
+            .push_to_github(&repo_context.worktree_path, &branch_name, &github_token)
     {
         tracing::error!("Failed to push branch to GitHub: {}", e);
         let gh_e = GitHubServiceError::from(e);
@@ -1265,24 +1296,26 @@ pub async fn create_github_pr(
         }
     }
 
+    let repo_path = repo_context.project_repository.git_repo_path.clone();
+
     let norm_base_branch_name = if matches!(
         deployment
             .git()
-            .find_branch_type(&project.git_repo_path, &base_branch)?,
+            .find_branch_type(repo_path.as_path(), &base_branch)?,
         BranchType::Remote
     ) {
         // Remote branches are formatted as {remote}/{branch} locally.
         // For PR APIs, we must provide just the branch name.
         let remote = deployment
             .git()
-            .get_remote_name_from_branch_name(&workspace_path, &base_branch)?;
-        let remote_prefix = format!("{}/", remote);
+            .get_remote_name_from_branch_name(&repo_context.worktree_path, &base_branch)?;
+        let remote_prefix = format!("{remote}/");
         base_branch
             .strip_prefix(&remote_prefix)
             .unwrap_or(&base_branch)
             .to_string()
     } else {
-        base_branch
+        base_branch.clone()
     };
     // Create the PR using GitHub service
     let pr_request = CreatePrRequest {
@@ -1292,9 +1325,7 @@ pub async fn create_github_pr(
         base_branch: norm_base_branch_name.clone(),
     };
     // Use GitService to get the remote URL, then create GitHubRepoInfo
-    let repo_info = deployment
-        .git()
-        .get_github_repo_info(&project.git_repo_path)?;
+    let repo_info = deployment.git().get_github_repo_info(repo_path.as_path())?;
 
     match github_service.create_pr(&repo_info, &pr_request).await {
         Ok(pr_info) => {

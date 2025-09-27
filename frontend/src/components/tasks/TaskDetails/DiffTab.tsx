@@ -16,7 +16,8 @@ function DiffTab({ selectedAttempt }: DiffTabProps) {
   const [loading, setLoading] = useState(true);
   const [collapsedIds, setCollapsedIds] = useState<Set<string>>(new Set());
   const [hasInitialized, setHasInitialized] = useState(false);
-  const { selectedRepositoryId } = useProject();
+  const { selectedRepositoryId, activeRepository } = useProject();
+  const repositoryLabel = activeRepository?.name ?? 'Primary repository';
   const { diffs, error } = useDiffEntries(
     selectedAttempt?.id ?? null,
     true,
@@ -124,6 +125,7 @@ function DiffTab({ selectedAttempt }: DiffTabProps) {
       handleCollapseAll={handleCollapseAll}
       toggle={toggle}
       selectedAttempt={selectedAttempt}
+      repositoryLabel={repositoryLabel}
     />
   );
 }
@@ -138,6 +140,7 @@ interface DiffTabContentProps {
   handleCollapseAll: () => void;
   toggle: (id: string) => void;
   selectedAttempt: TaskAttempt | null;
+  repositoryLabel: string;
 }
 
 function DiffTabContent({
@@ -150,25 +153,31 @@ function DiffTabContent({
   handleCollapseAll,
   toggle,
   selectedAttempt,
+  repositoryLabel,
 }: DiffTabContentProps) {
   return (
     <div className="h-full flex flex-col relative">
       {diffs.length > 0 && (
         <div className="sticky top-0 bg-background border-b px-4 py-2 z-10">
           <div className="flex items-center justify-between gap-4">
-            <span
-              className="text-xs font-mono whitespace-nowrap"
-              aria-live="polite"
-              style={{ color: 'hsl(var(--muted-foreground) / 0.7)' }}
-            >
-              {fileCount} file{fileCount === 1 ? '' : 's'} changed,{' '}
-              <span style={{ color: 'hsl(var(--console-success))' }}>
-                +{added}
-              </span>{' '}
-              <span style={{ color: 'hsl(var(--console-error))' }}>
-                -{deleted}
+            <div className="flex flex-col gap-0.5">
+              <span
+                className="text-xs font-mono whitespace-nowrap"
+                aria-live="polite"
+                style={{ color: 'hsl(var(--muted-foreground) / 0.7)' }}
+              >
+                {fileCount} file{fileCount === 1 ? '' : 's'} changed,{' '}
+                <span style={{ color: 'hsl(var(--console-success))' }}>
+                  +{added}
+                </span>{' '}
+                <span style={{ color: 'hsl(var(--console-error))' }}>
+                  -{deleted}
+                </span>
               </span>
-            </span>
+              <span className="text-xs text-muted-foreground">
+                Repository: {repositoryLabel}
+              </span>
+            </div>
             <div className="flex items-center gap-2">
               <DiffViewSwitch />
               <Button

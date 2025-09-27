@@ -15,6 +15,7 @@ use db::{
         },
         execution_process_logs::ExecutionProcessLogs,
         executor_session::{CreateExecutorSession, ExecutorSession},
+        project_repository::ProjectRepository,
         task::{Task, TaskStatus},
         task_attempt::{TaskAttempt, TaskAttemptError},
     },
@@ -49,6 +50,13 @@ pub struct WorktreeCleanupData {
     pub attempt_id: Uuid,
     pub worktree_path: PathBuf,
     pub git_repo_path: Option<PathBuf>,
+}
+
+#[derive(Debug, Clone)]
+pub struct AttemptRepositoryContext {
+    pub project_repository: ProjectRepository,
+    pub worktree_path: PathBuf,
+    pub branch_name: String,
 }
 
 /// Cleanup worktrees without requiring database access
@@ -199,6 +207,12 @@ pub trait ContainerService {
         task_attempt: &TaskAttempt,
         project_repository_id: Option<Uuid>,
     ) -> Result<futures::stream::BoxStream<'static, Result<LogMsg, std::io::Error>>, ContainerError>;
+
+    async fn resolve_attempt_repository(
+        &self,
+        task_attempt: &TaskAttempt,
+        project_repository_id: Option<Uuid>,
+    ) -> Result<AttemptRepositoryContext, ContainerError>;
 
     /// Fetch the MsgStore for a given execution ID, panicking if missing.
     async fn get_msg_store_by_id(&self, uuid: &Uuid) -> Option<Arc<MsgStore>> {

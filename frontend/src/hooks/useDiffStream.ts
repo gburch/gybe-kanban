@@ -1,60 +1,40 @@
-import { useCallback, useMemo } from 'react';
-import type { Diff, PatchType } from 'shared/types';
+import { useCallback } from 'react';
+import type { PatchType } from 'shared/types';
 import { useJsonPatchWsStream } from './useJsonPatchWsStream';
 
-interface DiffEntries {
-  [filePath: string]: PatchType;
-}
-
-type DiffStreamEvent = {
-  entries: DiffEntries;
-};
-
-export interface UseDiffStreamOptions {
-  statsOnly?: boolean;
+interface DiffState {
+  entries: Record<string, PatchType>;
 }
 
 interface UseDiffStreamResult {
-  diffs: Diff[];
+  data: DiffState | undefined;
+  isConnected: boolean;
   error: string | null;
 }
 
 export const useDiffStream = (
   attemptId: string | null,
   enabled: boolean,
-  options?: UseDiffStreamOptions
+  repositoryId?: string | null
 ): UseDiffStreamResult => {
-  const endpoint = (() => {
-    if (!attemptId) return undefined;
-    const query = `/api/task-attempts/${attemptId}/diff/ws`;
-    if (typeof options?.statsOnly === 'boolean') {
-      const params = new URLSearchParams();
-      params.set('stats_only', String(options.statsOnly));
-      return `${query}?${params.toString()}`;
-    } else {
-      return query;
-    }
-  })();
+  const query = repositoryId ? `?repo_id=${encodeURIComponent(repositoryId)}` : '';
+  const endpoint = attemptId
+    ? `/api/task-attempts/${attemptId}/diff/ws${query}`
+    : undefined;
 
   const initialData = useCallback(
-    (): DiffStreamEvent => ({
+    (): DiffState => ({
       entries: {},
     }),
     []
   );
 
-  const { data, error } = useJsonPatchWsStream<DiffStreamEvent>(
+  const { data, isConnected, error } = useJsonPatchWsStream(
     endpoint,
     enabled && !!attemptId,
     initialData
     // No need for injectInitialEntry or deduplicatePatches for diffs
   );
 
-  const diffs = useMemo(() => {
-    return Object.values(data?.entries ?? {})
-      .filter((entry) => entry?.type === 'DIFF')
-      .map((entry) => entry.content);
-  }, [data?.entries]);
-
-  return { diffs, error };
+  return { data, isConnected, error };
 };

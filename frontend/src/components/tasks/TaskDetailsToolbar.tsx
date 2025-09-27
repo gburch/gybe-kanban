@@ -155,6 +155,10 @@ function TaskDetailsToolbar({
     fetchProjectBranches();
   }, [fetchProjectBranches]);
 
+  useEffect(() => {
+    setSelectedBranch(null);
+  }, [selectedRepositoryId]);
+
   // Set default executor from config
   useEffect(() => {
     if (system.config?.executor_profile) {

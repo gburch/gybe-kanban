@@ -21,6 +21,16 @@ export {
   ProjectEditorSelectionDialog,
   type ProjectEditorSelectionDialogProps,
 } from './projects/ProjectEditorSelectionDialog';
+export {
+  RepositoryFormDialog,
+  type RepositoryFormDialogProps,
+  type RepositoryFormDialogResult,
+} from './repositories/RepositoryFormDialog';
+export {
+  DeleteRepositoryDialog,
+  type DeleteRepositoryDialogProps,
+  type DeleteRepositoryDialogResult,
+} from './repositories/DeleteRepositoryDialog';
 
 // Task-related dialogs
 export {

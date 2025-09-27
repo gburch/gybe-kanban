@@ -1,13 +1,22 @@
 ---
-title: "Multi-Repo Rollout & Monitoring Checklist"
-description: "Step-by-step QA, migration verification, rollout, and monitoring guidance for enabling multi-repository projects."
+title: "Multi-Repo & Multi-Root Rollout Playbook"
+description: "Feature-flag strategy, QA steps, rollout sequencing, monitoring, and support guidance for enabling multi-repository projects with repository root overrides."
 ---
 
-Multi-repository support introduces new database tables, executor payload metadata, and UI flows. Follow this checklist whenever you enable the feature in a new environment or cut a release that includes multi-repo changes.
+Multi-repository support (and the newer multi-root override) introduces new database tables, executor payload metadata, and UI flows. Follow this playbook whenever you enable the feature in a new environment or cut a release that includes multi-repo/multi-root changes.
+
+## 0. Feature Flag Strategy
+- Define a single source of truth for the `multi-root-repositories` flag (LaunchDarkly, ConfigCat, or `config.json` for on-prem). Default it to `off` until QA is complete.
+- Wire the backend and frontend to read the same flag surface:
+  - Backend: export `VIBE_FEATURE_MULTI_ROOT_REPOSITORIES=1` (or update the remote config document) before restarting the API.
+  - Frontend: expose `VITE_FEATURE_MULTI_ROOT_REPOSITORIES=1` (via `.env.local` or deploy-time config) so the repository picker surfaces root overrides only when the backend supports them.
+- Roll out with a 25/75/100 canary: enable staging ➜ 10% of production tenants ➜ all tenants.
+- Keep the flag in place for at least one release so you can rapidly disable multi-root behaviour if regression reports arrive.
 
 ## 1. Pre-Deployment QA
 - Run `pnpm install` and ensure the workspace builds locally.
 - Execute `cargo test --workspace` to cover the new Rust integration tests, including the multi-repo container flow.
+- Run the dedicated database coverage: `cargo test -p db --tests multi_repo_flows`.
 - Verify the frontend renders multi-repo controls by running `cd frontend && npm run test -- --run`.
 - Smoke-test manual flows: create a project, attach an additional repository, start an attempt, and confirm both worktrees are created.
 
@@ -28,14 +37,22 @@ Multi-repository support introduces new database tables, executor payload metada
   - Count of task attempts with more than one repository (`SELECT COUNT(*) FROM task_attempt_repositories WHERE is_primary = 0`).
   - Average executor bootstrap duration (watch for regressions above historical p95).
   - Error rates from `/tasks/:id/repositories` API responses.
+  - Frequency of non-empty `root_path` fields (`SELECT COUNT(*) FROM project_repositories WHERE root_path != ''`) to confirm multi-root adoption.
+  - Watch for violations of the single-primary invariant (`SELECT task_attempt_id FROM task_attempt_repositories GROUP BY task_attempt_id HAVING SUM(is_primary) <> 1`).
 - If errors spike, pause new attempt creation, run `WorktreeManager::cleanup_worktree` on affected worktrees, and confirm the database rows were not partially written.
 
-## 5. Rollback & Recovery Plan
+## 5. Support Triage Playbook
+- First response: confirm the flag state and user environment; ask for `GET /api/projects/:id/repositories` output and recent executor logs.
+- If worktree creation fails, gather the repository matrix (`project_repositories` and `task_attempt_repositories`) and compare roots for mismatches or duplicate primaries.
+- Provide a guided rollback: demote the feature flag, delete orphaned worktrees via `WorktreeManager::cleanup_worktree`, and re-run the migration smoke script against a snapshot copy to validate integrity.
+- Document the incident in the ops channel (flag state, commands issued, timestamps) and link back to this playbook for future audits.
+
+## 6. Rollback & Recovery Plan
 - To roll back, redeploy the previous backend build and run `rollback` on the latest migration with `cargo sqlx migrate revert` (only if the environment can tolerate schema downgrades).
 - Restore the pre-release database backup if migration data integrity is in question.
 - Communicate status updates in the shared ops channel, including the commands executed and timestamps.
 
-## 6. Post-Deployment Follow-Up
+## 7. Post-Deployment Follow-Up
 - After 24 hours, confirm automated tests remain green in the default branch and close the rollout ticket.
 - Document any anomalies in this page so future releases can reuse the learnings.
 - Schedule a retrospective with QA to review coverage gaps and update fixtures if new edge cases were found.

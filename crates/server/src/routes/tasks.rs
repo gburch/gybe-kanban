@@ -17,7 +17,7 @@ use db::models::{
     image::TaskImage,
     project_repository::ProjectRepository,
     task::{CreateTask, Task, TaskWithAttemptStatus, UpdateTask},
-    task_attempt::{CreateTaskAttempt, TaskAttempt},
+    task_attempt::{CreateTaskAttempt, CreateTaskAttemptRepository, TaskAttempt},
     task_attempt_repository::TaskAttemptRepository,
 };
 use deployment::Deployment;
@@ -29,9 +29,10 @@ use services::services::container::{
 };
 use sqlx::Error as SqlxError;
 use ts_rs::TS;
-use utils::{response::ApiResponse, text::git_branch_name_with_prefix};
+use utils::response::ApiResponse;
 use uuid::Uuid;
 
+use super::task_attempts::AttemptRepositorySelection;
 use crate::{DeploymentImpl, error::ApiError, middleware::load_task_middleware};
 
 #[derive(Debug, Deserialize)]
@@ -151,6 +152,8 @@ pub struct CreateAndStartTaskRequest {
     pub task: CreateTask,
     pub executor_profile_id: ExecutorProfileId,
     pub base_branch: String,
+    #[serde(default)]
+    pub repositories: Vec<AttemptRepositorySelection>,
 }
 
 pub async fn create_task_and_start(
@@ -184,21 +187,29 @@ pub async fn create_task_and_start(
             }),
         )
         .await;
-    let attempt_id = Uuid::new_v4();
-    let branch_prefix = {
-        let cfg = deployment.config().read().await;
-        cfg.github.resolved_branch_prefix()
+
+    let repository_links = if payload.repositories.is_empty() {
+        None
+    } else {
+        Some(
+            payload
+                .repositories
+                .iter()
+                .map(|repo| CreateTaskAttemptRepository {
+                    project_repository_id: repo.project_repository_id,
+                    is_primary: repo.is_primary,
+                })
+                .collect::<Vec<_>>(),
+        )
     };
-    let git_branch_name = git_branch_name_with_prefix(&branch_prefix, &attempt_id, &task.title);
 
     let task_attempt = TaskAttempt::create(
         &deployment.db().pool,
         &CreateTaskAttempt {
             executor: payload.executor_profile_id.executor,
             base_branch: payload.base_branch,
-            branch: git_branch_name,
+            repositories: repository_links,
         },
-        attempt_id,
         task.id,
     )
     .await?;

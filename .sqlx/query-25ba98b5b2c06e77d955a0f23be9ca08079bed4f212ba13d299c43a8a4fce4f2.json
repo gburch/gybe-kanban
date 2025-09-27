@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT id as \"id!: Uuid\" FROM project_repositories WHERE project_id = $1 AND is_primary = 1",
+  "query": "SELECT ta.id as \"id!: Uuid\"\n           FROM task_attempts ta\n           INNER JOIN tasks t ON ta.task_id = t.id\n           WHERE t.project_id = $1",
   "describe": {
     "columns": [
       {
@@ -16,5 +16,5 @@
       true
     ]
   },
-  "hash": "0430106ba397efdf35c367753ab10fa28d5648505608112aabbe3e90631ea21e"
+  "hash": "25ba98b5b2c06e77d955a0f23be9ca08079bed4f212ba13d299c43a8a4fce4f2"
 }

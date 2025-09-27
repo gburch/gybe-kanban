@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use ts_rs::TS;
 use utils::diff::{Diff, DiffChangeKind, FileDiffDetails};
+use uuid::Uuid;
 
 // Import for file ranking functionality
 use super::file_ranker::FileStat;
@@ -63,6 +64,9 @@ pub struct GitBranch {
     pub is_remote: bool,
     #[ts(type = "Date")]
     pub last_commit_date: DateTime<Utc>,
+    #[ts(type = "string | null")]
+    pub repository_id: Option<Uuid>,
+    pub repository_name: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -1301,6 +1305,8 @@ impl GitService {
                     is_current: name == current_branch,
                     is_remote: false,
                     last_commit_date,
+                    repository_id: None,
+                    repository_name: None,
                 });
             }
         }
@@ -1318,6 +1324,8 @@ impl GitService {
                         is_current: false,
                         is_remote: true,
                         last_commit_date,
+                        repository_id: None,
+                        repository_name: None,
                     });
                 }
             }
@@ -1615,6 +1623,20 @@ impl GitService {
                     Err(_) => Err(GitServiceError::BranchNotFound(branch_name.to_string())),
                 }
             }
+        }
+    }
+
+    /// Return whether the given branch (local or remote) exists in the repository.
+    pub fn branch_exists(
+        &self,
+        repo_path: &Path,
+        branch_name: &str,
+    ) -> Result<bool, GitServiceError> {
+        let repo = self.open_repo(repo_path)?;
+        match Self::find_branch(&repo, branch_name) {
+            Ok(_) => Ok(true),
+            Err(GitServiceError::BranchNotFound(_)) => Ok(false),
+            Err(e) => Err(e),
         }
     }
 

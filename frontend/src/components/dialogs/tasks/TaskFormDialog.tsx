@@ -23,6 +23,12 @@ import { useTaskMutations } from '@/hooks/useTaskMutations';
 import { useUserSystem } from '@/components/config-provider';
 import { ExecutorProfileSelector } from '@/components/settings';
 import BranchSelector from '@/components/tasks/BranchSelector';
+import {
+  RepositorySelection,
+  buildRepositorySelectionDefaults,
+  normalizeRepositorySelection,
+} from '@/components/tasks/RepositorySelection';
+import type { RepositorySelectionValue } from '@/components/tasks/RepositorySelection';
 import type {
   TaskStatus,
   TaskTemplate,
@@ -65,7 +71,12 @@ export const TaskFormDialog = NiceModal.create<TaskFormDialogProps>(
     const { createTask, createAndStart, updateTask } =
       useTaskMutations(projectId);
     const { system, profiles } = useUserSystem();
-    const { selectedRepositoryId } = useProject();
+    const {
+      repositories,
+      selectedRepositoryId,
+      setSelectedRepositoryId,
+      activeRepository,
+    } = useProject();
     const [title, setTitle] = useState('');
     const [description, setDescription] = useState('');
     const [status, setStatus] = useState<TaskStatus>('todo');
@@ -84,6 +95,10 @@ export const TaskFormDialog = NiceModal.create<TaskFormDialogProps>(
       useState<ExecutorProfileId | null>(null);
     const [quickstartExpanded, setQuickstartExpanded] =
       useState<boolean>(false);
+    const [repositorySelection, setRepositorySelection] =
+      useState<RepositorySelectionValue>({ selectedIds: [], primaryId: null });
+    const [repositoryError, setRepositoryError] = useState<string | null>(null);
+    const repositoryLabel = activeRepository?.name ?? 'Primary repository';
 
     const isEditMode = Boolean(task);
 
@@ -251,6 +266,37 @@ export const TaskFormDialog = NiceModal.create<TaskFormDialogProps>(
       }
     }, [system.config?.executor_profile]);
 
+    useEffect(() => {
+      if (!repositories || repositories.length === 0) {
+        setRepositorySelection({ selectedIds: [], primaryId: null });
+        return;
+      }
+
+      setRepositorySelection((prev) =>
+        normalizeRepositorySelection(prev, repositories, selectedRepositoryId)
+      );
+    }, [repositories, selectedRepositoryId]);
+
+    useEffect(() => {
+      if (modal.visible && !isEditMode && repositories.length > 0) {
+        const defaults = buildRepositorySelectionDefaults(
+          repositories,
+          selectedRepositoryId
+        );
+        setRepositorySelection(defaults);
+        setRepositoryError(null);
+        if (defaults.primaryId) {
+          setSelectedRepositoryId(defaults.primaryId);
+        }
+      }
+    }, [
+      modal.visible,
+      isEditMode,
+      repositories,
+      selectedRepositoryId,
+      setSelectedRepositoryId,
+    ]);
+
     // Set default executor from config (following TaskDetailsToolbar pattern)
     useEffect(() => {
       if (system.config?.executor_profile) {
@@ -374,6 +420,7 @@ export const TaskFormDialog = NiceModal.create<TaskFormDialogProps>(
       setIsSubmittingAndStart(true);
       try {
         if (!isEditMode) {
+          setRepositoryError(null);
           const imageIds =
             newlyUploadedImageIds.length > 0
               ? newlyUploadedImageIds
@@ -389,6 +436,16 @@ export const TaskFormDialog = NiceModal.create<TaskFormDialogProps>(
             return;
           }
 
+          if (
+            repositorySelection.selectedIds.length === 0 ||
+            !repositorySelection.primaryId
+          ) {
+            setRepositoryError(
+              'Select at least one repository and choose a primary repository.'
+            );
+            return;
+          }
+
           createAndStart.mutate(
             {
               task: {
@@ -400,6 +457,10 @@ export const TaskFormDialog = NiceModal.create<TaskFormDialogProps>(
               },
               executor_profile_id: finalExecutorProfile,
               base_branch: selectedBranch,
+              repositories: repositorySelection.selectedIds.map((id) => ({
+                project_repository_id: id,
+                is_primary: repositorySelection.primaryId === id,
+              })),
             },
             {
               onSuccess: () => {
@@ -422,6 +483,7 @@ export const TaskFormDialog = NiceModal.create<TaskFormDialogProps>(
       selectedExecutorProfile,
       selectedBranch,
       system.config?.executor_profile,
+      repositorySelection,
     ]);
 
     const handleCancel = useCallback(() => {
@@ -496,7 +558,9 @@ export const TaskFormDialog = NiceModal.create<TaskFormDialogProps>(
                   className="mt-1.5"
                   disabled={isSubmitting || isSubmittingAndStart}
                   projectId={projectId}
-                  repositoryId={selectedRepositoryId ?? undefined}
+                  repositoryId={
+                    repositorySelection.primaryId ?? selectedRepositoryId ?? undefined
+                  }
                   onCommandEnter={
                     isEditMode ? handleSubmit : handleCreateAndStart
                   }
@@ -564,6 +628,32 @@ export const TaskFormDialog = NiceModal.create<TaskFormDialogProps>(
                 </div>
               )}
 
+              {!isEditMode && repositories.length > 0 && (
+                <div className="space-y-2">
+                  <Label className="text-sm font-medium">
+                    Repositories
+                    <span className="ml-1 text-xs text-muted-foreground">
+                      (select at least one)
+                    </span>
+                  </Label>
+                  <RepositorySelection
+                    repositories={repositories}
+                    value={repositorySelection}
+                    onChange={(next) => {
+                      setRepositoryError(null);
+                      setRepositorySelection(next);
+                      if (next.primaryId) {
+                        setSelectedRepositoryId(next.primaryId);
+                      }
+                    }}
+                    disabled={isSubmitting || isSubmittingAndStart}
+                  />
+                  {repositoryError && (
+                    <p className="text-xs text-destructive">{repositoryError}</p>
+                  )}
+                </div>
+              )}
+
               {isEditMode && (
                 <div className="pt-2">
                   <Label htmlFor="task-status" className="text-sm font-medium">
@@ -624,12 +714,17 @@ export const TaskFormDialog = NiceModal.create<TaskFormDialogProps>(
                           {/* Branch Selector */}
                           {branches.length > 0 && (
                             <div>
-                              <Label
-                                htmlFor="base-branch"
-                                className="text-sm font-medium"
-                              >
-                                Branch
-                              </Label>
+                              <div className="flex flex-col">
+                                <Label
+                                  htmlFor="base-branch"
+                                  className="text-sm font-medium"
+                                >
+                                  Branch
+                                </Label>
+                                <span className="text-xs text-muted-foreground">
+                                  Repository: {repositoryLabel}
+                                </span>
+                              </div>
                               <div className="mt-1.5">
                                 <BranchSelector
                                   branches={branches}

@@ -5,8 +5,11 @@ import { useDiffEntries } from '@/hooks/useDiffEntries';
 const mockUseDiffStream = vi.fn();
 
 vi.mock('@/hooks/useDiffStream', () => ({
-  useDiffStream: (attemptId: string | null, enabled: boolean) =>
-    mockUseDiffStream(attemptId, enabled),
+  useDiffStream: (
+    attemptId: string | null,
+    enabled: boolean,
+    repositoryId?: string | null
+  ) => mockUseDiffStream(attemptId, enabled, repositoryId),
 }));
 
 describe('useDiffEntries', () => {

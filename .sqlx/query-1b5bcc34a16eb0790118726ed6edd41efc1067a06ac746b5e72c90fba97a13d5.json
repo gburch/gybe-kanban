@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT COUNT(1)\n               FROM task_attempts child_attempts\n               JOIN tasks child_tasks\n                 ON child_tasks.parent_task_attempt = child_attempts.id\n              WHERE child_attempts.task_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "name": "COUNT(1)",
+        "ordinal": 0,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "1b5bcc34a16eb0790118726ed6edd41efc1067a06ac746b5e72c90fba97a13d5"
+}

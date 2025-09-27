@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO task_attempt_repositories (\n                    id,\n                    task_attempt_id,\n                    project_repository_id,\n                    is_primary,\n                    container_ref\n                )\n                VALUES ($1, $2, $3, $4, $5)\n                ON CONFLICT(task_attempt_id, project_repository_id)\n                DO UPDATE SET\n                    container_ref = excluded.container_ref,\n                    is_primary = excluded.is_primary,\n                    updated_at = datetime('now', 'subsec')",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 5
+    },
+    "nullable": []
+  },
+  "hash": "915bb0fa498623de2d234b77bcc2af0c466cd1b51436bf69c929207c84dbf377"
+}

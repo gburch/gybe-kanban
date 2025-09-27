@@ -11,13 +11,38 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { TaskTemplateManager } from '@/components/TaskTemplateManager';
 import { ProjectFormFields } from '@/components/projects/project-form-fields';
-import { CreateProject, Project, UpdateProject } from 'shared/types';
+import {
+  CreateProject,
+  Project,
+  UpdateProject,
+  type ProjectRepository,
+} from 'shared/types';
 import { projectsApi } from '@/lib/api';
 import { generateProjectNameFromPath } from '@/utils/string';
 import NiceModal, { useModal } from '@ebay/nice-modal-react';
 import { useProject } from '@/contexts/project-context';
 import { Badge } from '@/components/ui/badge';
-import { Loader2 } from 'lucide-react';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import {
+  Loader2,
+  Plus,
+  Pencil,
+  MoreHorizontal,
+  Star,
+  Trash2,
+  AlertCircle,
+} from 'lucide-react';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import {
+  showRepositoryForm,
+  showDeleteRepository,
+} from '@/lib/modals';
 
 export interface ProjectFormDialogProps {
   project?: Project | null;
@@ -45,9 +70,68 @@ export const ProjectFormDialog = NiceModal.create<ProjectFormDialogProps>(
     const [folderName, setFolderName] = useState('');
 
     const isEditing = !!project;
-    const { repositories, isRepositoriesLoading } = useProject();
+    const {
+      repositories,
+      isRepositoriesLoading,
+      updateRepository,
+      isRepositoryMutating,
+    } = useProject();
+    const [repositoryError, setRepositoryError] = useState<string | null>(null);
+    const [pendingRepositoryId, setPendingRepositoryId] = useState<string | null>(
+      null
+    );
     const showRepositorySummary =
       isEditing && (isRepositoriesLoading || repositories.length > 0);
+
+    const handleAddRepository = async () => {
+      if (!isEditing) return;
+      setRepositoryError(null);
+
+      try {
+        await showRepositoryForm({});
+      } catch (err) {
+        // Modal dismissed; ignore.
+      }
+    };
+
+    const handleEditRepository = async (repository: ProjectRepository) => {
+      setRepositoryError(null);
+
+      try {
+        await showRepositoryForm({ repository });
+      } catch (err) {
+        // Modal dismissed; ignore.
+      }
+    };
+
+    const handleSetPrimary = async (repository: ProjectRepository) => {
+      if (!isEditing || repository.is_primary) return;
+
+      setRepositoryError(null);
+      setPendingRepositoryId(repository.id);
+
+      try {
+        await updateRepository(repository.id, { is_primary: true });
+      } catch (err) {
+        setRepositoryError(
+          err instanceof Error
+            ? err.message
+            : 'Failed to update primary repository'
+        );
+      } finally {
+        setPendingRepositoryId(null);
+      }
+    };
+
+    const handleDeleteRepository = async (repository: ProjectRepository) => {
+      setRepositoryError(null);
+
+      try {
+        await showDeleteRepository({ repository });
+      } catch (err) {
+        // Modal dismissed; ignore.
+      }
+    };
 
     // Update form fields when project prop changes
     useEffect(() => {
@@ -218,10 +302,19 @@ export const ProjectFormDialog = NiceModal.create<ProjectFormDialogProps>(
                               Connected repositories
                             </p>
                             <p className="text-xs text-muted-foreground">
-                              Manage repositories from project settings. Updates
-                              here apply to the primary repository only.
+                              Manage repositories without leaving the project
+                              editor.
                             </p>
                           </div>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={handleAddRepository}
+                            disabled={isRepositoryMutating}
+                          >
+                            <Plus className="mr-2 h-4 w-4" /> Add repository
+                          </Button>
                         </div>
                         {isRepositoriesLoading ? (
                           <div className="flex items-center text-xs text-muted-foreground">
@@ -230,31 +323,124 @@ export const ProjectFormDialog = NiceModal.create<ProjectFormDialogProps>(
                           </div>
                         ) : (
                           <div className="space-y-2">
-                            {repositories.map((repo) => (
-                              <div
-                                key={repo.id}
-                                className="rounded border border-border bg-background p-3 text-xs"
-                              >
-                                <div className="flex items-center gap-2">
-                                  <span className="font-medium text-foreground truncate" title={repo.name}>
-                                    {repo.name}
-                                  </span>
-                                  {repo.is_primary && (
-                                    <Badge variant="outline" className="text-[10px]">
-                                      Primary
-                                    </Badge>
-                                  )}
-                                </div>
-                                <div className="mt-1 text-muted-foreground break-all" title={repo.git_repo_path}>
-                                  <span className="font-medium text-foreground">Path:</span> {repo.git_repo_path}
-                                </div>
-                                {repo.root_path ? (
-                                  <div className="mt-1 text-muted-foreground break-all" title={repo.root_path}>
-                                    <span className="font-medium text-foreground">Root:</span> {repo.root_path}
+                            {repositoryError ? (
+                              <Alert variant="destructive">
+                                <AlertCircle className="h-4 w-4" />
+                                <AlertDescription>
+                                  {repositoryError}
+                                </AlertDescription>
+                              </Alert>
+                            ) : null}
+                            {repositories.length === 0 ? (
+                              <p className="text-xs text-muted-foreground">
+                                Add repositories after saving this project.
+                              </p>
+                            ) : (
+                              repositories.map((repo) => (
+                                <div
+                                  key={repo.id}
+                                  className="rounded border border-border bg-background p-3 text-xs"
+                                >
+                                  <div className="flex items-start justify-between gap-2">
+                                    <div className="min-w-0 space-y-1">
+                                      <div className="flex items-center gap-2">
+                                        <span
+                                          className="font-medium text-foreground truncate"
+                                          title={repo.name}
+                                        >
+                                          {repo.name}
+                                        </span>
+                                        {repo.is_primary && (
+                                          <Badge
+                                            variant="outline"
+                                            className="text-[10px]"
+                                          >
+                                            Primary
+                                          </Badge>
+                                        )}
+                                      </div>
+                                      <div
+                                        className="text-muted-foreground break-all"
+                                        title={repo.git_repo_path}
+                                      >
+                                        <span className="font-medium text-foreground">
+                                          Path:
+                                        </span>{' '}
+                                        {repo.git_repo_path}
+                                      </div>
+                                      {repo.root_path ? (
+                                        <div
+                                          className="text-muted-foreground break-all"
+                                          title={repo.root_path}
+                                        >
+                                          <span className="font-medium text-foreground">
+                                            Root:
+                                          </span>{' '}
+                                          {repo.root_path}
+                                        </div>
+                                      ) : null}
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                      <Button
+                                        type="button"
+                                        variant="ghost"
+                                        size="icon"
+                                        onClick={() => handleEditRepository(repo)}
+                                        disabled={isRepositoryMutating}
+                                        aria-label={`Edit ${repo.name}`}
+                                      >
+                                        <Pencil className="h-4 w-4" />
+                                      </Button>
+                                      <DropdownMenu>
+                                        <DropdownMenuTrigger asChild>
+                                          <Button
+                                            type="button"
+                                            variant="ghost"
+                                            size="icon"
+                                            disabled={
+                                              isRepositoryMutating ||
+                                              pendingRepositoryId === repo.id
+                                            }
+                                            aria-label={`Actions for ${repo.name}`}
+                                          >
+                                            <MoreHorizontal className="h-4 w-4" />
+                                          </Button>
+                                        </DropdownMenuTrigger>
+                                        <DropdownMenuContent align="end" className="w-48">
+                                          {!repo.is_primary ? (
+                                            <DropdownMenuItem
+                                              onSelect={(event) => {
+                                                event.preventDefault();
+                                                handleSetPrimary(repo);
+                                              }}
+                                              disabled={
+                                                isRepositoryMutating ||
+                                                pendingRepositoryId === repo.id
+                                              }
+                                            >
+                                              <Star className="mr-2 h-4 w-4" />
+                                              Make primary
+                                            </DropdownMenuItem>
+                                          ) : null}
+                                          {!repo.is_primary && (
+                                            <DropdownMenuSeparator />
+                                          )}
+                                          <DropdownMenuItem
+                                            onSelect={(event) => {
+                                              event.preventDefault();
+                                              handleDeleteRepository(repo);
+                                            }}
+                                            className="text-destructive focus:text-destructive"
+                                          >
+                                            <Trash2 className="mr-2 h-4 w-4" /> Remove
+                                          </DropdownMenuItem>
+                                        </DropdownMenuContent>
+                                      </DropdownMenu>
+                                    </div>
                                   </div>
-                                ) : null}
-                              </div>
-                            ))}
+                                </div>
+                              ))
+                            )}
                           </div>
                         )}
                       </div>

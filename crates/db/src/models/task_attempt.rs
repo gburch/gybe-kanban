@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use chrono::{DateTime, Utc};
 use executors::executors::BaseCodingAgent;
 use serde::{Deserialize, Serialize};
@@ -83,10 +85,19 @@ pub struct TaskAttemptContext {
     pub project: Project,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+pub struct CreateTaskAttemptRepository {
+    pub project_repository_id: Uuid,
+    #[serde(default)]
+    pub is_primary: bool,
+}
+
 #[derive(Debug, Deserialize, TS)]
 pub struct CreateTaskAttempt {
     pub executor: BaseCodingAgent,
     pub base_branch: String,
+    #[serde(default)]
+    pub repositories: Option<Vec<CreateTaskAttemptRepository>>,
 }
 
 impl TaskAttempt {
@@ -364,7 +375,7 @@ impl TaskAttempt {
         attempt_id: Uuid,
     ) -> Result<(), sqlx::Error> {
         sqlx::query!(
-            "UPDATE task_attempts SET worktree_deleted = TRUE, updated_at = datetime('now') WHERE id = ?",
+            "UPDATE task_attempts SET worktree_deleted = TRUE, container_ref = NULL, updated_at = datetime('now', 'subsec') WHERE id = ?",
             attempt_id
         )
         .execute(pool)
@@ -580,9 +591,7 @@ impl TaskAttempt {
     /// Find task attempts that are expired (72+ hours since last activity) and eligible for worktree cleanup
     /// Activity includes: execution completion, task attempt updates (including worktree recreation),
     /// and any attempts that are currently in progress
-    pub async fn find_expired_for_cleanup(
-        pool: &SqlitePool,
-    ) -> Result<Vec<(Uuid, String, String)>, sqlx::Error> {
+    pub async fn find_expired_for_cleanup(pool: &SqlitePool) -> Result<Vec<Uuid>, sqlx::Error> {
         let records = sqlx::query!(
             r#"
             SELECT ta.id as "attempt_id!: Uuid", ta.container_ref, p.git_repo_path as "git_repo_path!"
@@ -617,13 +626,20 @@ impl TaskAttempt {
         .fetch_all(pool)
         .await?;
 
-        Ok(records
-            .into_iter()
-            .filter_map(|r| {
-                r.container_ref
-                    .map(|path| (r.attempt_id, path, r.git_repo_path))
-            })
-            .collect())
+        Ok(records.into_iter().map(|r| r.attempt_id).collect())
+    }
+
+    pub async fn clear_container_ref(
+        pool: &SqlitePool,
+        attempt_id: Uuid,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query!(
+            "UPDATE task_attempts SET container_ref = NULL, updated_at = datetime('now', 'subsec') WHERE id = ?",
+            attempt_id
+        )
+        .execute(pool)
+        .await?;
+        Ok(())
     }
 
     pub async fn create(
@@ -658,6 +674,7 @@ impl TaskAttempt {
         .fetch_one(&mut *tx)
         .await?;
 
+        #[derive(Clone)]
         struct RepoRow {
             id: Uuid,
             is_primary: bool,
@@ -706,7 +723,100 @@ impl TaskAttempt {
             });
         }
 
-        for repo in project_repositories {
+        let project_primary_id = project_repositories
+            .iter()
+            .find(|repo| repo.is_primary)
+            .map(|repo| repo.id);
+        let project_repo_ids: HashSet<Uuid> =
+            project_repositories.iter().map(|repo| repo.id).collect();
+
+        let selected_repositories: Vec<RepoRow> = if let Some(selection) = &data.repositories {
+            if selection.is_empty() {
+                project_repositories.clone()
+            } else {
+                let mut seen = HashSet::new();
+                let mut explicit_primary_count = 0;
+                let mut rows = Vec::with_capacity(selection.len());
+
+                for repo in selection {
+                    if !project_repo_ids.contains(&repo.project_repository_id) {
+                        return Err(TaskAttemptError::ValidationError(format!(
+                            "Repository {} is not configured for this project",
+                            repo.project_repository_id
+                        )));
+                    }
+
+                    if !seen.insert(repo.project_repository_id) {
+                        return Err(TaskAttemptError::ValidationError(
+                            "Duplicate repository selection".to_string(),
+                        ));
+                    }
+
+                    if repo.is_primary {
+                        explicit_primary_count += 1;
+                    }
+
+                    rows.push(RepoRow {
+                        id: repo.project_repository_id,
+                        is_primary: repo.is_primary,
+                    });
+                }
+
+                if rows.is_empty() {
+                    return Err(TaskAttemptError::ValidationError(
+                        "At least one repository must be selected".to_string(),
+                    ));
+                }
+
+                if explicit_primary_count > 1 {
+                    return Err(TaskAttemptError::ValidationError(
+                        "Only one repository may be marked as primary".to_string(),
+                    ));
+                }
+
+                if explicit_primary_count == 0 {
+                    if let Some(primary_id) = project_primary_id {
+                        if let Some(entry) = rows.iter_mut().find(|row| row.id == primary_id) {
+                            entry.is_primary = true;
+                        } else if rows.len() == 1 {
+                            rows[0].is_primary = true;
+                        }
+                    } else if rows.len() == 1 {
+                        rows[0].is_primary = true;
+                    }
+                }
+
+                let final_primary_count = rows.iter().filter(|row| row.is_primary).count();
+                if final_primary_count != 1 {
+                    return Err(TaskAttemptError::ValidationError(
+                        "One repository must be marked as primary".to_string(),
+                    ));
+                }
+
+                rows
+            }
+        } else {
+            project_repositories.clone()
+        };
+
+        if selected_repositories.is_empty() {
+            return Err(TaskAttemptError::ValidationError(
+                "At least one repository must be selected".to_string(),
+            ));
+        }
+
+        if selected_repositories
+            .iter()
+            .filter(|repo| repo.is_primary)
+            .count()
+            != 1
+        {
+            return Err(TaskAttemptError::ValidationError(
+                "One repository must be marked as primary".to_string(),
+            ));
+        }
+
+        for repo in selected_repositories {
             let task_repo_id = Uuid::new_v4();
             sqlx::query!(
                 r#"INSERT INTO task_attempt_repositories (id, task_attempt_id, project_repository_id, is_primary)
@@ -840,6 +950,7 @@ mod tests {
             &CreateTaskAttempt {
                 executor: BaseCodingAgent::ClaudeCode,
                 base_branch: "main".to_string(),
+                repositories: None,
             },
             task.id,
         )
@@ -1052,9 +1163,14 @@ mod tests {
         .await
         .unwrap();
 
-        let repositories =
-            ProjectRepository::list_for_project(&pool, project.id).await.unwrap();
-        assert_eq!(repositories.len(), 2, "expected both repositories to be registered");
+        let repositories = ProjectRepository::list_for_project(&pool, project.id)
+            .await
+            .unwrap();
+        assert_eq!(
+            repositories.len(),
+            2,
+            "expected both repositories to be registered"
+        );
 
         let task_id = Uuid::new_v4();
         let task = Task::create(
@@ -1076,16 +1192,16 @@ mod tests {
             &CreateTaskAttempt {
                 executor: BaseCodingAgent::ClaudeCode,
                 base_branch: "main".to_string(),
+                repositories: None,
             },
             task.id,
         )
         .await
         .unwrap();
 
-        let attempt_repositories =
-            TaskAttemptRepository::list_for_attempt(&pool, attempt.id)
-                .await
-                .unwrap();
+        let attempt_repositories = TaskAttemptRepository::list_for_attempt(&pool, attempt.id)
+            .await
+            .unwrap();
 
         assert_eq!(attempt_repositories.len(), 2);
         assert_eq!(

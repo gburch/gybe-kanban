@@ -1,4 +1,4 @@
-import { Dispatch, SetStateAction, useCallback } from 'react';
+import { Dispatch, SetStateAction, useCallback, useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button.tsx';
 import { X } from 'lucide-react';
 import type { GitBranch, Task } from 'shared/types';
@@ -13,6 +13,13 @@ import { ExecutorProfileSelector } from '@/components/settings';
 import { showModal } from '@/lib/modals';
 import { Card } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
+import { useProject } from '@/contexts/project-context';
+import {
+  RepositorySelection,
+  buildRepositorySelectionDefaults,
+  normalizeRepositorySelection,
+} from '@/components/tasks/RepositorySelection';
+import type { RepositorySelectionValue } from '@/components/tasks/RepositorySelection';
 
 type Props = {
   task: Task;
@@ -43,6 +50,57 @@ function CreateAttempt({
 }: Props) {
   const { isAttemptRunning } = useAttemptExecution(selectedAttempt?.id);
   const { createAttempt, isCreating } = useAttemptCreation(task.id);
+  const {
+    repositories,
+    selectedRepositoryId,
+    setSelectedRepositoryId,
+    activeRepository,
+  } = useProject();
+  const [repositorySelection, setRepositorySelection] = useState<RepositorySelectionValue>({
+    selectedIds: [],
+    primaryId: null,
+  });
+  const [selectionError, setSelectionError] = useState<string | null>(null);
+  const repositoryLabel = activeRepository?.name ?? 'Primary repository';
+
+  useEffect(() => {
+    if (!repositories || repositories.length === 0) {
+      setRepositorySelection({ selectedIds: [], primaryId: null });
+      return;
+    }
+
+    setRepositorySelection((prev) =>
+      normalizeRepositorySelection(prev, repositories, selectedRepositoryId)
+    );
+  }, [repositories, selectedRepositoryId]);
+
+  useEffect(() => {
+    if (
+      repositorySelection.primaryId === null &&
+      repositories &&
+      repositories.length > 0
+    ) {
+      const defaults = buildRepositorySelectionDefaults(
+        repositories,
+        selectedRepositoryId
+      );
+      setRepositorySelection(defaults);
+      if (defaults.primaryId) {
+        setSelectedRepositoryId(defaults.primaryId);
+      }
+    }
+  }, [repositories, repositorySelection.primaryId, selectedRepositoryId, setSelectedRepositoryId]);
+
+  const handleRepositorySelectionChange = useCallback(
+    (next: RepositorySelectionValue) => {
+      setSelectionError(null);
+      setRepositorySelection(next);
+      if (next.primaryId) {
+        setSelectedRepositoryId(next.primaryId);
+      }
+    },
+    [setSelectedRepositoryId]
+  );
 
   // Create attempt logic
   const actuallyCreateAttempt = useCallback(
@@ -53,12 +111,21 @@ function CreateAttempt({
         throw new Error('Base branch is required to create an attempt');
       }
 
+      if (!repositorySelection.primaryId || repositorySelection.selectedIds.length === 0) {
+        setSelectionError('Select at least one repository and a primary repository.');
+        return;
+      }
+
       await createAttempt({
         profile,
         baseBranch: effectiveBaseBranch,
+        repositories: repositorySelection.selectedIds.map((id) => ({
+          project_repository_id: id,
+          is_primary: repositorySelection.primaryId === id,
+        })),
       });
     },
-    [createAttempt, selectedBranch]
+    [createAttempt, repositorySelection, selectedBranch]
   );
 
   // Handler for Enter key or Start button
@@ -145,9 +212,14 @@ function CreateAttempt({
 
           {/* Bottom Row: Base Branch and Start Button */}
           <div className="space-y-1">
-            <Label className="text-sm font-medium">
-              Base branch <span className="text-destructive">*</span>
-            </Label>
+            <div className="flex flex-col">
+              <Label className="text-sm font-medium">
+                Base branch <span className="text-destructive">*</span>
+              </Label>
+              <span className="text-xs text-muted-foreground">
+                Repository: {repositoryLabel}
+              </span>
+            </div>
             <BranchSelector
               branches={branches}
               selectedBranch={createAttemptBranch}
@@ -180,6 +252,23 @@ function CreateAttempt({
             </Button>
           </div>
         </div>
+
+        {repositories.length > 0 && (
+          <div className="space-y-1">
+            <Label className="text-sm font-medium">
+              Repositories <span className="text-muted-foreground text-xs">(select at least one)</span>
+            </Label>
+            <RepositorySelection
+              repositories={repositories}
+              value={repositorySelection}
+              onChange={handleRepositorySelectionChange}
+              disabled={isCreating || isAttemptRunning}
+            />
+            {selectionError && (
+              <p className="text-xs text-destructive">{selectionError}</p>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

@@ -5,6 +5,10 @@ import type {
   TaskTemplateEditResult,
   ProjectFormDialogProps,
   ProjectFormDialogResult,
+  RepositoryFormDialogProps,
+  RepositoryFormDialogResult,
+  DeleteRepositoryDialogProps,
+  DeleteRepositoryDialogResult,
 } from '@/components/dialogs';
 
 /**
@@ -58,6 +62,24 @@ export function showProjectForm(
 ): Promise<ProjectFormDialogResult> {
   return showModal<ProjectFormDialogResult>(
     'project-form',
+    props as Record<string, unknown>
+  );
+}
+
+export function showRepositoryForm(
+  props: RepositoryFormDialogProps
+): Promise<RepositoryFormDialogResult> {
+  return showModal<RepositoryFormDialogResult>(
+    'repository-form',
+    props as Record<string, unknown>
+  );
+}
+
+export function showDeleteRepository(
+  props: DeleteRepositoryDialogProps
+): Promise<DeleteRepositoryDialogResult> {
+  return showModal<DeleteRepositoryDialogResult>(
+    'delete-repository',
     props as Record<string, unknown>
   );
 }

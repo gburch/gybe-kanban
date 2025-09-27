@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT EXISTS(\n                        SELECT 1\n                        FROM project_repositories\n                        WHERE project_id = $1\n                          AND git_repo_path = $2\n                          AND root_path = $3\n                          AND id != $4\n                    ) as \"exists!: bool\"",
+  "describe": {
+    "columns": [
+      {
+        "name": "exists!: bool",
+        "ordinal": 0,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 4
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "da781e1ae788c42ae96840bfb9636910b7338058fe59524b1921fac916942f8b"
+}

@@ -1,0 +1,50 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            SELECT\n                tar.task_attempt_id       AS \"task_attempt_id!: Uuid\",\n                tar.project_repository_id AS \"project_repository_id!: Uuid\",\n                tar.is_primary            AS \"is_primary!: bool\",\n                tar.container_ref         AS container_ref,\n                tar.branch                AS branch,\n                pr.git_repo_path          AS git_repo_path\n            FROM task_attempt_repositories tar\n            JOIN project_repositories pr ON pr.id = tar.project_repository_id\n            WHERE tar.task_attempt_id = $1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "name": "task_attempt_id!: Uuid",
+        "ordinal": 0,
+        "type_info": "Blob"
+      },
+      {
+        "name": "project_repository_id!: Uuid",
+        "ordinal": 1,
+        "type_info": "Blob"
+      },
+      {
+        "name": "is_primary!: bool",
+        "ordinal": 2,
+        "type_info": "Integer"
+      },
+      {
+        "name": "container_ref",
+        "ordinal": 3,
+        "type_info": "Text"
+      },
+      {
+        "name": "branch",
+        "ordinal": 4,
+        "type_info": "Text"
+      },
+      {
+        "name": "git_repo_path",
+        "ordinal": 5,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      true,
+      false
+    ]
+  },
+  "hash": "4a1066cca9677b6ed8763f8308fe26a319b0fec688ca75d3c92b988735865d35"
+}

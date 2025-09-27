@@ -37,7 +37,8 @@ const CreatePrDialog = NiceModal.create(() => {
   const [error, setError] = useState<string | null>(null);
   const [branches, setBranches] = useState<GitBranch[]>([]);
   const [branchesLoading, setBranchesLoading] = useState(false);
-  const { selectedRepositoryId } = useProject();
+  const { selectedRepositoryId, activeRepository } = useProject();
+  const repositoryLabel = activeRepository?.name ?? 'Primary repository';
 
   useEffect(() => {
     if (modal.visible && data) {
@@ -52,9 +53,9 @@ const CreatePrDialog = NiceModal.create(() => {
           .then((projectBranches) => {
             setBranches(projectBranches);
 
-            // Set smart default: task target branch OR current branch
-            if (data.attempt.target_branch) {
-              setPrBaseBranch(data.attempt.target_branch);
+            // Set smart default: task base branch OR current branch
+            if (data.attempt.base_branch) {
+              setPrBaseBranch(data.attempt.base_branch);
             } else {
               const currentBranch = projectBranches.find((b) => b.is_current);
               if (currentBranch) {
@@ -79,7 +80,8 @@ const CreatePrDialog = NiceModal.create(() => {
     const result = await attemptsApi.createPR(data.attempt.id, {
       title: prTitle,
       body: prBody || null,
-      target_branch: prBaseBranch || null,
+      base_branch: prBaseBranch || null,
+      project_repository_id: selectedRepositoryId ?? null,
     });
 
     if (result.success) {
@@ -157,7 +159,12 @@ const CreatePrDialog = NiceModal.create(() => {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="pr-base">Base Branch</Label>
+              <div className="flex flex-col">
+                <Label htmlFor="pr-base">Base Branch</Label>
+                <span className="text-xs text-muted-foreground">
+                  Repository: {repositoryLabel}
+                </span>
+              </div>
               <BranchSelector
                 branches={branches}
                 selectedBranch={prBaseBranch}

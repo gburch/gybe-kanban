@@ -23,6 +23,8 @@ import {
   Project,
   CreateProject,
   ProjectRepository,
+  CreateProjectRepository,
+  UpdateProjectRepository,
   RebaseTaskAttemptRequest,
   RepositoryInfo,
   SearchResult,
@@ -245,6 +247,48 @@ export const projectsApi = {
   getRepositories: async (id: string): Promise<ProjectRepository[]> => {
     const response = await makeRequest(`/api/projects/${id}/repositories`);
     return handleApiResponse<ProjectRepository[]>(response);
+  },
+
+  createRepository: async (
+    projectId: string,
+    data: CreateProjectRepository
+  ): Promise<ProjectRepository> => {
+    const response = await makeRequest(
+      `/api/projects/${projectId}/repositories`,
+      {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }
+    );
+    return handleApiResponse<ProjectRepository>(response);
+  },
+
+  updateRepository: async (
+    projectId: string,
+    repositoryId: string,
+    data: UpdateProjectRepository
+  ): Promise<ProjectRepository> => {
+    const response = await makeRequest(
+      `/api/projects/${projectId}/repositories/${repositoryId}`,
+      {
+        method: 'PUT',
+        body: JSON.stringify(data),
+      }
+    );
+    return handleApiResponse<ProjectRepository>(response);
+  },
+
+  deleteRepository: async (
+    projectId: string,
+    repositoryId: string
+  ): Promise<void> => {
+    const response = await makeRequest(
+      `/api/projects/${projectId}/repositories/${repositoryId}`,
+      {
+        method: 'DELETE',
+      }
+    );
+    return handleApiResponse<void>(response);
   },
 
   getBranches: async (id: string, repoId?: string): Promise<GitBranch[]> => {
