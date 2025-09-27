@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useCallback, useMemo } from 'react';
 import { useJsonPatchWsStream } from './useJsonPatchWsStream';
 import type { TaskWithAttemptStatus } from 'shared/types';
 
@@ -6,12 +6,23 @@ type TasksState = {
   tasks: Record<string, TaskWithAttemptStatus>;
 };
 
+export type ParentTaskSummary = Pick<
+  TaskWithAttemptStatus,
+  'id' | 'title' | 'status'
+>;
+
 interface UseProjectTasksResult {
   tasks: TaskWithAttemptStatus[];
   tasksById: Record<string, TaskWithAttemptStatus>;
+  parentTasksById: Record<string, ParentTaskSummary | null>;
   isLoading: boolean;
   isConnected: boolean;
   error: string | null;
+  /**
+   * Lookup helper for parent metadata; returns null when the parent is missing
+   * from the current websocket payload.
+   */
+  getParentTask: (taskId: string) => ParentTaskSummary | null;
 }
 
 /**
@@ -36,7 +47,52 @@ export const useProjectTasks = (projectId: string): UseProjectTasksResult => {
       new Date(b.created_at as unknown as string).getTime() -
       new Date(a.created_at as unknown as string).getTime()
   );
+
+  const parentTasksById = useMemo(() => {
+    const lookup: Record<string, ParentTaskSummary | null> = {};
+
+    for (const [taskId, task] of Object.entries(tasksById)) {
+      const parentId = task.parent_task_id;
+
+      if (!parentId) {
+        lookup[taskId] = null;
+        continue;
+      }
+
+      const parentTask = tasksById[parentId];
+
+      if (!parentTask) {
+        lookup[taskId] = null;
+        continue;
+      }
+
+      lookup[taskId] = {
+        id: parentTask.id,
+        title: parentTask.title,
+        status: parentTask.status,
+      };
+    }
+
+    return lookup;
+  }, [tasksById]);
+
+  /**
+   * Resolve parent metadata for a task id. Returns null when the parent task
+   * is absent from the current websocket snapshot.
+   */
+  const getParentTask = useCallback(
+    (taskId: string): ParentTaskSummary | null => parentTasksById[taskId] ?? null,
+    [parentTasksById]
+  );
   const isLoading = !data && !error; // until first snapshot
 
-  return { tasks, tasksById, isLoading, isConnected, error };
+  return {
+    tasks,
+    tasksById,
+    parentTasksById,
+    isLoading,
+    isConnected,
+    error,
+    getParentTask,
+  };
 };

@@ -89,6 +89,9 @@ export function ProjectTasks() {
   // Panel state
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [isPanelOpen, setIsPanelOpen] = useState(false);
+  const [parentPillFocusTaskId, setParentPillFocusTaskId] = useState<string | null>(
+    null
+  );
 
   // Fullscreen state using custom hook
   const { isFullscreen, navigateToTask, navigateToAttempt, toggleFullscreen } =
@@ -130,6 +133,7 @@ export function ProjectTasks() {
   const {
     tasks,
     tasksById,
+    parentTasksById,
     isLoading,
     error: streamError,
   } = useProjectTasks(projectId || '');
@@ -340,6 +344,40 @@ export function ProjectTasks() {
     [projectId, navigateToTask, navigateToAttempt]
   );
 
+  const handleParentNavigate = useCallback(
+    ({
+      parent,
+      sourceTaskId,
+    }: {
+      parent: { taskId: string; title: string };
+      sourceTaskId: string;
+    }) => {
+      if (!projectId) return;
+
+      setParentPillFocusTaskId(sourceTaskId);
+
+      navigateToTask(projectId, parent.taskId, {
+        fullscreen: isFullscreen,
+        replace: false,
+        state: { fromChildTaskId: sourceTaskId },
+      });
+    },
+    [projectId, navigateToTask, isFullscreen]
+  );
+
+  const handleParentPillFocus = useCallback((taskId: string) => {
+    setParentPillFocusTaskId((current) => (current === taskId ? null : current));
+  }, []);
+
+  useEffect(() => {
+    if (!taskId) {
+      setParentPillFocusTaskId(null);
+    }
+  }, [taskId]);
+
+  const focusParentPillId =
+    taskId && taskId === parentPillFocusTaskId ? parentPillFocusTaskId : null;
+
   // Navigation functions that use filtered/grouped tasks
   const selectNextTask = useCallback(() => {
     if (selectedTask) {
@@ -537,6 +575,10 @@ export function ProjectTasks() {
                 onViewTaskDetails={handleViewTaskDetails}
                 selectedTask={selectedTask || undefined}
                 onCreateTask={handleCreateNewTask}
+                parentTasksById={parentTasksById}
+                onParentClick={handleParentNavigate}
+                focusParentPillId={focusParentPillId}
+                onParentPillFocus={handleParentPillFocus}
               />
             </div>
           )}

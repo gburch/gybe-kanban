@@ -8,6 +8,7 @@ import {
 } from '@/components/ui/shadcn-io/kanban';
 import { TaskCard } from './TaskCard';
 import type { TaskStatus, TaskWithAttemptStatus } from 'shared/types';
+import type { ParentTaskSummary } from '@/hooks/useProjectTasks';
 // import { useParams } from 'react-router-dom';
 
 import { statusBoardColors, statusLabels } from '@/utils/status-labels';
@@ -23,6 +24,13 @@ interface TaskKanbanBoardProps {
   onViewTaskDetails: (task: Task) => void;
   selectedTask?: Task;
   onCreateTask?: () => void;
+  parentTasksById?: Record<string, ParentTaskSummary | null>;
+  onParentClick?: (payload: {
+    parent: { taskId: string; title: string };
+    sourceTaskId: string;
+  }) => void;
+  focusParentPillId?: string | null;
+  onParentPillFocus?: (taskId: string) => void;
 }
 
 function TaskKanbanBoard({
@@ -34,6 +42,10 @@ function TaskKanbanBoard({
   onViewTaskDetails,
   selectedTask,
   onCreateTask,
+  parentTasksById = {},
+  onParentClick,
+  focusParentPillId,
+  onParentPillFocus,
 }: TaskKanbanBoardProps) {
   return (
     <KanbanProvider onDragEnd={onDragEnd}>
@@ -45,19 +57,31 @@ function TaskKanbanBoard({
             onAddTask={onCreateTask}
           />
           <KanbanCards>
-            {statusTasks.map((task, index) => (
-              <TaskCard
-                key={task.id}
-                task={task}
-                index={index}
-                status={status}
-                onEdit={onEditTask}
-                onDelete={onDeleteTask}
-                onDuplicate={onDuplicateTask}
-                onViewDetails={onViewTaskDetails}
-                isOpen={selectedTask?.id === task.id}
-              />
-            ))}
+            {statusTasks.map((task, index) => {
+              const parentSummary = parentTasksById?.[task.id] ?? null;
+
+              return (
+                <TaskCard
+                  key={task.id}
+                  task={task}
+                  index={index}
+                  status={status}
+                  onEdit={onEditTask}
+                  onDelete={onDeleteTask}
+                  onDuplicate={onDuplicateTask}
+                  onViewDetails={onViewTaskDetails}
+                  isOpen={selectedTask?.id === task.id}
+                  parentTask={
+                    parentSummary
+                      ? { id: parentSummary.id, title: parentSummary.title }
+                      : null
+                  }
+                  onParentClick={onParentClick}
+                  shouldAutoFocusParentPill={focusParentPillId === task.id}
+                  onParentPillFocus={onParentPillFocus}
+                />
+              );
+            })}
           </KanbanCards>
         </KanbanBoard>
       ))}

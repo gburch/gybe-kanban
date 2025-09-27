@@ -17,8 +17,20 @@ import {
   XCircle,
 } from 'lucide-react';
 import type { TaskWithAttemptStatus } from 'shared/types';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
+import { cn } from '@/lib/utils';
 
 type Task = TaskWithAttemptStatus;
+
+interface ParentTaskInfo {
+  id: string;
+  title: string;
+}
 
 interface TaskCardProps {
   task: Task;
@@ -29,6 +41,13 @@ interface TaskCardProps {
   onDuplicate?: (task: Task) => void;
   onViewDetails: (task: Task) => void;
   isOpen?: boolean;
+  parentTask?: ParentTaskInfo | null;
+  onParentClick?: (payload: {
+    parent: { taskId: string; title: string };
+    sourceTaskId: string;
+  }) => void;
+  shouldAutoFocusParentPill?: boolean;
+  onParentPillFocus?: (taskId: string) => void;
 }
 
 export function TaskCard({
@@ -40,12 +59,30 @@ export function TaskCard({
   onDuplicate,
   onViewDetails,
   isOpen,
+  parentTask,
+  onParentClick,
+  shouldAutoFocusParentPill,
+  onParentPillFocus,
 }: TaskCardProps) {
   const handleClick = useCallback(() => {
     onViewDetails(task);
   }, [task, onViewDetails]);
 
   const localRef = useRef<HTMLDivElement>(null);
+  const parentPillRef = useRef<HTMLButtonElement | null>(null);
+
+  const parentTitle = parentTask?.title ?? '';
+  const truncatedParentTitle =
+    parentTitle.length > 24 ? `${parentTitle.slice(0, 24)}...` : parentTitle;
+  const parentLabel = parentTask
+    ? `Open parent task ${parentTask.title}`
+    : '';
+
+  useEffect(() => {
+    if (!shouldAutoFocusParentPill || !parentPillRef.current) return;
+    parentPillRef.current.focus({ preventScroll: true });
+    onParentPillFocus?.(task.id);
+  }, [shouldAutoFocusParentPill, onParentPillFocus, task.id]);
 
   useEffect(() => {
     if (!isOpen || !localRef.current) return;
@@ -71,6 +108,75 @@ export function TaskCard({
       forwardedRef={localRef}
     >
       <div className="flex flex-1 gap-2 items-center min-w-0">
+        {parentTask && (
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                {onParentClick ? (
+                  <Button
+                    ref={parentPillRef}
+                    type="button"
+                    variant="ghost"
+                    size="xs"
+                    role="link"
+                    className={cn(
+                      'h-auto gap-1.5 rounded-md border px-2 py-0.5 text-xs font-normal',
+                      'bg-muted text-muted-foreground animate-in fade-in-0 animate-pill',
+                      'hover:bg-muted/80 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background'
+                    )}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onParentClick({
+                        parent: {
+                          taskId: parentTask.id,
+                          title: parentTask.title,
+                        },
+                        sourceTaskId: task.id,
+                      });
+                    }}
+                    onPointerDown={(event) => event.stopPropagation()}
+                    onMouseDown={(event) => event.stopPropagation()}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        onParentClick({
+                          parent: {
+                            taskId: parentTask.id,
+                            title: parentTask.title,
+                          },
+                          sourceTaskId: task.id,
+                        });
+                      }
+                    }}
+                    aria-label={parentLabel}
+                    data-task-parent-pill={task.id}
+                  >
+                    {truncatedParentTitle}
+                  </Button>
+                ) : (
+                  <span
+                    className="inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 bg-muted text-xs text-muted-foreground animate-in fade-in-0 animate-pill focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                    tabIndex={0}
+                    onPointerDown={(event) => event.stopPropagation()}
+                    onMouseDown={(event) => event.stopPropagation()}
+                    onClick={(event) => event.stopPropagation()}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.stopPropagation();
+                      }
+                    }}
+                  >
+                    {truncatedParentTitle}
+                  </span>
+                )}
+              </TooltipTrigger>
+              <TooltipContent side="top" align="start">
+                {parentLabel}
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        )}
         <h4 className="flex-1 min-w-0 line-clamp-2 font-light text-sm">
           {task.title}
         </h4>
