@@ -107,38 +107,28 @@ export function TaskCard({
       isOpen={isOpen}
       forwardedRef={localRef}
     >
-      <div className="flex flex-1 gap-2 items-center min-w-0">
-        {parentTask && (
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                {onParentClick ? (
-                  <Button
-                    ref={parentPillRef}
-                    type="button"
-                    variant="ghost"
-                    size="xs"
-                    role="link"
-                    className={cn(
-                      'h-auto gap-1.5 rounded-md border px-2 py-0.5 text-xs font-normal',
-                      'bg-muted text-muted-foreground animate-in fade-in-0 animate-pill',
-                      'hover:bg-muted/80 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background'
-                    )}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      onParentClick({
-                        parent: {
-                          taskId: parentTask.id,
-                          title: parentTask.title,
-                        },
-                        sourceTaskId: task.id,
-                      });
-                    }}
-                    onPointerDown={(event) => event.stopPropagation()}
-                    onMouseDown={(event) => event.stopPropagation()}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Enter' || event.key === ' ') {
-                        event.preventDefault();
+      <div className="flex flex-1 items-start gap-2 min-w-0">
+        <div className="flex min-w-0 flex-1 flex-col gap-1">
+          <h4 className="min-w-0 line-clamp-2 font-light text-sm">
+            {task.title}
+          </h4>
+          {parentTask && (
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  {onParentClick ? (
+                    <Button
+                      ref={parentPillRef}
+                      type="button"
+                      variant="ghost"
+                      size="xs"
+                      role="link"
+                      className={cn(
+                        'h-auto gap-1.5 self-start rounded-md border px-2 py-0.5 text-xs font-normal',
+                        'bg-muted text-muted-foreground animate-in fade-in-0 animate-pill',
+                        'hover:bg-muted/80 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background'
+                      )}
+                      onClick={(event) => {
                         event.stopPropagation();
                         onParentClick({
                           parent: {
@@ -147,39 +137,51 @@ export function TaskCard({
                           },
                           sourceTaskId: task.id,
                         });
-                      }
-                    }}
-                    aria-label={parentLabel}
-                    data-task-parent-pill={task.id}
-                  >
-                    {truncatedParentTitle}
-                  </Button>
-                ) : (
-                  <span
-                    className="inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 bg-muted text-xs text-muted-foreground animate-in fade-in-0 animate-pill focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-                    tabIndex={0}
-                    onPointerDown={(event) => event.stopPropagation()}
-                    onMouseDown={(event) => event.stopPropagation()}
-                    onClick={(event) => event.stopPropagation()}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Enter' || event.key === ' ') {
-                        event.stopPropagation();
-                      }
-                    }}
-                  >
-                    {truncatedParentTitle}
-                  </span>
-                )}
-              </TooltipTrigger>
-              <TooltipContent side="top" align="start">
-                {parentLabel}
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
-        )}
-        <h4 className="flex-1 min-w-0 line-clamp-2 font-light text-sm">
-          {task.title}
-        </h4>
+                      }}
+                      onPointerDown={(event) => event.stopPropagation()}
+                      onMouseDown={(event) => event.stopPropagation()}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          onParentClick({
+                            parent: {
+                              taskId: parentTask.id,
+                              title: parentTask.title,
+                            },
+                            sourceTaskId: task.id,
+                          });
+                        }
+                      }}
+                      aria-label={parentLabel}
+                      data-task-parent-pill={task.id}
+                    >
+                      {truncatedParentTitle}
+                    </Button>
+                  ) : (
+                    <span
+                      className="inline-flex items-center gap-1.5 self-start rounded-md border px-2 py-0.5 bg-muted text-xs text-muted-foreground animate-in fade-in-0 animate-pill focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                      tabIndex={0}
+                      onPointerDown={(event) => event.stopPropagation()}
+                      onMouseDown={(event) => event.stopPropagation()}
+                      onClick={(event) => event.stopPropagation()}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.stopPropagation();
+                        }
+                      }}
+                    >
+                      {truncatedParentTitle}
+                    </span>
+                  )}
+                </TooltipTrigger>
+                <TooltipContent side="top" align="start">
+                  {parentLabel}
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          )}
+        </div>
         <div className="flex items-center space-x-1">
           {/* In Progress Spinner */}
           {task.has_in_progress_attempt && (
