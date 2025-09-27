@@ -133,4 +133,23 @@ describe('TaskCard', () => {
       sourceTaskId: 'task-1',
     });
   });
+
+  it('renders child task progress badge when summary data exists', () => {
+    renderWithDnd(
+      <TaskCard
+        task={baseTask()}
+        index={0}
+        status="todo"
+        onEdit={() => {}}
+        onDelete={() => {}}
+        onViewDetails={() => {}}
+        childTaskSummary={{ complete: 1, inProgress: 2, total: 3 }}
+      />
+    );
+
+    expect(screen.getByText('1/2/3')).toBeInTheDocument();
+    expect(
+      screen.getByLabelText('1 subtasks complete, 2 in progress, 3 total')
+    ).toBeInTheDocument();
+  });
 });

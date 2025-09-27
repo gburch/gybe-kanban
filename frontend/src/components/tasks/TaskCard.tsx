@@ -17,6 +17,7 @@ import {
   XCircle,
 } from 'lucide-react';
 import type { TaskWithAttemptStatus } from 'shared/types';
+import type { ChildTaskSummary } from '@/hooks/useProjectTasks';
 import {
   Tooltip,
   TooltipContent,
@@ -48,6 +49,7 @@ interface TaskCardProps {
   }) => void;
   shouldAutoFocusParentPill?: boolean;
   onParentPillFocus?: (taskId: string) => void;
+  childTaskSummary?: ChildTaskSummary;
 }
 
 export function TaskCard({
@@ -63,6 +65,7 @@ export function TaskCard({
   onParentClick,
   shouldAutoFocusParentPill,
   onParentPillFocus,
+  childTaskSummary,
 }: TaskCardProps) {
   const handleClick = useCallback(() => {
     onViewDetails(task);
@@ -76,6 +79,11 @@ export function TaskCard({
     parentTitle.length > 24 ? `${parentTitle.slice(0, 24)}...` : parentTitle;
   const parentLabel = parentTask
     ? `Open parent task ${parentTask.title}`
+    : '';
+  const childSummary =
+    childTaskSummary && childTaskSummary.total > 0 ? childTaskSummary : null;
+  const childSummaryLabel = childSummary
+    ? `${childSummary.complete} subtasks complete, ${childSummary.inProgress} in progress, ${childSummary.total} total`
     : '';
 
   useEffect(() => {
@@ -106,6 +114,7 @@ export function TaskCard({
       onClick={handleClick}
       isOpen={isOpen}
       forwardedRef={localRef}
+      className={cn(childSummary && 'relative pb-8')}
     >
       <div className="flex flex-1 items-start gap-2 min-w-0">
         <div className="flex min-w-0 flex-1 flex-col gap-1">
@@ -240,6 +249,24 @@ export function TaskCard({
             ? `${task.description.substring(0, 130)}...`
             : task.description}
         </p>
+      )}
+      {childSummary && (
+        <div
+          className="absolute bottom-2 right-3 rounded-md border border-border bg-background/95 px-2 py-0.5 text-[11px] font-medium leading-none shadow-sm backdrop-blur"
+          aria-label={childSummaryLabel}
+        >
+          <span className="text-green-500 tabular-nums">
+            {childSummary.complete}
+          </span>
+          <span className="text-muted-foreground mx-1">/</span>
+          <span className="text-pink-500 tabular-nums">
+            {childSummary.inProgress}
+          </span>
+          <span className="text-muted-foreground mx-1">/</span>
+          <span className="text-blue-500 tabular-nums">
+            {childSummary.total}
+          </span>
+        </div>
       )}
     </KanbanCard>
   );

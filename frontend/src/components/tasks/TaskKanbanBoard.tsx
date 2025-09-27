@@ -8,7 +8,10 @@ import {
 } from '@/components/ui/shadcn-io/kanban';
 import { TaskCard } from './TaskCard';
 import type { TaskStatus, TaskWithAttemptStatus } from 'shared/types';
-import type { ParentTaskSummary } from '@/hooks/useProjectTasks';
+import type {
+  ChildTaskSummary,
+  ParentTaskSummary,
+} from '@/hooks/useProjectTasks';
 // import { useParams } from 'react-router-dom';
 
 import { statusBoardColors, statusLabels } from '@/utils/status-labels';
@@ -25,6 +28,7 @@ interface TaskKanbanBoardProps {
   selectedTask?: Task;
   onCreateTask?: () => void;
   parentTasksById?: Record<string, ParentTaskSummary | null>;
+  childTaskSummaryById?: Record<string, ChildTaskSummary>;
   onParentClick?: (payload: {
     parent: { taskId: string; title: string };
     sourceTaskId: string;
@@ -43,6 +47,7 @@ function TaskKanbanBoard({
   selectedTask,
   onCreateTask,
   parentTasksById = {},
+  childTaskSummaryById = {},
   onParentClick,
   focusParentPillId,
   onParentPillFocus,
@@ -59,6 +64,7 @@ function TaskKanbanBoard({
           <KanbanCards>
             {statusTasks.map((task, index) => {
               const parentSummary = parentTasksById?.[task.id] ?? null;
+              const childSummary = childTaskSummaryById?.[task.id];
 
               return (
                 <TaskCard
@@ -76,6 +82,7 @@ function TaskKanbanBoard({
                       ? { id: parentSummary.id, title: parentSummary.title }
                       : null
                   }
+                  childTaskSummary={childSummary}
                   onParentClick={onParentClick}
                   shouldAutoFocusParentPill={focusParentPillId === task.id}
                   onParentPillFocus={onParentPillFocus}

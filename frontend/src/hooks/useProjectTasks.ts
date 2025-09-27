@@ -11,10 +11,17 @@ export type ParentTaskSummary = Pick<
   'id' | 'title' | 'status'
 >;
 
+export type ChildTaskSummary = {
+  complete: number;
+  inProgress: number;
+  total: number;
+};
+
 interface UseProjectTasksResult {
   tasks: TaskWithAttemptStatus[];
   tasksById: Record<string, TaskWithAttemptStatus>;
   parentTasksById: Record<string, ParentTaskSummary | null>;
+  childTaskSummaryById: Record<string, ChildTaskSummary>;
   isLoading: boolean;
   isConnected: boolean;
   error: string | null;
@@ -76,6 +83,38 @@ export const useProjectTasks = (projectId: string): UseProjectTasksResult => {
     return lookup;
   }, [tasksById]);
 
+  const childTaskSummaryById = useMemo(() => {
+    const summary: Record<string, ChildTaskSummary> = {};
+
+    const ensureSummary = (taskId: string) => {
+      if (!summary[taskId]) {
+        summary[taskId] = { complete: 0, inProgress: 0, total: 0 };
+      }
+      return summary[taskId];
+    };
+
+    for (const task of Object.values(tasksById)) {
+      const parentId = task.parent_task_id;
+      if (!parentId) {
+        continue;
+      }
+
+      const parentSummary = ensureSummary(parentId);
+      parentSummary.total += 1;
+
+      if (task.status === 'done') {
+        parentSummary.complete += 1;
+        continue;
+      }
+
+      if (task.status === 'inprogress' || task.status === 'inreview') {
+        parentSummary.inProgress += 1;
+      }
+    }
+
+    return summary;
+  }, [tasksById]);
+
   /**
    * Resolve parent metadata for a task id. Returns null when the parent task
    * is absent from the current websocket snapshot.
@@ -90,6 +129,7 @@ export const useProjectTasks = (projectId: string): UseProjectTasksResult => {
     tasks,
     tasksById,
     parentTasksById,
+    childTaskSummaryById,
     isLoading,
     isConnected,
     error,

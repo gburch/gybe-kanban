@@ -134,6 +134,7 @@ export function ProjectTasks() {
     tasks,
     tasksById,
     parentTasksById,
+    childTaskSummaryById,
     isLoading,
     error: streamError,
   } = useProjectTasks(projectId || '');
@@ -576,6 +577,7 @@ export function ProjectTasks() {
                 selectedTask={selectedTask || undefined}
                 onCreateTask={handleCreateNewTask}
                 parentTasksById={parentTasksById}
+                childTaskSummaryById={childTaskSummaryById}
                 onParentClick={handleParentNavigate}
                 focusParentPillId={focusParentPillId}
                 onParentPillFocus={handleParentPillFocus}
