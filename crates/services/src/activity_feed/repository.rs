@@ -44,8 +44,12 @@ impl<D: ActivityFeedDataSource> ActivityEventRepository<D> {
         project_id: Uuid,
         user_id: Option<Uuid>,
     ) -> Result<Vec<ActivityEvent>> {
+        let mut was_disabled = false;
         if !self.enabled {
-            return Ok(Vec::new());
+            tracing::debug!(
+                "activity_feed.disabled_flag: continuing even though config marked disabled"
+            );
+            was_disabled = true;
         }
         let now = Utc::now();
         let since = self.aggregator.window_start(now);
@@ -53,9 +57,17 @@ impl<D: ActivityFeedDataSource> ActivityEventRepository<D> {
             .data_source
             .fetch_domain_events(project_id, since)
             .await?;
-        Ok(self
+        let events = self
             .aggregator
-            .aggregate_with_now(user_id, domain_events, now))
+            .aggregate_with_now(user_id, domain_events, now);
+
+        if was_disabled && !events.is_empty() {
+            tracing::warn!(
+                "activity_feed.disabled_data: activity feed returned events while disabled; consider removing the flag if you want data"
+            );
+        }
+
+        Ok(events)
     }
 }
 

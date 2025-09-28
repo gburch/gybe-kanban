@@ -17,5 +17,9 @@
     "default_pr_base": "main",
     "branch_prefix": "vk/",
     "merge_commit_message_suffix": "(vibe-kanban {short_id})"
+  },
+  "activity_feed": {
+    "enabled": true,
+    "window_days": 21
   }
 }
