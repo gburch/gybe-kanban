@@ -162,4 +162,19 @@ describe('ProjectActivityFeed', () => {
 
     expect(setFilterMock).toHaveBeenCalledWith('need_review');
   });
+
+  it('surfaces in-review events under the Needs Review tab even without actionRequired flag', () => {
+    const reviewEvent = stubEvent({
+      actionRequired: false,
+      urgencyScore: 55,
+      summary: 'Status: inreview',
+      headline: 'Task pending review',
+    });
+
+    useActivityFeedStore.getState().replaceEvents([reviewEvent], null);
+
+    render(<ProjectActivityFeed projectId="proj-1" isProjectsLoading={false} />);
+
+    expect(screen.getByText(/task pending review/i)).toBeInTheDocument();
+  });
 });

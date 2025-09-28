@@ -86,6 +86,70 @@ const shouldShowReconnectBanner = (state: string, hasTried: boolean) => {
   return state === 'reconnecting' || state === 'disconnected';
 };
 
+const REVIEW_STATUSES = new Set([
+  'inreview',
+  'needs_review',
+  'need_review',
+  'pending_review',
+]);
+
+const IN_PROGRESS_STATUSES = new Set([
+  'inprogress',
+  'todo',
+  'executorrunning',
+  'executorwaiting',
+  'running',
+  'queued',
+]);
+
+const COMPLETED_STATUSES = new Set([
+  'done',
+  'cancelled',
+  'completed',
+  'succeeded',
+  'executorcomplete',
+]);
+
+const extractStatusToken = (summary?: string | null) => {
+  if (!summary) return null;
+  const normalized = summary.toLowerCase();
+  const statusMatch = normalized.match(/status:\s*([a-z_]+)/i);
+  if (statusMatch?.[1]) {
+    return statusMatch[1];
+  }
+
+  const attemptMatch = normalized.match(/attempt state:\s*([a-z_]+)/i);
+  if (attemptMatch?.[1]) {
+    return attemptMatch[1];
+  }
+
+  return null;
+};
+
+const categorizeEvent = (event: ActivityFeedEvent): ActivityFeedFilter => {
+  const status = extractStatusToken(event.summary);
+
+  if (status) {
+    if (REVIEW_STATUSES.has(status)) {
+      return 'need_review';
+    }
+    if (COMPLETED_STATUSES.has(status)) {
+      return 'recently_completed';
+    }
+    if (IN_PROGRESS_STATUSES.has(status)) {
+      return 'in_progress';
+    }
+  }
+
+  if (event.actionRequired || event.urgencyScore >= 70) {
+    return 'need_review';
+  }
+  if (event.urgencyScore >= 40) {
+    return 'in_progress';
+  }
+  return 'recently_completed';
+};
+
 export function ProjectActivityFeed({
   projectId,
   projects,
@@ -157,14 +221,7 @@ export function ProjectActivityFeed({
   };
 
   const filteredEvents = useMemo(() => {
-    const matchers: Record<ActivityFeedFilter, (event: ActivityFeedEvent) => boolean> = {
-      in_progress: (event) => !event.actionRequired && event.urgencyScore >= 40,
-      need_review: (event) => event.actionRequired,
-      recently_completed: (event) => !event.actionRequired && event.urgencyScore < 40,
-    };
-
-    const predicate = matchers[filter] ?? (() => true);
-    return events.filter(predicate);
+    return events.filter((event) => categorizeEvent(event) === filter);
   }, [events, filter]);
 
   const isSkeleton = status.isLoading && events.length === 0;
