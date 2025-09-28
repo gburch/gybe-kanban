@@ -25,9 +25,11 @@ use super::{
 
 /// Search mode for different use cases
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "snake_case")]
+#[ts(rename_all = "snake_case")]
 #[derive(Default)]
 pub enum SearchMode {
+    #[serde(alias = "taskform")]
     #[default]
     TaskForm, // Default: exclude ignored files (clean results)
     Settings, // Include ignored files (for project config like .env)
