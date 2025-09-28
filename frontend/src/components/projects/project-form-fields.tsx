@@ -442,7 +442,7 @@ export function ProjectFormFields({
               onChange={(e) => setSetupScript(e.target.value)}
               placeholder={placeholders.setup}
               rows={4}
-              className="w-full px-3 py-2 text-sm border border-input bg-background text-foreground rounded-md resize-vertical focus:outline-none focus:ring-2 focus:ring-ring"
+              className="w-full px-3 py-2 text-base border border-input bg-background text-foreground rounded-md resize-vertical focus:outline-none focus:ring-2 focus:ring-ring"
             />
           </div>
 
@@ -454,7 +454,7 @@ export function ProjectFormFields({
               onChange={(e) => setDevScript(e.target.value)}
               placeholder={placeholders.dev}
               rows={4}
-              className="w-full px-3 py-2 text-sm border border-input bg-background text-foreground rounded-md resize-vertical focus:outline-none focus:ring-2 focus:ring-ring"
+              className="w-full px-3 py-2 text-base border border-input bg-background text-foreground rounded-md resize-vertical focus:outline-none focus:ring-2 focus:ring-ring"
             />
           </div>
 
@@ -466,7 +466,7 @@ export function ProjectFormFields({
               onChange={(e) => setCleanupScript(e.target.value)}
               placeholder={placeholders.cleanup}
               rows={4}
-              className="w-full px-3 py-2 text-sm border border-input bg-background text-foreground rounded-md resize-vertical focus:outline-none focus:ring-2 focus:ring-ring"
+              className="w-full px-3 py-2 text-base border border-input bg-background text-foreground rounded-md resize-vertical focus:outline-none focus:ring-2 focus:ring-ring"
             />
           </div>
 
