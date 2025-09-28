@@ -24,7 +24,7 @@ export function CopyFilesField({
         placeholder="Start typing a file path... (.env, config.local.json, .local/settings.yml)"
         rows={3}
         disabled={disabled}
-        className="w-full px-3 py-2 text-sm border border-input bg-background text-foreground disabled:opacity-50 rounded-md resize-vertical focus:outline-none focus:ring-2 focus:ring-ring"
+        className="w-full px-3 py-2 text-base border border-input bg-background text-foreground disabled:opacity-50 rounded-md resize-vertical focus:outline-none focus:ring-2 focus:ring-ring"
         projectId={projectId}
         repositoryIds={repositoryIds}
         maxRows={6}
@@ -40,7 +40,7 @@ export function CopyFilesField({
       placeholder=".env,config.local.json,.local/settings.yml"
       rows={3}
       disabled={disabled}
-      className="w-full px-3 py-2 text-sm border border-input bg-background text-foreground rounded-md resize-vertical focus:outline-none focus:ring-2 focus:ring-ring"
+      className="w-full px-3 py-2 text-base border border-input bg-background text-foreground rounded-md resize-vertical focus:outline-none focus:ring-2 focus:ring-ring"
     />
   );
 }
