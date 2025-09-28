@@ -14,6 +14,7 @@ export type ParentTaskSummary = Pick<
 export type ChildTaskSummary = {
   complete: number;
   inProgress: number;
+  notStarted: number;
   total: number;
 };
 
@@ -88,7 +89,12 @@ export const useProjectTasks = (projectId: string): UseProjectTasksResult => {
 
     const ensureSummary = (taskId: string) => {
       if (!summary[taskId]) {
-        summary[taskId] = { complete: 0, inProgress: 0, total: 0 };
+        summary[taskId] = {
+          complete: 0,
+          inProgress: 0,
+          notStarted: 0,
+          total: 0,
+        };
       }
       return summary[taskId];
     };
@@ -109,7 +115,10 @@ export const useProjectTasks = (projectId: string): UseProjectTasksResult => {
 
       if (task.status === 'inprogress' || task.status === 'inreview') {
         parentSummary.inProgress += 1;
+        continue;
       }
+
+      parentSummary.notStarted += 1;
     }
 
     return summary;

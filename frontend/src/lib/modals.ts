@@ -17,11 +17,8 @@ import type {
  * @param props - Props to pass to the modal
  * @returns Promise that resolves with the modal's result
  */
-export function showModal<T = void>(
-  modal: string,
-  props: Record<string, unknown> = {}
-): Promise<T> {
-  return NiceModal.show<T>(modal, props) as Promise<T>;
+export function showModal<T = void>(modal: string, props?: unknown): Promise<T> {
+  return NiceModal.show<T>(modal, props as never) as Promise<T>;
 }
 
 /**
@@ -32,10 +29,7 @@ export function showModal<T = void>(
 export function showFolderPicker(
   props: FolderPickerDialogProps = {}
 ): Promise<string | null> {
-  return showModal<string | null>(
-    'folder-picker',
-    props as Record<string, unknown>
-  );
+  return showModal<string | null>('folder-picker', props);
 }
 
 /**
@@ -60,28 +54,19 @@ export function showTaskTemplateEdit(
 export function showProjectForm(
   props: ProjectFormDialogProps = {}
 ): Promise<ProjectFormDialogResult> {
-  return showModal<ProjectFormDialogResult>(
-    'project-form',
-    props as Record<string, unknown>
-  );
+  return showModal<ProjectFormDialogResult>('project-form', props);
 }
 
 export function showRepositoryForm(
   props: RepositoryFormDialogProps
 ): Promise<RepositoryFormDialogResult> {
-  return showModal<RepositoryFormDialogResult>(
-    'repository-form',
-    props as Record<string, unknown>
-  );
+  return showModal<RepositoryFormDialogResult>('repository-form', props);
 }
 
 export function showDeleteRepository(
   props: DeleteRepositoryDialogProps
 ): Promise<DeleteRepositoryDialogResult> {
-  return showModal<DeleteRepositoryDialogResult>(
-    'delete-repository',
-    props as Record<string, unknown>
-  );
+  return showModal<DeleteRepositoryDialogResult>('delete-repository', props);
 }
 
 /**

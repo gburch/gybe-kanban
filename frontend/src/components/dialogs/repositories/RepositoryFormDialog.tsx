@@ -132,7 +132,7 @@ export const RepositoryFormDialog = NiceModal.create<RepositoryFormDialogProps>(
       try {
         const selected = await showFolderPicker({
           title: 'Select repository folder',
-          defaultPath: gitRepoPath || undefined,
+          value: gitRepoPath || undefined,
         });
         if (selected) {
           setGitRepoPath(selected);

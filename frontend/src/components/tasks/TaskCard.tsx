@@ -83,7 +83,7 @@ export function TaskCard({
   const childSummary =
     childTaskSummary && childTaskSummary.total > 0 ? childTaskSummary : null;
   const childSummaryLabel = childSummary
-    ? `${childSummary.complete} subtasks complete, ${childSummary.inProgress} in progress, ${childSummary.total} total`
+    ? `${childSummary.complete} subtasks complete, ${childSummary.inProgress} in progress, ${childSummary.notStarted} not started`
     : '';
 
   useEffect(() => {
@@ -263,8 +263,8 @@ export function TaskCard({
             {childSummary.inProgress}
           </span>
           <span className="text-muted-foreground mx-1">/</span>
-          <span className="text-blue-500 tabular-nums">
-            {childSummary.total}
+          <span className="text-muted-foreground tabular-nums">
+            {childSummary.notStarted}
           </span>
         </div>
       )}

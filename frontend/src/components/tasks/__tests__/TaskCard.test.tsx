@@ -143,13 +143,18 @@ describe('TaskCard', () => {
         onEdit={() => {}}
         onDelete={() => {}}
         onViewDetails={() => {}}
-        childTaskSummary={{ complete: 1, inProgress: 2, total: 3 }}
+        childTaskSummary={{
+          complete: 1,
+          inProgress: 2,
+          notStarted: 0,
+          total: 3,
+        }}
       />
     );
 
-    expect(screen.getByText('1/2/3')).toBeInTheDocument();
+    expect(screen.getByText('1/2/0')).toBeInTheDocument();
     expect(
-      screen.getByLabelText('1 subtasks complete, 2 in progress, 3 total')
+      screen.getByLabelText('1 subtasks complete, 2 in progress, 0 not started')
     ).toBeInTheDocument();
   });
 });

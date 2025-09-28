@@ -113,42 +113,39 @@ vi.mock('react-hotkeys-hook', () => ({
 
 const navigationTargets: string[] = [];
 
-vi.mock('@/hooks/useTaskViewManager', () => {
-  const reactRouter = require('react-router-dom');
-  return {
-    useTaskViewManager: () => {
-      const navigate = reactRouter.useNavigate();
-      const location = reactRouter.useLocation();
+vi.mock('@/hooks/useTaskViewManager', () => ({
+  useTaskViewManager: () => {
+    const navigate = useNavigate();
+    const location = useLocation();
       const isFullscreen = location.pathname.endsWith('/full');
-      return {
-        isFullscreen,
-        toggleFullscreen: vi.fn(),
-        buildTaskUrl: (
-          projectId: string,
-          taskId: string,
-          options?: { fullscreen?: boolean }
-        ) => {
-          const fullscreenSuffix =
-            options?.fullscreen ?? isFullscreen ? '/full' : '';
-          return `/projects/${projectId}/tasks/${taskId}${fullscreenSuffix}`;
-        },
-        navigateToTask: (
-          projectId: string,
-          taskId: string,
-          options?: { fullscreen?: boolean; replace?: boolean; state?: unknown }
-        ) => {
-          const target = `/projects/${projectId}/tasks/${taskId}`;
-          navigate(target, {
-            replace: options?.replace ?? true,
-            state: options?.state,
-          });
-          navigationTargets.push(target);
-        },
-        navigateToAttempt: vi.fn(),
-      };
-    },
-  };
-});
+    return {
+      isFullscreen,
+      toggleFullscreen: vi.fn(),
+      buildTaskUrl: (
+        projectId: string,
+        taskId: string,
+        options?: { fullscreen?: boolean }
+      ) => {
+        const fullscreenSuffix =
+          options?.fullscreen ?? isFullscreen ? '/full' : '';
+        return `/projects/${projectId}/tasks/${taskId}${fullscreenSuffix}`;
+      },
+      navigateToTask: (
+        projectId: string,
+        taskId: string,
+        options?: { fullscreen?: boolean; replace?: boolean; state?: unknown }
+      ) => {
+        const target = `/projects/${projectId}/tasks/${taskId}`;
+        navigate(target, {
+          replace: options?.replace ?? true,
+          state: options?.state,
+        });
+        navigationTargets.push(target);
+      },
+      navigateToAttempt: vi.fn(),
+    };
+  },
+}));
 
 vi.mock('@/keyboard', () => ({
   Scope: { KANBAN: 'kanban' },

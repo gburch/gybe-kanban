@@ -111,7 +111,12 @@ export const ProjectFormDialog = NiceModal.create<ProjectFormDialogProps>(
       setPendingRepositoryId(repository.id);
 
       try {
-        await updateRepository(repository.id, { is_primary: true });
+        await updateRepository(repository.id, {
+          name: null,
+          git_repo_path: null,
+          root_path: null,
+          is_primary: true,
+        });
       } catch (err) {
         setRepositoryError(
           err instanceof Error
