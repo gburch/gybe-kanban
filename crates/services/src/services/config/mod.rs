@@ -22,6 +22,7 @@ pub type SoundFile = versions::v8::SoundFile;
 pub type EditorType = versions::v8::EditorType;
 pub type GitHubConfig = versions::v8::GitHubConfig;
 pub type UiLanguage = versions::v8::UiLanguage;
+pub type ActivityFeedConfig = versions::v8::ActivityFeedConfig;
 
 /// Will always return config, trying old schemas or eventually returning default
 pub async fn load_config_from_file(config_path: &PathBuf) -> Config {

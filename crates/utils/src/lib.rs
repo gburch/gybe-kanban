@@ -5,6 +5,7 @@ use directories::ProjectDirs;
 pub mod approvals;
 pub mod assets;
 pub mod browser;
+pub mod cache;
 pub mod diff;
 pub mod log_msg;
 pub mod msg_store;

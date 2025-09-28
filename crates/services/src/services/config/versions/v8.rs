@@ -67,6 +67,31 @@ impl Default for GitHubConfig {
     }
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+pub struct ActivityFeedConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "ActivityFeedConfig::default_window")]
+    pub window_days: u16,
+}
+
+impl ActivityFeedConfig {
+    const DEFAULT_WINDOW_DAYS: u16 = 21;
+
+    const fn default_window() -> u16 {
+        Self::DEFAULT_WINDOW_DAYS
+    }
+}
+
+impl Default for ActivityFeedConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            window_days: Self::DEFAULT_WINDOW_DAYS,
+        }
+    }
+}
+
 impl From<v7::GitHubConfig> for GitHubConfig {
     fn from(old: v7::GitHubConfig) -> Self {
         Self {
@@ -99,6 +124,8 @@ pub struct Config {
     pub show_release_notes: bool,
     #[serde(default)]
     pub language: UiLanguage,
+    #[serde(default)]
+    pub activity_feed: ActivityFeedConfig,
 }
 
 impl Config {
@@ -128,6 +155,7 @@ impl Config {
             last_app_version: old_config.last_app_version,
             show_release_notes: old_config.show_release_notes,
             language: old_config.language,
+            activity_feed: ActivityFeedConfig::default(),
         })
     }
 }
@@ -171,6 +199,7 @@ impl Default for Config {
             last_app_version: None,
             show_release_notes: false,
             language: UiLanguage::default(),
+            activity_feed: ActivityFeedConfig::default(),
         }
     }
 }

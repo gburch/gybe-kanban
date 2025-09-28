@@ -6,6 +6,7 @@ use sqlx::{
 };
 use utils::assets::asset_dir;
 
+pub mod activity_feed_queries;
 pub mod models;
 
 #[derive(Clone)]

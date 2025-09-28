@@ -1,5 +1,7 @@
 use std::path::{Component, Path, PathBuf};
 
+pub(crate) mod activity_feed;
+
 use axum::{
     Extension, Json, Router,
     extract::{Path as AxumPath, Query, State},
@@ -25,7 +27,10 @@ use services::services::{
 use utils::{path::expand_tilde, response::ApiResponse};
 use uuid::Uuid;
 
-use crate::{DeploymentImpl, error::ApiError, middleware::load_project_middleware};
+use crate::{
+    DeploymentImpl, error::ApiError, middleware::load_project_middleware,
+    websocket::project_events::project_activity_feed_ws,
+};
 
 #[derive(Debug, Deserialize)]
 pub struct RepositoryQuery {
@@ -831,6 +836,8 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
             "/",
             get(get_project).put(update_project).delete(delete_project),
         )
+        .route("/activity_feed", get(activity_feed::get_activity_feed))
+        .route("/activity_feed/ws", get(project_activity_feed_ws))
         .route("/branches", get(get_project_branches))
         .route(
             "/repositories",

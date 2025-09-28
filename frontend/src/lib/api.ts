@@ -46,6 +46,8 @@ import {
   UpdateFollowUpDraftRequest,
   GitOperationError,
   ApprovalResponse,
+  ActivityFeedItem,
+  ActivityFeedResponse,
 } from 'shared/types';
 
 // Re-export types for convenience
@@ -92,6 +94,33 @@ export interface FollowUpResponse {
 
 export type Ok<T> = { success: true; data: T };
 export type Err<E> = { success: false; error: E | undefined; message?: string };
+
+export type ActivityFeedFilter =
+  | 'in_progress'
+  | 'need_review'
+  | 'recently_completed';
+
+export type ActivityFeedEvent = ActivityFeedItem & {
+  createdAt: Date;
+  projectId?: string;
+  projectName?: string;
+  actorAvatarUrl?: string | null;
+  actorInitials?: string | null;
+};
+
+export const deserializeActivityFeedItem = (
+  item: ActivityFeedItem
+): ActivityFeedEvent => {
+  const createdAt =
+    item.createdAt instanceof Date
+      ? item.createdAt
+      : new Date(item.createdAt as unknown as string);
+
+  return {
+    ...item,
+    createdAt,
+  };
+};
 
 // Result type for endpoints that need typed errors
 export type Result<T, E> = Ok<T> | Err<E>;
@@ -315,6 +344,35 @@ export const projectsApi = {
       requestOptions
     );
     return handleApiResponse<SearchResult[]>(response);
+  },
+};
+
+export const activityFeedApi = {
+  list: async (
+    projectId: string,
+    options: { scope?: 'mine' | 'all'; cursor?: string | null } = {}
+  ): Promise<ActivityFeedResponse & { events: ActivityFeedEvent[] }> => {
+    const params = new URLSearchParams();
+
+    const scope = options.scope ?? 'all';
+    params.set('scope', scope);
+
+    if (options.cursor) {
+      params.set('cursor', options.cursor);
+    }
+
+    const query = params.toString();
+    const endpoint = query
+      ? `/api/projects/${projectId}/activity_feed?${query}`
+      : `/api/projects/${projectId}/activity_feed`;
+
+    const response = await makeRequest(endpoint);
+    const payload = await handleApiResponse<ActivityFeedResponse>(response);
+
+    return {
+      ...payload,
+      events: payload.events.map(deserializeActivityFeedItem),
+    };
   },
 };
 
