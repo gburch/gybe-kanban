@@ -172,6 +172,30 @@ Vibe Kanban projects can link more than one Git repository, letting a single tas
 - All linked repositories are cloned for every attempt; avoid adding large repos you do not need.
 - Root paths scope a repo to a subdirectory. Leave the field empty unless you want to restrict the exposed files (e.g., `packages/web` inside a monorepo).
 
+### Scripts and automation
+
+Project setup, cleanup, and dev server scripts always execute from the primary repository worktree (and honour any root override). Use the exported environment variables to orchestrate additional repositories:
+
+- `VIBE_PRIMARY_REPO_PATH` and `VIBE_PRIMARY_REPO_ROOT`
+- `VIBE_REPOSITORIES` (comma-separated list of prefixes)
+- `VIBE_REPO_<PREFIX>_PATH` / `VIBE_REPO_<PREFIX>_ROOT`
+
+Example (macOS/Linux) setup snippet that installs dependencies across every linked repository:
+
+```bash
+cd "${VIBE_PRIMARY_REPO_PATH}/${VIBE_PRIMARY_REPO_ROOT:-}"
+npm install
+
+for prefix in ${VIBE_REPOSITORIES//,/ }; do
+  path_var="VIBE_REPO_${prefix}_PATH"
+  root_var="VIBE_REPO_${prefix}_ROOT"
+  repo_path="${!path_var}"
+  repo_root="${!root_var}"
+  [ -n "${repo_path}" ] || continue
+  (cd "${repo_path}/${repo_root:-}" && npm install)
+done
+```
+
 ### Upgrading existing installations
 
 Multi-repository support introduces new database tables (`project_repositories`, `task_attempt_repositories`). Apply the migration before running agents by executing:

@@ -56,6 +56,64 @@ Cleanup scripts run after a coding agent finishes. You can use these to tidy up 
 npm run clean
 ```
 
+Cleanup scripts only run when the agent produced file changes. When no modifications were made the cleanup script is skipped.
+
+### Script environment for multi-repository projects
+
+Setup, cleanup, and dev server scripts always start in the primary repository worktree. If the project uses a root override the script begins inside that directory. Use the exported environment variables to reach other repositories:
+
+- `VIBE_PRIMARY_REPO_PATH` and `VIBE_PRIMARY_REPO_ROOT` – primary worktree path and optional subdirectory root
+- `VIBE_REPOSITORIES` – comma-separated environment prefixes for each linked repository
+- `VIBE_REPO_<PREFIX>_PATH` / `VIBE_REPO_<PREFIX>_ROOT` – worktree path and optional root for a specific repository
+
+The snippet below installs dependencies across every linked repository. Uncomment or adapt the loop for your own scripts.
+
+<CodeGroup>
+```bash Setup script (macOS/Linux)
+#!/bin/bash
+set -euo pipefail
+
+# Start inside the primary repository worktree (honours root overrides).
+cd "${VIBE_PRIMARY_REPO_PATH}/${VIBE_PRIMARY_REPO_ROOT:-}"
+
+# Run primary repo setup first.
+npm install
+
+# Loop through any additional repositories.
+for prefix in ${VIBE_REPOSITORIES//,/ }; do
+  path_var="VIBE_REPO_${prefix}_PATH"
+  root_var="VIBE_REPO_${prefix}_ROOT"
+  repo_path="${!path_var}"
+  repo_root="${!root_var}"
+  [ -n "${repo_path}" ] || continue
+  (cd "${repo_path}/${repo_root:-}" && npm install)
+done
+```
+
+```batch Setup script (Windows)
+@echo off
+setlocal enabledelayedexpansion
+
+if defined VIBE_PRIMARY_REPO_ROOT (
+  cd /d "%VIBE_PRIMARY_REPO_PATH%\%VIBE_PRIMARY_REPO_ROOT%"
+) else (
+  cd /d "%VIBE_PRIMARY_REPO_PATH%"
+)
+
+npm install
+
+for %%P in (%VIBE_REPOSITORIES:,= %) do (
+  set "repoPathVar=VIBE_REPO_%%P_PATH"
+  for /f "tokens=1,* delims==" %%A in ('set !repoPathVar!') do set "repoPath=%%B"
+  if defined repoPath (
+    pushd "!repoPath!"
+    npm install
+    popd
+  )
+)
+```
+</CodeGroup>
+
 ## Managing Multiple Repositories
 
 Projects can reference more than one Git repository. This is useful when a feature spans a frontend and backend repo, or when only a subdirectory of a large monorepo should be exposed to agents.
