@@ -1,4 +1,10 @@
-import { useEffect, useMemo, type KeyboardEvent } from 'react';
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  type KeyboardEvent,
+  type PointerEvent as ReactPointerEvent,
+} from 'react';
 import {
   AlertTriangle,
   ArrowUpRight,
@@ -27,6 +33,7 @@ import { trackAnalyticsEvent } from '@/lib/analytics';
 import { useNavigate } from 'react-router-dom';
 
 const STORAGE_KEY = 'vk.activity_feed.filter';
+const TOUCH_TAP_MOVE_THRESHOLD = 10;
 
 const formatRelativeTime = (date: Date): string => {
   const now = Date.now();
@@ -257,6 +264,75 @@ export function ProjectActivityFeed({
     }
   };
 
+  const touchStartCoordinates = useRef<
+    Map<number, { x: number; y: number }>
+  >(new Map());
+  const touchActivatedEvents = useRef<Set<string>>(new Set());
+
+  const handleCardPointerDown = (
+    pointerEvent: ReactPointerEvent<HTMLElement>,
+    event: ActivityFeedEvent
+  ) => {
+    if (!event.cta?.href) return;
+    if (!pointerEvent.isPrimary) return;
+    if (pointerEvent.pointerType !== 'touch') return;
+
+    touchStartCoordinates.current.set(pointerEvent.pointerId, {
+      x: pointerEvent.clientX,
+      y: pointerEvent.clientY,
+    });
+  };
+
+  const handleCardPointerUp = (
+    pointerEvent: ReactPointerEvent<HTMLElement>,
+    event: ActivityFeedEvent
+  ) => {
+    if (!event.cta?.href) return;
+    if (!pointerEvent.isPrimary) return;
+    if (pointerEvent.pointerType !== 'touch') return;
+
+    const start = touchStartCoordinates.current.get(pointerEvent.pointerId);
+    touchStartCoordinates.current.delete(pointerEvent.pointerId);
+    if (!start) return;
+
+    const deltaX = Math.abs(pointerEvent.clientX - start.x);
+    const deltaY = Math.abs(pointerEvent.clientY - start.y);
+    if (
+      deltaX > TOUCH_TAP_MOVE_THRESHOLD ||
+      deltaY > TOUCH_TAP_MOVE_THRESHOLD
+    ) {
+      return;
+    }
+
+    pointerEvent.preventDefault();
+    pointerEvent.stopPropagation();
+
+    touchActivatedEvents.current.add(event.id);
+    window.setTimeout(() => {
+      touchActivatedEvents.current.delete(event.id);
+    }, 400);
+
+    handleEventActivation(event);
+  };
+
+  const handleCardPointerCancel = (
+    pointerEvent: ReactPointerEvent<HTMLElement>
+  ) => {
+    if (pointerEvent.pointerType !== 'touch') return;
+    touchStartCoordinates.current.delete(pointerEvent.pointerId);
+  };
+
+  const handleCardClick = (event: ActivityFeedEvent) => {
+    if (!event.cta?.href) return;
+
+    if (touchActivatedEvents.current.has(event.id)) {
+      touchActivatedEvents.current.delete(event.id);
+      return;
+    }
+
+    handleEventActivation(event);
+  };
+
   const filteredEvents = useMemo(() => {
     return events.filter((event) => categorizeEvent(event) === filter);
   }, [events, filter]);
@@ -366,9 +442,27 @@ export function ProjectActivityFeed({
                     tabIndex={isClickable ? 0 : -1}
                     role={isClickable ? 'button' : undefined}
                     aria-label={event.headline}
+                    onPointerDown={
+                      isClickable
+                        ? (pointerEvent) =>
+                            handleCardPointerDown(pointerEvent, event)
+                        : undefined
+                    }
+                    onPointerUp={
+                      isClickable
+                        ? (pointerEvent) =>
+                            handleCardPointerUp(pointerEvent, event)
+                        : undefined
+                    }
+                    onPointerCancel={
+                      isClickable
+                        ? (pointerEvent) =>
+                            handleCardPointerCancel(pointerEvent)
+                        : undefined
+                    }
                     onClick={
                       isClickable
-                        ? () => handleEventActivation(event)
+                        ? () => handleCardClick(event)
                         : undefined
                     }
                     onKeyDown={
@@ -424,6 +518,15 @@ export function ProjectActivityFeed({
                             ctaEvent.stopPropagation();
                             handleCtaClick(event);
                           }}
+                          onPointerDown={(ctaEvent) => {
+                            ctaEvent.stopPropagation();
+                          }}
+                          onPointerUp={(ctaEvent) => {
+                            ctaEvent.stopPropagation();
+                          }}
+                          onPointerCancel={(ctaEvent) => {
+                            ctaEvent.stopPropagation();
+                          }}
                           asChild
                         >
                           <a href={event.cta.href} className="inline-flex items-center gap-2">
@@ -439,6 +542,15 @@ export function ProjectActivityFeed({
                           onClick={(dismissEvent) => {
                             dismissEvent.stopPropagation();
                             handleDismiss(event.id);
+                          }}
+                          onPointerDown={(dismissEvent) => {
+                            dismissEvent.stopPropagation();
+                          }}
+                          onPointerUp={(dismissEvent) => {
+                            dismissEvent.stopPropagation();
+                          }}
+                          onPointerCancel={(dismissEvent) => {
+                            dismissEvent.stopPropagation();
                           }}
                           className="h-8 w-8"
                           aria-label="Dismiss from high priority"
