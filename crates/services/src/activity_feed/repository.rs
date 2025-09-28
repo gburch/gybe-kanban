@@ -44,12 +44,9 @@ impl<D: ActivityFeedDataSource> ActivityEventRepository<D> {
         project_id: Uuid,
         user_id: Option<Uuid>,
     ) -> Result<Vec<ActivityEvent>> {
-        let mut was_disabled = false;
         if !self.enabled {
-            tracing::debug!(
-                "activity_feed.disabled_flag: continuing even though config marked disabled"
-            );
-            was_disabled = true;
+            // Activity feed disabled via config; skip hitting the data source to avoid noisy logs.
+            return Ok(Vec::new());
         }
         let now = Utc::now();
         let since = self.aggregator.window_start(now);
@@ -60,12 +57,6 @@ impl<D: ActivityFeedDataSource> ActivityEventRepository<D> {
         let events = self
             .aggregator
             .aggregate_with_now(user_id, domain_events, now);
-
-        if was_disabled && !events.is_empty() {
-            tracing::warn!(
-                "activity_feed.disabled_data: activity feed returned events while disabled; consider removing the flag if you want data"
-            );
-        }
 
         Ok(events)
     }
@@ -89,6 +80,53 @@ impl ActivityEventRepository<SqlActivityFeedDataSource> {
         };
         let aggregator = ActivityAggregator::new(aggregator_config);
         Self::new(data_source, aggregator, config.enabled)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use async_trait::async_trait;
+    use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
+
+    struct TestDataSource {
+        called: Arc<AtomicBool>,
+    }
+
+    impl TestDataSource {
+        fn new() -> (Self, Arc<AtomicBool>) {
+            let called = Arc::new(AtomicBool::new(false));
+            (Self { called: called.clone() }, called)
+        }
+    }
+
+    #[async_trait]
+    impl ActivityFeedDataSource for TestDataSource {
+        async fn fetch_domain_events(
+            &self,
+            _project_id: Uuid,
+            _since: DateTime<Utc>,
+        ) -> Result<Vec<ActivityDomainEvent>> {
+            self.called.store(true, Ordering::SeqCst);
+            Ok(Vec::new())
+        }
+    }
+
+    #[tokio::test]
+    async fn list_recent_returns_empty_when_disabled() {
+        let (data_source, called) = TestDataSource::new();
+        let aggregator = ActivityAggregator::new(ActivityAggregatorConfig {
+            window: Duration::days(1),
+        });
+        let repository = ActivityEventRepository::new(data_source, aggregator, false);
+
+        let events = repository
+            .list_recent(Uuid::new_v4(), None)
+            .await
+            .expect("listing events should succeed");
+
+        assert!(events.is_empty());
+        assert!(!called.load(Ordering::SeqCst));
     }
 }
 
