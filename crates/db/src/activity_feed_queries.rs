@@ -39,6 +39,7 @@ pub struct TaskActivityRow {
 pub struct AttemptActivityRow {
     pub entity_id: Uuid,
     pub event_id: Option<Uuid>,
+    pub task_id: Uuid,
     pub headline: Option<String>,
     pub body: Option<String>,
     pub state: Option<String>,
@@ -133,6 +134,7 @@ pub async fn fetch_attempt_activity(
     #[derive(Debug)]
     struct AttemptRecord {
         id: Uuid,
+        task_id: Uuid,
         executor: Option<String>,
         state: Option<String>,
         updated_at: DateTime<Utc>,
@@ -142,6 +144,7 @@ pub async fn fetch_attempt_activity(
         fn from_row(row: &'r sqlx::sqlite::SqliteRow) -> Result<Self, sqlx::Error> {
             Ok(Self {
                 id: row.try_get("id")?,
+                task_id: row.try_get("task_id")?,
                 executor: row.try_get("executor")?,
                 state: row.try_get::<Option<String>, _>("state")?,
                 updated_at: row.try_get("updated_at")?,
@@ -150,7 +153,7 @@ pub async fn fetch_attempt_activity(
     }
 
     let records = sqlx::query_as::<_, AttemptRecord>(
-        "SELECT ta.id, ta.executor, ep.status AS state, ta.updated_at\n         FROM task_attempts ta\n         JOIN tasks t ON t.id = ta.task_id\n         LEFT JOIN execution_processes ep ON ep.task_attempt_id = ta.id\n         WHERE t.project_id = ? AND ta.updated_at >= ?\n         ORDER BY ta.updated_at DESC"
+        "SELECT ta.id, ta.task_id, ta.executor, ep.status AS state, ta.updated_at\n         FROM task_attempts ta\n         JOIN tasks t ON t.id = ta.task_id\n         LEFT JOIN execution_processes ep ON ep.task_attempt_id = ta.id\n         WHERE t.project_id = ? AND ta.updated_at >= ?\n         ORDER BY ta.updated_at DESC"
     )
     .bind(project_id)
     .bind(since)
@@ -162,6 +165,7 @@ pub async fn fetch_attempt_activity(
         .map(|rec| AttemptActivityRow {
             entity_id: rec.id,
             event_id: None,
+            task_id: rec.task_id,
             headline: Some(format!("Attempt updated")),
             body: None,
             state: rec.state.map(|state| state.to_ascii_lowercase()),

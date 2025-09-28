@@ -21,6 +21,12 @@ pub struct ActivityEventActor {
     pub display_name: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
+pub struct ActivityEventCta {
+    pub label: String,
+    pub href: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
 pub struct ActivityEvent {
     pub event_id: Uuid,
@@ -30,6 +36,7 @@ pub struct ActivityEvent {
     pub headline: String,
     pub body: Option<String>,
     pub actors: Vec<ActivityEventActor>,
+    pub cta: Option<ActivityEventCta>,
     pub urgency_score: u8,
     pub created_at: DateTime<Utc>,
 }
@@ -80,6 +87,7 @@ pub struct TaskDomainDetails {
 
 #[derive(Debug, Clone)]
 pub struct AttemptDomainDetails {
+    pub task_id: Uuid,
     pub state: Option<String>,
     pub executor: Option<String>,
 }

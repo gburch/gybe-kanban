@@ -8,7 +8,7 @@ use crate::notifications::priority::{self, UrgencyComputationContext, UrgencyLev
 
 use super::models::{
     ActivityDomainEvent, ActivityDomainEventKind, ActivityEntityType, ActivityEvent,
-    ActivityUrgencyHint,
+    ActivityEventCta, ActivityUrgencyHint,
 };
 
 #[derive(Debug, Clone)]
@@ -145,8 +145,40 @@ impl ActivityAggregator {
             headline,
             body,
             actors,
+            cta: self.derive_cta(entity_type, project_id, entity_id, &kind),
             urgency_score,
             created_at,
+        }
+    }
+
+    fn derive_cta(
+        &self,
+        entity_type: ActivityEntityType,
+        project_id: Uuid,
+        entity_id: Uuid,
+        kind: &ActivityDomainEventKind,
+    ) -> Option<ActivityEventCta> {
+        match (entity_type, kind) {
+            (ActivityEntityType::Task, _) => Some(ActivityEventCta {
+                label: "Open task".to_string(),
+                href: format!("/projects/{}/tasks/{}", project_id, entity_id),
+            }),
+            (ActivityEntityType::Attempt, ActivityDomainEventKind::Attempt(details)) => {
+                Some(ActivityEventCta {
+                    label: "View attempt".to_string(),
+                    href: format!(
+                        "/projects/{}/tasks/{}/attempts/{}",
+                        project_id, details.task_id, entity_id
+                    ),
+                })
+            }
+            (ActivityEntityType::Deployment, ActivityDomainEventKind::Deployment(details)) => {
+                details.url.as_ref().map(|url| ActivityEventCta {
+                    label: "Open deployment".to_string(),
+                    href: url.clone(),
+                })
+            }
+            _ => None,
         }
     }
 
@@ -307,6 +339,9 @@ mod tests {
             event.urgency_score >= 60,
             "in-review should yield elevated urgency"
         );
+        let cta = event.cta.as_ref().expect("task events should include CTA");
+        assert_eq!(cta.label, "Open task");
+        assert!(cta.href.ends_with(&entity_id.to_string()));
     }
 
     #[test]
@@ -331,6 +366,7 @@ mod tests {
         let mut hidden = build_event(
             ActivityEntityType::Attempt,
             ActivityDomainEventKind::Attempt(AttemptDomainDetails {
+                task_id: Uuid::new_v4(),
                 state: Some("executorfailed".into()),
                 executor: None,
             }),
@@ -344,6 +380,7 @@ mod tests {
             aggregator.aggregate_with_now(Some(user), vec![restricted.clone(), hidden], now);
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].entity_id, restricted.entity_id);
+        assert!(events[0].cta.is_some());
     }
 
     #[test]
@@ -368,5 +405,43 @@ mod tests {
         let events = aggregator.aggregate_with_now(None, vec![hinted], now);
         assert_eq!(events.len(), 1);
         assert!(events[0].urgency_score >= 95);
+    }
+
+    #[test]
+    fn attempt_events_include_attempt_cta() {
+        let now = Utc::now();
+        let aggregator = ActivityAggregator::new(ActivityAggregatorConfig::default());
+        let task_id = Uuid::new_v4();
+        let attempt_id = Uuid::new_v4();
+        let project_id = Uuid::new_v4();
+
+        let mut attempt_event = build_event(
+            ActivityEntityType::Attempt,
+            ActivityDomainEventKind::Attempt(AttemptDomainDetails {
+                task_id,
+                state: Some("executorrunning".into()),
+                executor: None,
+            }),
+            now - Duration::minutes(5),
+            ActivityVisibility::Public,
+        );
+        attempt_event.entity_id = attempt_id;
+        attempt_event.project_id = project_id;
+
+        let events = aggregator.aggregate_with_now(Some(Uuid::new_v4()), vec![attempt_event], now);
+        assert_eq!(events.len(), 1);
+        let event = &events[0];
+        let cta = event
+            .cta
+            .as_ref()
+            .expect("attempt events should include CTA");
+        assert_eq!(cta.label, "View attempt");
+        assert_eq!(
+            cta.href,
+            format!(
+                "/projects/{}/tasks/{}/attempts/{}",
+                project_id, task_id, attempt_id
+            )
+        );
     }
 }

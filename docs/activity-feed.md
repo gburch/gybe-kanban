@@ -11,6 +11,7 @@ Each `ActivityEvent` contains:
 
 - `event_id`, `entity_id`, `entity_type`, and `project_id` identifiers.
 - A `headline`, optional `body`, and zero or more `actors`.
+- An optional primary call-to-action (`cta`) with UI routing hints.
 - An urgency score (0-100) that is shared with the notifications system.
 
 Aggregation deduplicates events per entity/type, keeping the newest record in

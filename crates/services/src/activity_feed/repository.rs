@@ -210,6 +210,7 @@ impl ActivityFeedDataSource for SqlActivityFeedDataSource {
                 created_at: attempt.created_at,
                 visibility,
                 kind: ActivityDomainEventKind::Attempt(AttemptDomainDetails {
+                    task_id: attempt.task_id,
                     state: attempt.state,
                     executor: attempt.executor,
                 }),

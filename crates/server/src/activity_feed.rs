@@ -160,7 +160,10 @@ pub fn map_event_to_item(event: &ActivityEvent) -> ActivityFeedItem {
             }
             body
         }),
-        cta: None,
+        cta: event.cta.as_ref().map(|cta| ActivityFeedItemCta {
+            label: cta.label.clone(),
+            href: cta.href.clone(),
+        }),
         urgency_score: event.urgency_score as u32,
         action_required: event.urgency_score >= ACTION_REQUIRED_THRESHOLD,
         created_at: event.created_at,
@@ -192,9 +195,24 @@ mod tests {
             headline: "Task updated".to_string(),
             body: Some("A detailed update".to_string()),
             actors: vec![],
+            cta: None,
             urgency_score: 75,
             created_at: Utc::now() - Duration::seconds(ts_offset_secs),
         }
+    }
+
+    #[test]
+    fn map_event_to_item_includes_cta_when_present() {
+        let mut event = sample_event(0);
+        event.cta = Some(services::activity_feed::ActivityEventCta {
+            label: "Open task".to_string(),
+            href: "/projects/123/tasks/456".to_string(),
+        });
+
+        let item = map_event_to_item(&event);
+        let cta = item.cta.expect("CTA should be populated");
+        assert_eq!(cta.label, "Open task");
+        assert_eq!(cta.href, "/projects/123/tasks/456");
     }
 
     #[test]
