@@ -22,6 +22,8 @@ import { fileSystemApi } from '@/lib/api';
 import { showFolderPicker } from '@/lib/modals';
 import { DirectoryEntry } from 'shared/types';
 import { generateProjectNameFromPath } from '@/utils/string';
+import { ScriptEnvironmentReference } from './script-environment-reference';
+import type { ProjectRepository } from 'shared/types';
 
 interface ProjectFormFieldsProps {
   isEditing: boolean;
@@ -46,6 +48,7 @@ interface ProjectFormFieldsProps {
   setError: (error: string) => void;
   projectId?: string;
   onCreateProject?: (path: string, name: string) => void;
+  repositories?: ProjectRepository[];
 }
 
 export function ProjectFormFields({
@@ -71,6 +74,7 @@ export function ProjectFormFields({
   setError,
   projectId,
   onCreateProject,
+  repositories = [],
 }: ProjectFormFieldsProps) {
   const { system } = useUserSystem();
 
@@ -428,6 +432,8 @@ export function ProjectFormFields({
 
       {isEditing && (
         <div className="space-y-4 pt-4 border-t border-border">
+          <ScriptEnvironmentReference repositories={repositories} />
+
           <div className="space-y-2">
             <Label htmlFor="setup-script">Setup Script</Label>
             <textarea
@@ -438,18 +444,6 @@ export function ProjectFormFields({
               rows={4}
               className="w-full px-3 py-2 text-sm border border-input bg-background text-foreground rounded-md resize-vertical focus:outline-none focus:ring-2 focus:ring-ring"
             />
-            <p className="text-sm text-muted-foreground">
-              This script runs after creating the worktree and before the
-              coding agent starts. Use it for setup tasks like installing
-              dependencies or preparing the environment. For multi-repository
-              projects the script starts in the primary repository&apos;s
-              worktree, so use environment variables such as{' '}
-              <code>VIBE_PRIMARY_REPO_PATH</code>,{' '}
-              <code>VIBE_REPOSITORIES</code>,{' '}
-              <code>{'VIBE_REPO_<PREFIX>_PATH'}</code>, and{' '}
-              <code>{'VIBE_REPO_<PREFIX>_ROOT'}</code> to target secondary
-              repositories when needed.
-            </p>
           </div>
 
           <div className="space-y-2">
@@ -462,15 +456,6 @@ export function ProjectFormFields({
               rows={4}
               className="w-full px-3 py-2 text-sm border border-input bg-background text-foreground rounded-md resize-vertical focus:outline-none focus:ring-2 focus:ring-ring"
             />
-            <p className="text-sm text-muted-foreground">
-              This script can be run from task attempts to start a development
-              server. Use it to quickly start your project&apos;s dev server for
-              testing changes. The script launches from the primary
-              repository&apos;s worktree; combine{' '}
-              <code>VIBE_REPOSITORIES</code> with{' '}
-              <code>{'VIBE_REPO_<PREFIX>_PATH'}</code> if you need to orchestrate
-              multiple repos.
-            </p>
           </div>
 
           <div className="space-y-2">
@@ -483,17 +468,6 @@ export function ProjectFormFields({
               rows={4}
               className="w-full px-3 py-2 text-sm border border-input bg-background text-foreground rounded-md resize-vertical focus:outline-none focus:ring-2 focus:ring-ring"
             />
-            <p className="text-sm text-muted-foreground">
-              This script runs after coding agent execution{' '}
-              <strong>only if changes were made</strong>. Use it for quality
-              assurance tasks like running linters, formatters, tests, or other
-              validation steps. Scripts execute from the primary
-              repository&apos;s worktree, so reference{' '}
-              <code>VIBE_REPOSITORIES</code>,{' '}
-              <code>{'VIBE_REPO_<PREFIX>_PATH'}</code>, and{' '}
-              <code>{'VIBE_REPO_<PREFIX>_ROOT'}</code> to clean up additional
-              repositories. If no changes are made, this script is skipped.
-            </p>
           </div>
 
           <div className="space-y-2">

@@ -467,6 +467,7 @@ export const ProjectFormDialog = NiceModal.create<ProjectFormDialogProps>(
                       error={error}
                       setError={setError}
                       projectId={project ? project.id : undefined}
+                      repositories={repositories}
                     />
                     <DialogFooter>
                       <Button
@@ -509,6 +510,7 @@ export const ProjectFormDialog = NiceModal.create<ProjectFormDialogProps>(
                   setError={setError}
                   projectId={undefined}
                   onCreateProject={handleDirectCreate}
+                  repositories={project ? repositories : []}
                 />
                 {repoMode === 'new' && (
                   <DialogFooter>
