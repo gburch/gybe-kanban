@@ -246,6 +246,8 @@ impl FileSearchCache {
                     path: indexed_file.path.clone(),
                     is_file: indexed_file.is_file,
                     match_type: indexed_file.match_type.clone(),
+                    repository_id: None,
+                    repository_name: None,
                 });
             }
         }

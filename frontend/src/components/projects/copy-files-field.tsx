@@ -5,6 +5,7 @@ interface CopyFilesFieldProps {
   onChange: (value: string) => void;
   projectId?: string;
   disabled?: boolean;
+  repositoryIds?: string[];
 }
 
 export function CopyFilesField({
@@ -12,6 +13,7 @@ export function CopyFilesField({
   onChange,
   projectId,
   disabled = false,
+  repositoryIds,
 }: CopyFilesFieldProps) {
   if (projectId) {
     // Editing existing project - use file search
@@ -24,6 +26,7 @@ export function CopyFilesField({
         disabled={disabled}
         className="w-full px-3 py-2 text-sm border border-input bg-background text-foreground disabled:opacity-50 rounded-md resize-vertical focus:outline-none focus:ring-2 focus:ring-ring"
         projectId={projectId}
+        repositoryIds={repositoryIds}
         maxRows={6}
       />
     );

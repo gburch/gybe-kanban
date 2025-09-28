@@ -476,6 +476,11 @@ export function ProjectFormFields({
               value={copyFiles}
               onChange={setCopyFiles}
               projectId={projectId}
+              repositoryIds={
+                repositories.length > 0
+                  ? repositories.map((repo) => repo.id)
+                  : undefined
+              }
             />
             <p className="text-sm text-muted-foreground">
               Comma-separated list of files to copy from the original project

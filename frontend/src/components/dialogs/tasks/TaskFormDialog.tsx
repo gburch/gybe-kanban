@@ -561,6 +561,11 @@ export const TaskFormDialog = NiceModal.create<TaskFormDialogProps>(
                   repositoryId={
                     repositorySelection.primaryId ?? selectedRepositoryId ?? undefined
                   }
+                  repositoryIds={
+                    repositorySelection.selectedIds.length > 0
+                      ? repositorySelection.selectedIds
+                      : undefined
+                  }
                   onCommandEnter={
                     isEditMode ? handleSubmit : handleCreateAndStart
                   }

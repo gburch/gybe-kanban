@@ -27,7 +27,7 @@ export function FollowUpEditorCard({
   onCommandShiftEnter,
   textareaClassName,
 }: Props) {
-  const { projectId, selectedRepositoryId } = useProject();
+  const { projectId, selectedRepositoryId, repositories } = useProject();
   return (
     <div className="relative">
       <FileSearchTextarea
@@ -39,6 +39,11 @@ export function FollowUpEditorCard({
         disabled={disabled}
         projectId={projectId}
         repositoryId={selectedRepositoryId ?? undefined}
+        repositoryIds={
+          repositories.length > 0
+            ? repositories.map((repo) => repo.id)
+            : undefined
+        }
         rows={1}
         maxRows={6}
         onCommandEnter={onCommandEnter}

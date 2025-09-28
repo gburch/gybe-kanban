@@ -18,6 +18,7 @@ interface FileSearchTextareaProps {
   className?: string;
   projectId?: string;
   repositoryId?: string | null;
+  repositoryIds?: string[];
   onKeyDown?: (e: React.KeyboardEvent) => void;
   maxRows?: number;
   onCommandEnter?: (e: React.KeyboardEvent<HTMLTextAreaElement>) => void;
@@ -33,6 +34,7 @@ export function FileSearchTextarea({
   className,
   projectId,
   repositoryId,
+  repositoryIds,
   onCommandEnter,
   onCommandShiftEnter,
   maxRows = 10,
@@ -47,6 +49,7 @@ export function FileSearchTextarea({
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const repositoryIdsKey = repositoryIds?.join(',') ?? '';
 
   // Search for files when query changes
   useEffect(() => {
@@ -56,13 +59,31 @@ export function FileSearchTextarea({
       return;
     }
 
+    const abortController = new AbortController();
+
     const searchFiles = async () => {
       setIsLoading(true);
 
       try {
-        const result = await projectsApi.searchFiles(projectId, searchQuery, undefined, {
-          repoId: repositoryId ?? undefined,
-        });
+        const requestOptions: RequestInit & {
+          repoId?: string;
+          repoIds?: string[];
+        } = {
+          signal: abortController.signal,
+        };
+
+        if (repositoryIds && repositoryIds.length > 0) {
+          requestOptions.repoIds = repositoryIds;
+        } else if (repositoryId) {
+          requestOptions.repoId = repositoryId;
+        }
+
+        const result = await projectsApi.searchFiles(
+          projectId,
+          searchQuery,
+          undefined,
+          requestOptions
+        );
         // Transform SearchResult to FileSearchResult by adding name field
         const fileResults: FileSearchResult[] = result.map((item) => ({
           ...item,
@@ -79,8 +100,11 @@ export function FileSearchTextarea({
     };
 
     const debounceTimer = setTimeout(searchFiles, 300);
-    return () => clearTimeout(debounceTimer);
-  }, [searchQuery, projectId, repositoryId]);
+    return () => {
+      clearTimeout(debounceTimer);
+      abortController.abort();
+    };
+  }, [searchQuery, projectId, repositoryId, repositoryIdsKey]);
 
   // Handle text changes and detect @ symbol
   const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -291,22 +315,16 @@ export function FileSearchTextarea({
                     key={file.path}
                     className={`px-3 py-2 cursor-pointer text-sm ${
                       index === selectedIndex
-                        ? 'bg-muted text-foreground'
+                        ? 'bg-blue-50 text-blue-900'
                         : 'hover:bg-muted'
                     }`}
                     onClick={() => selectFile(file)}
-                    aria-selected={index === selectedIndex}
-                    role="option"
                   >
                     <div className="font-medium truncate">{file.name}</div>
-                    <div
-                      className={`text-xs truncate ${
-                        index === selectedIndex
-                          ? 'text-muted-foreground'
-                          : 'text-muted-foreground'
-                      }`}
-                    >
-                      {file.path}
+                    <div className="text-xs text-muted-foreground truncate">
+                      {file.repository_name
+                        ? `${file.repository_name} · ${file.path}`
+                        : file.path}
                     </div>
                   </div>
                 ))}

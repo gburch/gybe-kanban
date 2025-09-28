@@ -332,13 +332,21 @@ export const projectsApi = {
     id: string,
     query: string,
     mode?: string,
-    options?: (RequestInit & { repoId?: string }) | null
+    options?: (RequestInit & { repoId?: string; repoIds?: string[] }) | null
   ): Promise<SearchResult[]> => {
     const modeParam = mode ? `&mode=${encodeURIComponent(mode)}` : '';
-    const repoParam = options?.repoId
-      ? `&repo_id=${encodeURIComponent(options.repoId)}`
-      : '';
-    const { repoId: _repoId, ...requestOptions } = options ?? {};
+    const repoParam = (() => {
+      if (options?.repoIds && options.repoIds.length > 0) {
+        return options.repoIds
+          .map((id) => `&repo_ids=${encodeURIComponent(id)}`)
+          .join('');
+      }
+      if (options?.repoId) {
+        return `&repo_id=${encodeURIComponent(options.repoId)}`;
+      }
+      return '';
+    })();
+    const { repoId: _repoId, repoIds: _repoIds, ...requestOptions } = options ?? {};
     const response = await makeRequest(
       `/api/projects/${id}/search?q=${encodeURIComponent(query)}${modeParam}${repoParam}`,
       requestOptions

@@ -18,6 +18,7 @@ interface MultiFileSearchTextareaProps {
   className?: string;
   projectId: string;
   repositoryId?: string | null;
+  repositoryIds?: string[];
   onKeyDown?: (e: React.KeyboardEvent) => void;
   maxRows?: number;
 }
@@ -31,6 +32,7 @@ export function MultiFileSearchTextarea({
   className,
   projectId,
   repositoryId,
+  repositoryIds,
   onKeyDown,
   maxRows = 10,
 }: MultiFileSearchTextareaProps) {
@@ -46,6 +48,8 @@ export function MultiFileSearchTextarea({
   const dropdownRef = useRef<HTMLDivElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const searchCacheRef = useRef<Map<string, FileSearchResult[]>>(new Map());
+  const repositoryIdsKey = repositoryIds?.join(',') ?? '';
+  const repositoryIdKey = repositoryId ?? '';
 
   // Search for files when query changes
   useEffect(() => {
@@ -56,7 +60,8 @@ export function MultiFileSearchTextarea({
     }
 
     // Check cache first
-    const cached = searchCacheRef.current.get(searchQuery);
+    const cacheKey = `${repositoryIdsKey}|${repositoryIdKey}|${searchQuery}`;
+    const cached = searchCacheRef.current.get(cacheKey);
     if (cached) {
       setSearchResults(cached);
       setShowDropdown(true);
@@ -76,10 +81,25 @@ export function MultiFileSearchTextarea({
       abortControllerRef.current = abortController;
 
       try {
-        const result = await projectsApi.searchFiles(projectId, searchQuery, 'settings', {
+        const requestOptions: RequestInit & {
+          repoId?: string;
+          repoIds?: string[];
+        } = {
           signal: abortController.signal,
-          repoId: repositoryId ?? undefined,
-        });
+        };
+
+        if (repositoryIds && repositoryIds.length > 0) {
+          requestOptions.repoIds = repositoryIds;
+        } else if (repositoryId) {
+          requestOptions.repoId = repositoryId;
+        }
+
+        const result = await projectsApi.searchFiles(
+          projectId,
+          searchQuery,
+          'settings',
+          requestOptions
+        );
 
         // Only process if this request wasn't aborted
         if (!abortController.signal.aborted) {
@@ -89,7 +109,7 @@ export function MultiFileSearchTextarea({
           }));
 
           // Cache the results
-          searchCacheRef.current.set(searchQuery, fileResults);
+          searchCacheRef.current.set(cacheKey, fileResults);
 
           setSearchResults(fileResults);
           setShowDropdown(true);
@@ -113,7 +133,7 @@ export function MultiFileSearchTextarea({
         abortControllerRef.current.abort();
       }
     };
-  }, [searchQuery, projectId, repositoryId]);
+  }, [searchQuery, projectId, repositoryId, repositoryIdKey, repositoryIdsKey]);
 
   // Find current token boundaries based on cursor position
   const findCurrentToken = (text: string, cursorPosition: number) => {
@@ -359,7 +379,9 @@ export function MultiFileSearchTextarea({
                   >
                     <div className="font-medium truncate">{file.name}</div>
                     <div className="text-xs text-muted-foreground truncate">
-                      {file.path}
+                      {file.repository_name
+                        ? `${file.repository_name} · ${file.path}`
+                        : file.path}
                     </div>
                   </div>
                 ))}

@@ -64,6 +64,12 @@ pub struct SearchResult {
     pub path: String,
     pub is_file: bool,
     pub match_type: SearchMatchType,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub repository_id: Option<Uuid>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub repository_name: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, TS)]

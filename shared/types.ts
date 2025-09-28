@@ -20,7 +20,7 @@ export type CreateProjectRepository = { name: string, git_repo_path: string, roo
 
 export type UpdateProjectRepository = { name: string | null, git_repo_path: string | null, root_path: string | null, is_primary: boolean | null, };
 
-export type SearchResult = { path: string, is_file: boolean, match_type: SearchMatchType, };
+export type SearchResult = { path: string, is_file: boolean, match_type: SearchMatchType, repository_id?: string, repository_name?: string, };
 
 export type SearchMatchType = "FileName" | "DirectoryName" | "FullPath";
 

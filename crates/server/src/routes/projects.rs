@@ -1,4 +1,7 @@
-use std::path::{Component, Path, PathBuf};
+use std::{
+    collections::{HashSet, VecDeque},
+    path::{Component, Path, PathBuf},
+};
 
 pub(crate) mod activity_feed;
 
@@ -42,6 +45,104 @@ pub struct ProjectSearchQuery {
     #[serde(flatten)]
     pub search: SearchQuery,
     pub repo_id: Option<Uuid>,
+    #[serde(default)]
+    pub repo_ids: Vec<Uuid>,
+}
+
+#[derive(Debug)]
+struct RepoSearchContext {
+    repository: Option<ProjectRepository>,
+    repo_path: PathBuf,
+    root_path: Option<String>,
+}
+
+fn annotate_results(results: &mut [SearchResult], repo_id: Option<Uuid>, repo_name: Option<&str>) {
+    if repo_id.is_none() && repo_name.is_none() {
+        return;
+    }
+
+    let repo_name_owned = repo_name.map(|name| name.to_string());
+    for result in results.iter_mut() {
+        result.repository_id = repo_id;
+        result.repository_name = repo_name_owned.clone();
+    }
+}
+
+async fn fetch_results_for_context(
+    deployment: &DeploymentImpl,
+    context: &RepoSearchContext,
+    search_root: &Path,
+    query: &str,
+    mode: &SearchMode,
+) -> Result<Vec<SearchResult>, StatusCode> {
+    let file_search_cache = deployment.file_search_cache();
+    let repo_root_opt = context.root_path.as_deref();
+    let repo_id = context.repository.as_ref().map(|repo| repo.id);
+    let repo_name = context.repository.as_ref().map(|repo| repo.name.as_str());
+    let repo_path_display = context.repo_path.to_string_lossy().to_string();
+
+    let mut results = match file_search_cache
+        .search(search_root, query, mode.clone())
+        .await
+    {
+        Ok(results) => {
+            tracing::debug!(
+                "Cache hit for repo root {:?}, query: {}, mode: {:?}, repo_id: {:?}",
+                search_root,
+                query,
+                mode,
+                repo_id
+            );
+            results
+        }
+        Err(CacheError::Miss) => {
+            tracing::debug!(
+                "Cache miss for repo root {:?}, query: {}, mode: {:?}, repo_id: {:?}",
+                search_root,
+                query,
+                mode,
+                repo_id
+            );
+            match search_files_in_repo(
+                &repo_path_display,
+                repo_root_opt,
+                query,
+                mode.clone(),
+                repo_id,
+                repo_name,
+            )
+            .await
+            {
+                Ok(results) => results,
+                Err(e) => {
+                    tracing::error!("Failed to search files: {}", e);
+                    return Err(StatusCode::INTERNAL_SERVER_ERROR);
+                }
+            }
+        }
+        Err(CacheError::BuildError(err)) => {
+            tracing::error!("Cache build error for repo root {:?}: {}", search_root, err);
+            match search_files_in_repo(
+                &repo_path_display,
+                repo_root_opt,
+                query,
+                mode.clone(),
+                repo_id,
+                repo_name,
+            )
+            .await
+            {
+                Ok(results) => results,
+                Err(e) => {
+                    tracing::error!("Failed to search files: {}", e);
+                    return Err(StatusCode::INTERNAL_SERVER_ERROR);
+                }
+            }
+        }
+    };
+
+    annotate_results(&mut results, repo_id, repo_name);
+    Ok(results)
 }
 
 pub async fn get_projects(
@@ -607,8 +708,14 @@ pub async fn search_project_files(
     Extension(project): Extension<Project>,
     Query(params): Query<ProjectSearchQuery>,
 ) -> Result<ResponseJson<ApiResponse<Vec<SearchResult>>>, StatusCode> {
-    let query = params.search.q.trim();
-    let mode = params.search.mode.clone();
+    let ProjectSearchQuery {
+        search,
+        repo_id,
+        repo_ids,
+    } = params;
+
+    let query = search.q.trim();
+    let mode = search.mode.clone();
 
     if query.is_empty() {
         return Ok(ResponseJson(ApiResponse::error(
@@ -616,99 +723,160 @@ pub async fn search_project_files(
         )));
     }
 
+    let mut requested_repo_ids: Vec<Uuid> = Vec::new();
+    let mut seen_repo_ids = HashSet::new();
+
+    if let Some(id) = repo_id {
+        if seen_repo_ids.insert(id) {
+            requested_repo_ids.push(id);
+        }
+    }
+
+    for id in repo_ids {
+        if seen_repo_ids.insert(id) {
+            requested_repo_ids.push(id);
+        }
+    }
+
     let pool = &deployment.db().pool;
-    let (repo_path, repo_root) = if let Some(repo_id) = params.repo_id {
-        match ProjectRepository::find_by_id(pool, repo_id).await {
-            Ok(Some(repo)) if repo.project_id == project.id => {
-                (repo.git_repo_path.clone(), repo.root_path.clone())
+    let mut contexts: Vec<RepoSearchContext> = Vec::new();
+
+    if !requested_repo_ids.is_empty() {
+        for id in requested_repo_ids {
+            match ProjectRepository::find_by_id(pool, id).await {
+                Ok(Some(repo)) if repo.project_id == project.id => {
+                    let repo_path = repo.git_repo_path.clone();
+                    let root_path = if repo.root_path.trim().is_empty() {
+                        None
+                    } else {
+                        Some(repo.root_path.clone())
+                    };
+                    contexts.push(RepoSearchContext {
+                        repository: Some(repo),
+                        repo_path,
+                        root_path,
+                    });
+                }
+                Ok(Some(_)) => {
+                    return Ok(ResponseJson(ApiResponse::error(
+                        "Repository not found for this project",
+                    )));
+                }
+                Ok(None) => {
+                    return Ok(ResponseJson(ApiResponse::error("Repository not found")));
+                }
+                Err(e) => {
+                    tracing::error!("Failed to load repository {}: {}", id, e);
+                    return Err(StatusCode::INTERNAL_SERVER_ERROR);
+                }
             }
-            Ok(Some(_)) => {
-                return Ok(ResponseJson(ApiResponse::error(
-                    "Repository not found for this project",
-                )));
+        }
+    } else {
+        match ProjectRepository::find_primary(pool, project.id).await {
+            Ok(Some(repo)) => {
+                let repo_path = repo.git_repo_path.clone();
+                let root_path = if repo.root_path.trim().is_empty() {
+                    None
+                } else {
+                    Some(repo.root_path.clone())
+                };
+                contexts.push(RepoSearchContext {
+                    repository: Some(repo),
+                    repo_path,
+                    root_path,
+                });
             }
             Ok(None) => {
-                return Ok(ResponseJson(ApiResponse::error("Repository not found")));
+                contexts.push(RepoSearchContext {
+                    repository: None,
+                    repo_path: project.git_repo_path.clone(),
+                    root_path: None,
+                });
             }
             Err(e) => {
-                tracing::error!("Failed to load repository {}: {}", repo_id, e);
+                tracing::error!(
+                    "Failed to load primary repository for project {}: {}",
+                    project.id,
+                    e
+                );
                 return Err(StatusCode::INTERNAL_SERVER_ERROR);
             }
         }
-    } else {
-        (project.git_repo_path.clone(), String::new())
-    };
-
-    let search_root = if repo_root.is_empty() {
-        repo_path.clone()
-    } else {
-        repo_path.join(&repo_root)
-    };
-
-    if !search_root.exists() {
-        tracing::warn!(
-            "Search root {:?} does not exist for project {}",
-            search_root,
-            project.id
-        );
-        return Ok(ResponseJson(ApiResponse::error(
-            "Selected repository root does not exist",
-        )));
     }
 
-    let file_search_cache = deployment.file_search_cache();
+    if contexts.is_empty() {
+        contexts.push(RepoSearchContext {
+            repository: None,
+            repo_path: project.git_repo_path.clone(),
+            root_path: None,
+        });
+    }
 
-    let results = match file_search_cache
-        .search(&search_root, query, mode.clone())
-        .await
-    {
-        Ok(results) => {
-            tracing::debug!(
-                "Cache hit for repo root {:?}, query: {}, mode: {:?}",
+    let mut prepared_contexts: Vec<(&RepoSearchContext, PathBuf)> =
+        Vec::with_capacity(contexts.len());
+
+    for context in contexts.iter() {
+        let search_root = match context.root_path.as_deref() {
+            Some(root) if !root.is_empty() => context.repo_path.join(root),
+            _ => context.repo_path.clone(),
+        };
+
+        if !search_root.exists() {
+            tracing::warn!(
+                "Search root {:?} does not exist for project {}",
                 search_root,
-                query,
-                mode
+                project.id
             );
-            results
+            return Ok(ResponseJson(ApiResponse::error(
+                "Selected repository root does not exist",
+            )));
         }
-        Err(CacheError::Miss) => {
-            tracing::debug!(
-                "Cache miss for repo root {:?}, query: {}, mode: {:?}",
-                search_root,
-                query,
-                mode
-            );
-            let root_opt = if repo_root.is_empty() {
-                None
-            } else {
-                Some(repo_root.as_str())
-            };
-            match search_files_in_repo(&repo_path.to_string_lossy(), root_opt, query, mode).await {
-                Ok(results) => results,
-                Err(e) => {
-                    tracing::error!("Failed to search files: {}", e);
-                    return Err(StatusCode::INTERNAL_SERVER_ERROR);
+
+        prepared_contexts.push((context, search_root));
+    }
+
+    if prepared_contexts.len() == 1 {
+        let (context, search_root) = &prepared_contexts[0];
+        let results =
+            fetch_results_for_context(&deployment, context, search_root.as_path(), query, &mode)
+                .await?;
+
+        return Ok(ResponseJson(ApiResponse::success(results)));
+    }
+
+    const MAX_COMBINED_RESULTS: usize = 20;
+    let mut per_repo_results: Vec<VecDeque<SearchResult>> =
+        Vec::with_capacity(prepared_contexts.len());
+
+    for (context, search_root) in &prepared_contexts {
+        let results =
+            fetch_results_for_context(&deployment, context, search_root.as_path(), query, &mode)
+                .await?;
+        per_repo_results.push(VecDeque::from(results));
+    }
+
+    let mut combined: Vec<SearchResult> = Vec::new();
+
+    while combined.len() < MAX_COMBINED_RESULTS {
+        let mut added = false;
+
+        for results in per_repo_results.iter_mut() {
+            if let Some(result) = results.pop_front() {
+                combined.push(result);
+                added = true;
+
+                if combined.len() >= MAX_COMBINED_RESULTS {
+                    break;
                 }
             }
         }
-        Err(CacheError::BuildError(err)) => {
-            tracing::error!("Cache build error for repo root {:?}: {}", search_root, err);
-            let root_opt = if repo_root.is_empty() {
-                None
-            } else {
-                Some(repo_root.as_str())
-            };
-            match search_files_in_repo(&repo_path.to_string_lossy(), root_opt, query, mode).await {
-                Ok(results) => results,
-                Err(e) => {
-                    tracing::error!("Failed to search files: {}", e);
-                    return Err(StatusCode::INTERNAL_SERVER_ERROR);
-                }
-            }
-        }
-    };
 
-    Ok(ResponseJson(ApiResponse::success(results)))
+        if !added {
+            break;
+        }
+    }
+
+    Ok(ResponseJson(ApiResponse::success(combined)))
 }
 
 async fn search_files_in_repo(
@@ -716,6 +884,8 @@ async fn search_files_in_repo(
     root_path: Option<&str>,
     query: &str,
     mode: SearchMode,
+    repo_id: Option<Uuid>,
+    repo_name: Option<&str>,
 ) -> Result<Vec<SearchResult>, Box<dyn std::error::Error + Send + Sync>> {
     let repo_path = Path::new(repo_path);
 
@@ -735,6 +905,7 @@ async fn search_files_in_repo(
 
     let mut results = Vec::new();
     let query_lower = query.to_lowercase();
+    let repo_name_owned = repo_name.map(|name| name.to_string());
 
     let walker = match mode {
         SearchMode::Settings => WalkBuilder::new(&root_dir)
@@ -781,6 +952,8 @@ async fn search_files_in_repo(
                 path: relative_path.to_string_lossy().to_string(),
                 is_file: path.is_file(),
                 match_type: SearchMatchType::FileName,
+                repository_id: repo_id,
+                repository_name: repo_name_owned.clone(),
             });
         } else if relative_path_str.contains(&query_lower) {
             let match_type = if path
@@ -799,6 +972,8 @@ async fn search_files_in_repo(
                 path: relative_path.to_string_lossy().to_string(),
                 is_file: path.is_file(),
                 match_type,
+                repository_id: repo_id,
+                repository_name: repo_name_owned.clone(),
             });
         }
     }
