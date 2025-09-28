@@ -4,6 +4,7 @@ import {
   useRef,
   type KeyboardEvent,
   type PointerEvent as ReactPointerEvent,
+  type TouchEvent as ReactTouchEvent,
 } from 'react';
 import {
   AlertTriangle,
@@ -34,6 +35,7 @@ import { useNavigate } from 'react-router-dom';
 
 const STORAGE_KEY = 'vk.activity_feed.filter';
 const TOUCH_TAP_MOVE_THRESHOLD = 10;
+const TOUCH_ACTIVATION_CLEAR_DELAY_MS = 400;
 
 const formatRelativeTime = (date: Date): string => {
   const now = Date.now();
@@ -264,10 +266,20 @@ export function ProjectActivityFeed({
     }
   };
 
+  const supportsPointerEvents =
+    typeof window !== 'undefined' && window.PointerEvent != null;
+
   const touchStartCoordinates = useRef<
-    Map<number, { x: number; y: number }>
+    Map<number | string, { x: number; y: number }>
   >(new Map());
   const touchActivatedEvents = useRef<Set<string>>(new Set());
+
+  const markEventActivatedByTouch = (eventId: string) => {
+    touchActivatedEvents.current.add(eventId);
+    window.setTimeout(() => {
+      touchActivatedEvents.current.delete(eventId);
+    }, TOUCH_ACTIVATION_CLEAR_DELAY_MS);
+  };
 
   const handleCardPointerDown = (
     pointerEvent: ReactPointerEvent<HTMLElement>,
@@ -304,14 +316,7 @@ export function ProjectActivityFeed({
       return;
     }
 
-    pointerEvent.preventDefault();
-    pointerEvent.stopPropagation();
-
-    touchActivatedEvents.current.add(event.id);
-    window.setTimeout(() => {
-      touchActivatedEvents.current.delete(event.id);
-    }, 400);
-
+    markEventActivatedByTouch(event.id);
     handleEventActivation(event);
   };
 
@@ -320,6 +325,54 @@ export function ProjectActivityFeed({
   ) => {
     if (pointerEvent.pointerType !== 'touch') return;
     touchStartCoordinates.current.delete(pointerEvent.pointerId);
+  };
+
+  const handleCardTouchStart = (
+    touchEvent: ReactTouchEvent<HTMLElement>,
+    event: ActivityFeedEvent
+  ) => {
+    if (supportsPointerEvents) return;
+    if (!event.cta?.href) return;
+    if (touchEvent.touches.length !== 1) return;
+    const touch = touchEvent.touches[0];
+    touchStartCoordinates.current.set(event.id, {
+      x: touch.clientX,
+      y: touch.clientY,
+    });
+  };
+
+  const handleCardTouchEnd = (
+    touchEvent: ReactTouchEvent<HTMLElement>,
+    event: ActivityFeedEvent
+  ) => {
+    if (supportsPointerEvents) return;
+    if (!event.cta?.href) return;
+    const start = touchStartCoordinates.current.get(event.id);
+    touchStartCoordinates.current.delete(event.id);
+    if (!start) return;
+
+    const changedTouch = touchEvent.changedTouches[0];
+    if (!changedTouch) return;
+
+    const deltaX = Math.abs(changedTouch.clientX - start.x);
+    const deltaY = Math.abs(changedTouch.clientY - start.y);
+    if (
+      deltaX > TOUCH_TAP_MOVE_THRESHOLD ||
+      deltaY > TOUCH_TAP_MOVE_THRESHOLD
+    ) {
+      return;
+    }
+
+    markEventActivatedByTouch(event.id);
+    handleEventActivation(event);
+  };
+
+  const handleCardTouchCancel = (
+    _touchEvent: ReactTouchEvent<HTMLElement>,
+    event: ActivityFeedEvent
+  ) => {
+    if (supportsPointerEvents) return;
+    touchStartCoordinates.current.delete(event.id);
   };
 
   const handleCardClick = (event: ActivityFeedEvent) => {
@@ -460,6 +513,24 @@ export function ProjectActivityFeed({
                             handleCardPointerCancel(pointerEvent)
                         : undefined
                     }
+                    onTouchStart={
+                      isClickable
+                        ? (touchEvent) =>
+                            handleCardTouchStart(touchEvent, event)
+                        : undefined
+                    }
+                    onTouchEnd={
+                      isClickable
+                        ? (touchEvent) =>
+                            handleCardTouchEnd(touchEvent, event)
+                        : undefined
+                    }
+                    onTouchCancel={
+                      isClickable
+                        ? (touchEvent) =>
+                            handleCardTouchCancel(touchEvent, event)
+                        : undefined
+                    }
                     onClick={
                       isClickable
                         ? () => handleCardClick(event)
@@ -527,6 +598,15 @@ export function ProjectActivityFeed({
                           onPointerCancel={(ctaEvent) => {
                             ctaEvent.stopPropagation();
                           }}
+                          onTouchStart={(ctaEvent) => {
+                            ctaEvent.stopPropagation();
+                          }}
+                          onTouchEnd={(ctaEvent) => {
+                            ctaEvent.stopPropagation();
+                          }}
+                          onTouchCancel={(ctaEvent) => {
+                            ctaEvent.stopPropagation();
+                          }}
                           asChild
                         >
                           <a href={event.cta.href} className="inline-flex items-center gap-2">
@@ -550,6 +630,15 @@ export function ProjectActivityFeed({
                             dismissEvent.stopPropagation();
                           }}
                           onPointerCancel={(dismissEvent) => {
+                            dismissEvent.stopPropagation();
+                          }}
+                          onTouchStart={(dismissEvent) => {
+                            dismissEvent.stopPropagation();
+                          }}
+                          onTouchEnd={(dismissEvent) => {
+                            dismissEvent.stopPropagation();
+                          }}
+                          onTouchCancel={(dismissEvent) => {
                             dismissEvent.stopPropagation();
                           }}
                           className="h-8 w-8"

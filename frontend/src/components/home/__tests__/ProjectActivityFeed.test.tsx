@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ProjectActivityFeed } from '../ProjectActivityFeed';
 import { useActivityFeedStore } from '@/stores/activityFeedStore';
@@ -62,15 +62,43 @@ const resetStore = () => {
 };
 
 const stubEvent = (overrides: Partial<ActivityFeedEvent> = {}): ActivityFeedEvent => ({
-  id: 'evt-1',
-  headline: 'New deployment ready',
-  summary: 'Deployment completed successfully',
-  cta: { label: 'View', href: '/deployments/1' },
-  urgencyScore: 82,
-  actionRequired: true,
-  createdAt: new Date('2025-09-20T12:00:00Z'),
-  ...overrides,
+  id: overrides.id ?? crypto.randomUUID(),
+  headline: overrides.headline ?? 'New deployment ready',
+  summary: overrides.summary ?? 'Deployment completed successfully',
+  cta: overrides.cta ?? { label: 'View', href: '/deployments/1' },
+  urgencyScore: overrides.urgencyScore ?? 82,
+  actionRequired: overrides.actionRequired ?? true,
+  createdAt: overrides.createdAt ?? new Date('2025-09-20T12:00:00Z'),
 });
+
+const ensurePointerEvent = () => {
+  if (typeof window.PointerEvent !== 'undefined') {
+    return;
+  }
+
+  class MockPointerEvent extends Event {
+    pointerId: number;
+    pointerType: string;
+    clientX: number;
+    clientY: number;
+    isPrimary: boolean;
+
+    constructor(type: string, init?: PointerEventInit) {
+      super(type, init);
+      this.pointerId = init?.pointerId ?? 0;
+      this.pointerType = init?.pointerType ?? 'mouse';
+      this.clientX = init?.clientX ?? 0;
+      this.clientY = init?.clientY ?? 0;
+      this.isPrimary = init?.isPrimary ?? true;
+    }
+  }
+
+  Object.defineProperty(window, 'PointerEvent', {
+    configurable: true,
+    writable: true,
+    value: MockPointerEvent,
+  });
+};
 
 beforeEach(() => {
   resetStore();
@@ -173,6 +201,104 @@ describe('ProjectActivityFeed', () => {
       expect.objectContaining({ eventId: event.id })
     );
     expect(navigateMock).toHaveBeenCalledWith(event.cta?.href);
+  });
+
+  it('navigates when the activity card is tapped as a pointer event', () => {
+    ensurePointerEvent();
+
+    const event = stubEvent({ id: 'touch-pointer' });
+
+    useActivityFeedStore.getState().replaceEvents([event], null);
+
+    render(
+      <ProjectActivityFeed
+        projectId="proj-1"
+        isProjectsLoading={false}
+        onEventDismiss={() => undefined}
+      />
+    );
+
+    const card = screen.getByRole('button', { name: event.headline });
+
+    fireEvent.pointerDown(card, {
+      pointerId: 1,
+      pointerType: 'touch',
+      isPrimary: true,
+      clientX: 10,
+      clientY: 10,
+    });
+
+    fireEvent.pointerUp(card, {
+      pointerId: 1,
+      pointerType: 'touch',
+      isPrimary: true,
+      clientX: 12,
+      clientY: 13,
+    });
+
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+      'activity_feed.view_item',
+      expect.objectContaining({ eventId: event.id })
+    );
+    expect(navigateMock).toHaveBeenCalledWith(event.cta?.href);
+  });
+
+  it('navigates when tapped in environments without PointerEvent support', () => {
+    const originalPointerEvent = window.PointerEvent;
+    // Simulate Safari/iOS 12 style browsers without PointerEvent
+    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+    // @ts-expect-error - deleting for test scenario
+    delete window.PointerEvent;
+
+    const event = stubEvent({ id: 'touch-only' });
+
+    useActivityFeedStore.getState().replaceEvents([event], null);
+
+    render(
+      <ProjectActivityFeed
+        projectId="proj-1"
+        isProjectsLoading={false}
+        onEventDismiss={() => undefined}
+      />
+    );
+
+    const card = screen.getByRole('button', { name: event.headline });
+
+    fireEvent.touchStart(card, {
+      touches: [
+        {
+          clientX: 40,
+          clientY: 50,
+        },
+      ],
+    });
+
+    fireEvent.touchEnd(card, {
+      changedTouches: [
+        {
+          clientX: 42,
+          clientY: 52,
+        },
+      ],
+    });
+
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+      'activity_feed.view_item',
+      expect.objectContaining({ eventId: event.id })
+    );
+    expect(navigateMock).toHaveBeenCalledWith(event.cta?.href);
+
+    if (originalPointerEvent) {
+      Object.defineProperty(window, 'PointerEvent', {
+        configurable: true,
+        writable: true,
+        value: originalPointerEvent,
+      });
+    } else {
+      // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+      // @ts-expect-error - ensure clean state
+      delete window.PointerEvent;
+    }
   });
 
   it('does not navigate when dismissing an urgent event', async () => {
