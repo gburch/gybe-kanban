@@ -19,7 +19,7 @@ export const trackAnalyticsEvent = (
       navigator.sendBeacon('/api/analytics/event', body);
     }
   } catch (error) {
-    if (process.env.NODE_ENV !== 'production') {
+    if (import.meta.env.MODE !== 'production') {
       console.debug('[analytics] failed to emit event', name, error);
     }
   }

@@ -158,7 +158,7 @@ describe('ProjectActivityFeed', () => {
 
     render(<ProjectActivityFeed projectId="proj-1" isProjectsLoading={false} />);
 
-    await user.click(screen.getByRole('tab', { name: /need review/i }));
+    await user.click(screen.getByRole('tab', { name: /needs review/i }));
 
     expect(setFilterMock).toHaveBeenCalledWith('need_review');
   });

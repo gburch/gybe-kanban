@@ -1,5 +1,12 @@
 import { useEffect, useMemo } from 'react';
-import { AlertTriangle, ArrowUpRight, Loader2, WifiOff, X } from 'lucide-react';
+import {
+  AlertTriangle,
+  ArrowUpRight,
+  CheckCircle2,
+  Loader2,
+  WifiOff,
+  X,
+} from 'lucide-react';
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -173,8 +180,8 @@ export function ProjectActivityFeed({
 
   return (
     <Card className={cn('relative overflow-hidden', className)}>
-      <CardHeader className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
+      <CardHeader className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between sm:gap-6">
+        <div className="flex flex-col gap-2">
           <div className="flex items-center gap-3">
             <CardTitle className="text-xl font-semibold">
               Recent Activity
@@ -189,11 +196,13 @@ export function ProjectActivityFeed({
             Stay on top of project updates without leaving home base.
           </p>
         </div>
-        <ActivityFilterTabs
-          active={filter}
-          onSelect={handleFilterChange}
-          disabled={status.isLoading && events.length === 0}
-        />
+        <div className="flex w-full justify-start sm:w-auto sm:justify-end">
+          <ActivityFilterTabs
+            active={filter}
+            onSelect={handleFilterChange}
+            disabled={status.isLoading && events.length === 0}
+          />
+        </div>
       </CardHeader>
       <CardContent className="space-y-4">
         {showNoProjectsBanner ? (
@@ -331,15 +340,16 @@ export function ProjectActivityFeed({
         ) : null}
 
         {isEmpty ? (
-          <div className="flex flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-border/60 bg-muted/20 py-12 text-center">
-            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted">
-              <AlertTriangle className="h-6 w-6 text-muted-foreground" />
+          <div className="flex flex-col items-center justify-center gap-4 rounded-xl border border-dashed border-border/60 bg-muted/30 px-6 py-12 text-center">
+            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+              <CheckCircle2 className="h-6 w-6" />
             </div>
-            <h3 className="text-base font-semibold">You're all caught up</h3>
-            <p className="max-w-sm text-sm text-muted-foreground">
-              Activity that matters to you will show up here. Tweak the filters to
-              broaden the feed.
-            </p>
+            <div className="space-y-2">
+              <h3 className="text-base font-semibold">You're all caught up</h3>
+              <p className="max-w-sm text-sm text-muted-foreground">
+                Activity that matters to you will show up here. Tweak the filters to broaden the feed.
+              </p>
+            </div>
           </div>
         ) : null}
 

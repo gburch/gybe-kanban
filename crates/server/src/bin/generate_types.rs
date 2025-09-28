@@ -61,6 +61,7 @@ fn generate_types_content() -> String {
         services::services::config::EditorConfig::decl(),
         services::services::config::EditorType::decl(),
         services::services::config::GitHubConfig::decl(),
+        services::services::config::ActivityFeedConfig::decl(),
         services::services::config::SoundFile::decl(),
         services::services::config::UiLanguage::decl(),
         server::activity_feed::ActivityFeedItem::decl(),

@@ -41,6 +41,7 @@ Do not manually edit shared/types.ts, instead edit crates/server/src/bin/generat
 ## Testing Guidelines
 - Rust: prefer unit tests alongside code (`#[cfg(test)]`), run `cargo test --workspace`. Add tests for new logic and edge cases.
 - Frontend: ensure `npm run check` and `npm run lint` pass. If adding runtime logic, include lightweight tests (e.g., Vitest) in the same directory.
+- Avoid commands that drop into watch mode (e.g. `npm run backend:dev:watch`, `pnpm run dev`). Prefer single-run invocations so you don't block automation.
 
 ## Security & Config Tips
 - Use `.env` for local overrides; never commit secrets. Key envs: `FRONTEND_PORT`, `BACKEND_PORT`, `HOST`, optional `GITHUB_CLIENT_ID` for custom OAuth.

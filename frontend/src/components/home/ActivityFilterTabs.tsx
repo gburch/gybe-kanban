@@ -9,9 +9,9 @@ interface ActivityFilterTabsProps {
 }
 
 const FILTERS: Array<{ label: string; value: ActivityFeedFilter }> = [
+  { label: 'Needs Review', value: 'need_review' },
   { label: 'In Progress', value: 'in_progress' },
-  { label: 'Need Review', value: 'need_review' },
-  { label: 'Recently Completed', value: 'recently_completed' },
+  { label: 'Completed', value: 'recently_completed' },
 ];
 
 export function ActivityFilterTabs({
@@ -21,7 +21,10 @@ export function ActivityFilterTabs({
 }: ActivityFilterTabsProps) {
   return (
     <div
-      className="inline-flex rounded-full border border-border bg-muted/40 p-1"
+      className={cn(
+        'flex w-full flex-wrap gap-2 rounded-full border border-border bg-muted/40 p-1',
+        'sm:w-auto sm:flex-nowrap sm:gap-0'
+      )}
       role="tablist"
       aria-label="Activity feed filters"
     >
@@ -38,7 +41,7 @@ export function ActivityFilterTabs({
             aria-pressed={isActive}
             disabled={disabled}
             className={cn(
-              'px-4 text-sm font-medium transition-colors',
+              'flex-1 px-4 text-sm font-medium transition-colors sm:flex-none',
               !isActive && 'text-muted-foreground'
             )}
             onClick={() => onSelect(filter.value)}

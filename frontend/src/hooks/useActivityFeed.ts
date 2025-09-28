@@ -1,5 +1,5 @@
 import { useCallback, useEffect } from 'react';
-import { useInfiniteQuery } from '@tanstack/react-query';
+import { useInfiniteQuery, type InfiniteData } from '@tanstack/react-query';
 import { shallow } from 'zustand/shallow';
 import {
   ActivityFeedEvent,
@@ -17,6 +17,9 @@ interface UseActivityFeedOptions {
 }
 
 type WsChangeType = 'created' | 'updated' | 'removed';
+
+type ActivityFeedPage = Awaited<ReturnType<typeof activityFeedApi.list>>;
+type ActivityFeedQueryKey = ['activityFeed', string | null];
 
 interface ActivityFeedWsMessage {
   type: 'activity_feed.update';
@@ -70,8 +73,14 @@ export const useActivityFeed = ({
 
   const queryEnabled = enabled && Boolean(projectId);
 
-  const query = useInfiniteQuery({
-    queryKey: ['activityFeed', projectId],
+  const query = useInfiniteQuery<
+    ActivityFeedPage,
+    Error,
+    InfiniteData<ActivityFeedPage>,
+    ActivityFeedQueryKey,
+    string | null
+  >({
+    queryKey: ['activityFeed', projectId ?? null],
     enabled: queryEnabled,
     initialPageParam: null as string | null,
     getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
@@ -80,7 +89,7 @@ export const useActivityFeed = ({
         return { events: [], nextCursor: null };
       }
       return activityFeedApi.list(projectId, {
-        scope: 'all',
+        scope: 'mine',
         cursor: pageParam ?? null,
       });
     },
@@ -147,7 +156,7 @@ export const useActivityFeed = ({
       setConnectionState(ws ? 'reconnecting' : 'connecting');
 
       try {
-        ws = new WebSocket(buildWsUrl(projectId, 'all'));
+        ws = new WebSocket(buildWsUrl(projectId, 'mine'));
       } catch (err) {
         console.warn('Failed to open activity feed websocket', err);
         setConnectionState('disconnected');
