@@ -87,14 +87,7 @@ export const useActivityFeedStore = create<ActivityFeedState>((set, get) => ({
     if (get().filter === filter) return;
     set({
       filter,
-      dismissedHighPriority: new Set(),
-      nextCursor: null,
-      hasMore: false,
-      events: [],
       error: null,
-      connectionState: 'idle',
-      connectionAttempts: 0,
-      hasConnectedOnce: false,
     });
   },
 
