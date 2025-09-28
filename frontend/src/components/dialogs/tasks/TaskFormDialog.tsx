@@ -1,7 +1,10 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Globe2, Settings2, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { ImageUploadSection } from '@/components/ui/ImageUploadSection';
+import {
+  ImageUploadSection,
+  type ImageUploadSectionHandle,
+} from '@/components/ui/ImageUploadSection';
 import {
   Dialog,
   DialogContent,
@@ -68,6 +71,9 @@ export const TaskFormDialog = NiceModal.create<TaskFormDialogProps>(
     parentTaskAttemptId,
   }) => {
     const modal = useModal();
+    const dialogContentRef = useRef<HTMLDivElement | null>(null);
+    const imageUploadSectionRef =
+      useRef<ImageUploadSectionHandle | null>(null);
     const { createTask, createAndStart, updateTask } =
       useTaskMutations(projectId);
     const { system, profiles } = useUserSystem();
@@ -265,6 +271,39 @@ export const TaskFormDialog = NiceModal.create<TaskFormDialogProps>(
         setSelectedExecutorProfile(system.config.executor_profile);
       }
     }, [system.config?.executor_profile]);
+
+    useEffect(() => {
+      if (!modal.visible || isEditMode) return;
+
+      const handlePaste = (event: ClipboardEvent) => {
+        if (!dialogContentRef.current || !event.clipboardData) return;
+
+        const target = event.target as Node | null;
+        if (target && !dialogContentRef.current.contains(target)) {
+          return;
+        }
+
+        const files: File[] = [];
+        for (const item of Array.from(event.clipboardData.items)) {
+          if (item.kind !== 'file') continue;
+          const file = item.getAsFile();
+          if (!file) continue;
+          if (file.type.toLowerCase().startsWith('image/')) {
+            files.push(file);
+          }
+        }
+
+        if (files.length === 0) return;
+
+        event.preventDefault();
+        imageUploadSectionRef.current?.uploadFiles(files);
+      };
+
+      document.addEventListener('paste', handlePaste);
+      return () => {
+        document.removeEventListener('paste', handlePaste);
+      };
+    }, [modal.visible, isEditMode]);
 
     useEffect(() => {
       if (!repositories || repositories.length === 0) {
@@ -516,7 +555,10 @@ export const TaskFormDialog = NiceModal.create<TaskFormDialogProps>(
     return (
       <>
         <Dialog open={modal.visible} onOpenChange={handleDialogOpenChange}>
-          <DialogContent className="sm:max-w-[550px]">
+          <DialogContent
+            ref={dialogContentRef}
+            className="sm:max-w-[550px]"
+          >
             <DialogHeader>
               <DialogTitle>
                 {isEditMode ? 'Edit Task' : 'Create New Task'}
@@ -574,6 +616,7 @@ export const TaskFormDialog = NiceModal.create<TaskFormDialogProps>(
               </div>
 
               <ImageUploadSection
+                ref={imageUploadSectionRef}
                 images={images}
                 onImagesChange={handleImagesChange}
                 onUpload={imagesApi.upload}

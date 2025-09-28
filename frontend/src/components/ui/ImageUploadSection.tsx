@@ -1,4 +1,10 @@
-import { useState, useCallback, useRef } from 'react';
+import {
+  useState,
+  useCallback,
+  useRef,
+  forwardRef,
+  useImperativeHandle,
+} from 'react';
 import {
   X,
   Image as ImageIcon,
@@ -26,19 +32,30 @@ interface ImageUploadSectionProps {
   className?: string;
 }
 
-export function ImageUploadSection({
-  images,
-  onImagesChange,
-  onUpload,
-  onDelete,
-  onImageUploaded,
-  isUploading = false,
-  disabled = false,
-  readOnly = false,
-  collapsible = true,
-  defaultExpanded = false,
-  className,
-}: ImageUploadSectionProps) {
+export interface ImageUploadSectionHandle {
+  uploadFiles: (files: File[]) => void;
+}
+
+export const ImageUploadSection = forwardRef<
+  ImageUploadSectionHandle,
+  ImageUploadSectionProps
+>(
+  (
+    {
+      images,
+      onImagesChange,
+      onUpload,
+      onDelete,
+      onImageUploaded,
+      isUploading = false,
+      disabled = false,
+      readOnly = false,
+      collapsible = true,
+      defaultExpanded = false,
+      className,
+    },
+    ref
+  ) => {
   const [isExpanded, setIsExpanded] = useState(
     defaultExpanded || images.length > 0
   );
@@ -47,9 +64,9 @@ export function ImageUploadSection({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const handleFileSelect = useCallback(
-    async (files: FileList | null) => {
-      if (!files || disabled) return;
+  const processFiles = useCallback(
+    async (files: File[]) => {
+      if (files.length === 0 || disabled) return;
 
       setErrorMessage(null);
 
@@ -68,7 +85,7 @@ export function ImageUploadSection({
       const oversizedFiles: string[] = [];
       const validFiles: File[] = [];
 
-      Array.from(files).forEach((file) => {
+      files.forEach((file) => {
         if (!VALID_TYPES.includes(file.type.toLowerCase())) {
           invalidFiles.push(file.name);
           return;
@@ -98,7 +115,7 @@ export function ImageUploadSection({
       }
 
       for (const file of validFiles) {
-        const tempId = `uploading-${Date.now()}-${file.name}`;
+        const tempId = `uploading-${Date.now()}-${file.name}-${Math.random()}`;
         setUploadingFiles((prev) => new Set(prev).add(tempId));
 
         try {
@@ -115,7 +132,7 @@ export function ImageUploadSection({
         } catch (error: any) {
           console.error('Failed to upload image:', error);
           const message =
-            error.message || 'Failed to upload image. Please try again.';
+            error?.message || 'Failed to upload image. Please try again.';
           setErrorMessage(message);
         } finally {
           setUploadingFiles((prev) => {
@@ -126,14 +143,32 @@ export function ImageUploadSection({
         }
       }
     },
-    [images, onImagesChange, onImageUploaded, onUpload, disabled]
+    [disabled, images, onImageUploaded, onImagesChange, onUpload]
+  );
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      uploadFiles: (files: File[]) => {
+        void processFiles(files);
+      },
+    }),
+    [processFiles]
+  );
+
+  const handleFileSelect = useCallback(
+    async (files: FileList | null) => {
+      if (!files) return;
+      void processFiles(Array.from(files));
+    },
+    [processFiles]
   );
 
   const handleDrop = useCallback(
     (e: React.DragEvent) => {
       e.preventDefault();
       setIsDragging(false);
-      handleFileSelect(e.dataTransfer.files);
+      void handleFileSelect(e.dataTransfer.files);
     },
     [handleFileSelect]
   );
@@ -301,4 +336,7 @@ export function ImageUploadSection({
       {isExpanded && content}
     </div>
   );
-}
+  }
+);
+
+ImageUploadSection.displayName = 'ImageUploadSection';

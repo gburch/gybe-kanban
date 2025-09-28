@@ -6,7 +6,10 @@ import {
   AlertCircle,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { ImageUploadSection } from '@/components/ui/ImageUploadSection';
+import {
+  ImageUploadSection,
+  type ImageUploadSectionHandle,
+} from '@/components/ui/ImageUploadSection';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 //
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -25,14 +28,11 @@ import { useAttemptBranch } from '@/hooks/useAttemptBranch';
 import { FollowUpConflictSection } from '@/components/tasks/follow-up/FollowUpConflictSection';
 import { FollowUpEditorCard } from '@/components/tasks/follow-up/FollowUpEditorCard';
 import { useDraftStream } from '@/hooks/follow-up/useDraftStream';
-import { useRetryUi } from '@/contexts/RetryUiContext';
-import { useDraftEditor } from '@/hooks/follow-up/useDraftEditor';
+import { useDraftEdits } from '@/hooks/follow-up/useDraftEdits';
 import { useDraftAutosave } from '@/hooks/follow-up/useDraftAutosave';
 import { useDraftQueue } from '@/hooks/follow-up/useDraftQueue';
 import { useFollowUpSend } from '@/hooks/follow-up/useFollowUpSend';
 import { useDefaultVariant } from '@/hooks/follow-up/useDefaultVariant';
-import { buildResolveConflictsInstructions } from '@/lib/conflicts';
-import { appendImageMarkdown } from '@/utils/markdownImages';
 
 interface TaskFollowUpSectionProps {
   task: TaskWithAttemptStatus;
@@ -59,25 +59,14 @@ export function TaskFollowUpSection({
     [generateReviewMarkdown, comments]
   );
 
-  // Non-editable conflict resolution instructions (derived, like review comments)
-  const conflictResolutionInstructions = useMemo(() => {
-    const hasConflicts = (branchStatus?.conflicted_files?.length ?? 0) > 0;
-    if (!hasConflicts) return null;
-    return buildResolveConflictsInstructions(
-      attemptBranch,
-      branchStatus?.target_branch_name,
-      branchStatus?.conflicted_files || [],
-      branchStatus?.conflict_op ?? null
-    );
-  }, [
-    attemptBranch,
-    branchStatus?.target_branch_name,
-    branchStatus?.conflicted_files,
-    branchStatus?.conflict_op,
-  ]);
-
   // Draft stream and synchronization
-  const { draft, isDraftLoaded } = useDraftStream(selectedAttemptId);
+  const {
+    draft,
+    isDraftLoaded,
+    lastServerVersionRef,
+    suppressNextSaveRef,
+    forceNextApplyRef,
+  } = useDraftStream(selectedAttemptId);
 
   // Editor state
   const {
@@ -88,13 +77,20 @@ export function TaskFollowUpSection({
     newlyUploadedImageIds,
     handleImageUploaded,
     clearImagesAndUploads,
-  } = useDraftEditor({
+  } = useDraftEdits({
     draft,
+    lastServerVersionRef,
+    suppressNextSaveRef,
+    forceNextApplyRef,
     taskId: task.id,
   });
 
   // Presentation-only: show/hide image upload panel
   const [showImageUpload, setShowImageUpload] = useState(false);
+  const followUpContainerRef = useRef<HTMLDivElement | null>(null);
+  const followUpImageSectionRef =
+    useRef<ImageUploadSectionHandle | null>(null);
+  const [pendingPastedImages, setPendingPastedImages] = useState<File[]>([]);
 
   // Variant selection (with keyboard cycling)
   const { selectedVariant, setSelectedVariant, currentProfile } =
@@ -107,6 +103,8 @@ export function TaskFollowUpSection({
     message: followUpMessage,
     selectedVariant,
     images,
+    suppressNextSaveRef,
+    lastServerVersionRef,
   });
 
   // Presentation-only queue state
@@ -121,11 +119,6 @@ export function TaskFollowUpSection({
   const isQueued = !!draft?.queued;
   const displayQueued = queuedOptimistic ?? isQueued;
 
-  // During retry, follow-up box is greyed/disabled (not hidden)
-  // Use RetryUi context so optimistic retry immediately disables this box
-  const { activeRetryProcessId } = useRetryUi();
-  const isRetryActive = !!activeRetryProcessId;
-
   // Autosave draft when editing
   const { isSaving, saveStatus } = useDraftAutosave({
     attemptId: selectedAttemptId,
@@ -139,6 +132,9 @@ export function TaskFollowUpSection({
     isDraftSending: !!draft?.sending,
     isQueuing: isQueuing,
     isUnqueuing: isUnqueuing,
+    suppressNextSaveRef,
+    lastServerVersionRef,
+    forceNextApplyRef,
   });
 
   // Send follow-up action
@@ -146,7 +142,6 @@ export function TaskFollowUpSection({
     useFollowUpSend({
       attemptId: selectedAttemptId,
       message: followUpMessage,
-      conflictMarkdown: conflictResolutionInstructions,
       reviewMarkdown,
       selectedVariant,
       images,
@@ -175,14 +170,12 @@ export function TaskFollowUpSection({
       }
     }
 
-    if (isRetryActive) return false; // disable typing while retry editor is active
     return true;
   }, [
     selectedAttemptId,
     processes.length,
     isSendingFollowUp,
     branchStatus?.merges,
-    isRetryActive,
   ]);
 
   const canSendFollowUp = useMemo(() => {
@@ -190,21 +183,74 @@ export function TaskFollowUpSection({
       return false;
     }
 
-    // Allow sending if conflict instructions or review comments exist, or message is present
-    return Boolean(
-      conflictResolutionInstructions || reviewMarkdown || followUpMessage.trim()
-    );
-  }, [
-    canTypeFollowUp,
-    conflictResolutionInstructions,
-    reviewMarkdown,
-    followUpMessage,
-  ]);
+    // Allow sending if either review comments exist OR follow-up message is present
+    return Boolean(reviewMarkdown || followUpMessage.trim());
+  }, [canTypeFollowUp, reviewMarkdown, followUpMessage]);
   // currentProfile is provided by useDefaultVariant
 
   const isDraftLocked =
     displayQueued || isQueuing || isUnqueuing || !!draft?.sending;
-  const isEditable = isDraftLoaded && !isDraftLocked && !isRetryActive;
+  const isEditable = isDraftLoaded && !isDraftLocked;
+
+  useEffect(() => {
+    if (!isEditable) return;
+
+    const handlePaste = (event: ClipboardEvent) => {
+      if (!followUpContainerRef.current || !event.clipboardData) return;
+
+      const target = event.target as Node | null;
+      if (target && !followUpContainerRef.current.contains(target)) {
+        return;
+      }
+
+      const files: File[] = [];
+      for (const item of Array.from(event.clipboardData.items)) {
+        if (item.kind !== 'file') continue;
+        const file = item.getAsFile();
+        if (!file) continue;
+        if (file.type.toLowerCase().startsWith('image/')) {
+          files.push(file);
+        }
+      }
+
+      if (files.length === 0) return;
+
+      event.preventDefault();
+
+      if (!showImageUpload) {
+        setShowImageUpload(true);
+        setPendingPastedImages(files);
+        return;
+      }
+
+      if (followUpImageSectionRef.current) {
+        followUpImageSectionRef.current.uploadFiles(files);
+      } else {
+        setPendingPastedImages(files);
+      }
+    };
+
+    document.addEventListener('paste', handlePaste);
+    return () => {
+      document.removeEventListener('paste', handlePaste);
+    };
+  }, [isEditable, showImageUpload]);
+
+  useEffect(() => {
+    if (pendingPastedImages.length === 0) return;
+    if (!followUpImageSectionRef.current) return;
+
+    followUpImageSectionRef.current.uploadFiles(pendingPastedImages);
+    setPendingPastedImages([]);
+  }, [pendingPastedImages]);
+
+  const appendToFollowUpMessage = (text: string) => {
+    setFollowUpMessage((prev) => {
+      const sep =
+        prev.trim().length === 0 ? '' : prev.endsWith('\n') ? '\n' : '\n\n';
+      return prev + sep + text;
+    });
+  };
 
   // When a process completes (e.g., agent resolved conflicts), refresh branch status promptly
   const prevRunningRef = useRef<boolean>(isAttemptRunning);
@@ -253,15 +299,13 @@ export function TaskFollowUpSection({
     } else {
       if (isUnqueuing) setIsUnqueuing(false);
     }
-  }, [isQueued, isQueuing, isUnqueuing]);
+  }, [isQueued]);
 
   return (
     selectedAttemptId && (
       <div
-        className={cn(
-          'border-t p-4 focus-within:ring ring-inset',
-          isRetryActive && 'opacity-50'
-        )}
+        ref={followUpContainerRef}
+        className="border-t p-4 focus-within:ring ring-inset"
       >
         <div className="space-y-2">
           {followUpError && (
@@ -274,15 +318,19 @@ export function TaskFollowUpSection({
             {showImageUpload && (
               <div className="mb-2">
                 <ImageUploadSection
+                  ref={followUpImageSectionRef}
                   images={images}
                   onImagesChange={setImages}
-                  onUpload={(file) => imagesApi.uploadForTask(task.id, file)}
+                  onUpload={imagesApi.upload}
                   onDelete={imagesApi.delete}
                   onImageUploaded={(image) => {
                     handleImageUploaded(image);
-                    setFollowUpMessage((prev) =>
-                      appendImageMarkdown(prev, image)
-                    );
+                    const markdownText = `![${image.original_name}](${image.file_path})`;
+                    const next =
+                      followUpMessage.trim() === ''
+                        ? markdownText
+                        : followUpMessage + ' ' + markdownText;
+                    setFollowUpMessage(next);
                   }}
                   disabled={!isEditable}
                   collapsible={false}
@@ -299,27 +347,21 @@ export function TaskFollowUpSection({
             )}
 
             {/* Conflict notice and actions (optional UI) */}
-            {branchStatus && (
-              <FollowUpConflictSection
-                selectedAttemptId={selectedAttemptId}
-                attemptBranch={attemptBranch}
-                branchStatus={branchStatus}
-                isEditable={isEditable}
-                onResolve={onSendFollowUp}
-                enableResolve={
-                  canSendFollowUp && !isAttemptRunning && isEditable
-                }
-                enableAbort={canSendFollowUp && !isAttemptRunning}
-                conflictResolutionInstructions={conflictResolutionInstructions}
-              />
-            )}
+            <FollowUpConflictSection
+              selectedAttemptId={selectedAttemptId}
+              attemptBranch={attemptBranch}
+              branchStatus={branchStatus}
+              isEditable={isEditable}
+              appendInstructions={appendToFollowUpMessage}
+              refetchBranchStatus={refetchBranchStatus}
+            />
 
             <div className="flex flex-col gap-2">
               <FollowUpEditorCard
                 placeholder={
                   isQueued
                     ? 'Type your follow-up… It will auto-send when ready.'
-                    : reviewMarkdown || conflictResolutionInstructions
+                    : reviewMarkdown
                       ? '(Optional) Add additional instructions... Type @ to search files.'
                       : 'Continue working on this task attempt... Type @ to search files.'
                 }
@@ -391,7 +433,6 @@ export function TaskFollowUpSection({
                         onClick={clearComments}
                         size="sm"
                         variant="destructive"
-                        disabled={!isEditable}
                       >
                         Clear Review Comments
                       </Button>
@@ -402,8 +443,7 @@ export function TaskFollowUpSection({
                         !canSendFollowUp ||
                         isDraftLocked ||
                         !isDraftLoaded ||
-                        isSendingFollowUp ||
-                        isRetryActive
+                        isSendingFollowUp
                       }
                       size="sm"
                     >
@@ -412,9 +452,7 @@ export function TaskFollowUpSection({
                       ) : (
                         <>
                           <Send className="h-4 w-4 mr-2" />
-                          {conflictResolutionInstructions
-                            ? 'Resolve conflicts'
-                            : 'Send'}
+                          Send
                         </>
                       )}
                     </Button>
@@ -475,8 +513,7 @@ export function TaskFollowUpSection({
                             !isDraftLoaded ||
                             isQueuing ||
                             isUnqueuing ||
-                            !!draft?.sending ||
-                            isRetryActive
+                            !!draft?.sending
                       }
                       size="sm"
                       variant="default"
