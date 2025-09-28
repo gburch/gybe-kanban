@@ -86,7 +86,7 @@ impl ActivityFeedConfig {
 impl Default for ActivityFeedConfig {
     fn default() -> Self {
         Self {
-            enabled: false,
+            enabled: true,
             window_days: Self::DEFAULT_WINDOW_DAYS,
         }
     }
