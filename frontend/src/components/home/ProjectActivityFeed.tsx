@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, type KeyboardEvent } from 'react';
 import {
   AlertTriangle,
   ArrowUpRight,
@@ -24,6 +24,7 @@ import {
 } from '@/stores/activityFeedStore';
 import { useActivityFeed } from '@/hooks/useActivityFeed';
 import { trackAnalyticsEvent } from '@/lib/analytics';
+import { useNavigate } from 'react-router-dom';
 
 const STORAGE_KEY = 'vk.activity_feed.filter';
 
@@ -161,6 +162,7 @@ export function ProjectActivityFeed({
   const highPriority = useActivityFeedHighPriority();
   const status = useActivityFeedStatus();
   const filter = useActivityFeedFilter();
+  const navigate = useNavigate();
   const { connectionState, connectionAttempts, hasConnectedOnce } =
     useActivityFeedConnectionMeta();
   const urgentCount = highPriority.length;
@@ -206,11 +208,46 @@ export function ProjectActivityFeed({
     setFilter(value);
   };
 
-  const handleCtaClick = (event: ActivityFeedEvent) => {
+  const trackEventView = (event: ActivityFeedEvent) => {
     trackAnalyticsEvent('activity_feed.view_item', {
       eventId: event.id,
       filter,
     });
+  };
+
+  const navigateToEvent = (event: ActivityFeedEvent) => {
+    if (!event.cta?.href) return;
+    const href = event.cta.href;
+
+    if (href.startsWith('/')) {
+      navigate(href);
+      return;
+    }
+
+    if (typeof window !== 'undefined') {
+      window.location.assign(href);
+    }
+  };
+
+  const handleEventActivation = (event: ActivityFeedEvent) => {
+    if (!event.cta?.href) return;
+    trackEventView(event);
+    navigateToEvent(event);
+  };
+
+  const handleCardKeyDown = (
+    keyboardEvent: KeyboardEvent<HTMLElement>,
+    event: ActivityFeedEvent
+  ) => {
+    if (!event.cta?.href) return;
+    if (keyboardEvent.key === 'Enter' || keyboardEvent.key === ' ') {
+      keyboardEvent.preventDefault();
+      handleEventActivation(event);
+    }
+  };
+
+  const handleCtaClick = (event: ActivityFeedEvent) => {
+    trackEventView(event);
   };
 
   const handleDismiss = (eventId: string) => {
@@ -315,16 +352,31 @@ export function ProjectActivityFeed({
               const projectName = event.projectId
                 ? projectLookup.get(event.projectId) ?? null
                 : null;
+              const isClickable = Boolean(event.cta?.href);
               return (
                 <li key={event.id}>
                   <article
                     className={cn(
                       'group flex gap-3 rounded-lg border border-border/70 bg-card p-4 transition-colors focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2',
+                      isClickable &&
+                        'cursor-pointer hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
                       urgent &&
                         'border-amber-500/60 bg-amber-50/50 dark:border-amber-400/40 dark:bg-amber-950/20'
                     )}
-                    tabIndex={0}
+                    tabIndex={isClickable ? 0 : -1}
+                    role={isClickable ? 'button' : undefined}
                     aria-label={event.headline}
+                    onClick={
+                      isClickable
+                        ? () => handleEventActivation(event)
+                        : undefined
+                    }
+                    onKeyDown={
+                      isClickable
+                        ? (keyboardEvent) =>
+                            handleCardKeyDown(keyboardEvent, event)
+                        : undefined
+                    }
                   >
                     <div className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/10 text-sm font-semibold text-primary">
                       {getInitial(event.headline)}
@@ -368,7 +420,10 @@ export function ProjectActivityFeed({
                         <Button
                           variant="secondary"
                           size="sm"
-                          onClick={() => handleCtaClick(event)}
+                          onClick={(ctaEvent) => {
+                            ctaEvent.stopPropagation();
+                            handleCtaClick(event);
+                          }}
                           asChild
                         >
                           <a href={event.cta.href} className="inline-flex items-center gap-2">
@@ -381,7 +436,10 @@ export function ProjectActivityFeed({
                         <Button
                           variant="ghost"
                           size="icon"
-                          onClick={() => handleDismiss(event.id)}
+                          onClick={(dismissEvent) => {
+                            dismissEvent.stopPropagation();
+                            handleDismiss(event.id);
+                          }}
                           className="h-8 w-8"
                           aria-label="Dismiss from high priority"
                         >

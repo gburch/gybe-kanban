@@ -17,10 +17,24 @@ const { defaultFeedApi } = vi.hoisted(() => ({
   },
 }));
 
+const { navigateMock } = vi.hoisted(() => ({
+  navigateMock: vi.fn(),
+}));
+
 vi.mock('@/hooks/useActivityFeed', () => ({
   useActivityFeed: (options: unknown) =>
     mockUseActivityFeed(options) ?? defaultFeedApi,
 }));
+
+vi.mock('react-router-dom', async () => {
+  const actual = await vi.importActual<typeof import('react-router-dom')>(
+    'react-router-dom'
+  );
+  return {
+    ...actual,
+    useNavigate: () => navigateMock,
+  };
+});
 
 const { trackAnalyticsEvent } = vi.hoisted(() => ({
   trackAnalyticsEvent: vi.fn(),
@@ -60,13 +74,11 @@ const stubEvent = (overrides: Partial<ActivityFeedEvent> = {}): ActivityFeedEven
 
 beforeEach(() => {
   resetStore();
-  mockUseActivityFeed.mockReturnValue({
-    loadMore: vi.fn(),
-    setScope: vi.fn(),
-    markAsHandled: vi.fn(),
-    hasMore: false,
-    isFetchingNextPage: false,
-  });
+  navigateMock.mockReset();
+  defaultFeedApi.loadMore.mockReset();
+  defaultFeedApi.setFilter.mockReset();
+  defaultFeedApi.markAsHandled.mockReset();
+  mockUseActivityFeed.mockReturnValue(defaultFeedApi);
   trackAnalyticsEvent.mockReset();
   if (!navigator.sendBeacon) {
     Object.defineProperty(navigator, 'sendBeacon', {
@@ -105,7 +117,13 @@ describe('ProjectActivityFeed', () => {
       error: null,
     }));
 
-    render(<ProjectActivityFeed projectId="proj-1" isProjectsLoading={false} />);
+    render(
+      <ProjectActivityFeed
+        projectId="proj-1"
+        isProjectsLoading={false}
+        onEventDismiss={() => undefined}
+      />
+    );
 
     expect(screen.getByText(/you're all caught up/i)).toBeInTheDocument();
   });
@@ -116,7 +134,13 @@ describe('ProjectActivityFeed', () => {
 
     useActivityFeedStore.getState().replaceEvents([event], null);
 
-    render(<ProjectActivityFeed projectId="proj-1" isProjectsLoading={false} />);
+    render(
+      <ProjectActivityFeed
+        projectId="proj-1"
+        isProjectsLoading={false}
+        onEventDismiss={() => undefined}
+      />
+    );
 
     const cta = screen.getByRole('link', { name: /view/i });
     await user.click(cta);
@@ -125,6 +149,59 @@ describe('ProjectActivityFeed', () => {
       'activity_feed.view_item',
       expect.objectContaining({ eventId: event.id })
     );
+  });
+
+  it('navigates when the activity card is clicked', async () => {
+    const user = userEvent.setup();
+    const event = stubEvent();
+
+    useActivityFeedStore.getState().replaceEvents([event], null);
+
+    render(
+      <ProjectActivityFeed
+        projectId="proj-1"
+        isProjectsLoading={false}
+        onEventDismiss={() => undefined}
+      />
+    );
+
+    const card = screen.getByRole('button', { name: event.headline });
+    await user.click(card);
+
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+      'activity_feed.view_item',
+      expect.objectContaining({ eventId: event.id })
+    );
+    expect(navigateMock).toHaveBeenCalledWith(event.cta?.href);
+  });
+
+  it('does not navigate when dismissing an urgent event', async () => {
+    const user = userEvent.setup();
+    const event = stubEvent();
+    const markAsHandled = vi.fn();
+
+    mockUseActivityFeed.mockReturnValue({
+      ...defaultFeedApi,
+      markAsHandled,
+    });
+
+    useActivityFeedStore.getState().replaceEvents([event], null);
+
+    render(
+      <ProjectActivityFeed
+        projectId="proj-1"
+        isProjectsLoading={false}
+        onEventDismiss={() => undefined}
+      />
+    );
+
+    const dismissButton = screen.getByRole('button', {
+      name: /dismiss from high priority/i,
+    });
+    await user.click(dismissButton);
+
+    expect(markAsHandled).toHaveBeenCalledWith(event.id);
+    expect(navigateMock).not.toHaveBeenCalled();
   });
 
   it('shows reconnect banner when websocket disconnects', () => {
