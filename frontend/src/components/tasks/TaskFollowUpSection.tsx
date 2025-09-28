@@ -6,10 +6,13 @@ import {
   AlertCircle,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { ImageUploadSection } from '@/components/ui/ImageUploadSection';
+import {
+  ImageUploadSection,
+  type ImageUploadSectionHandle,
+} from '@/components/ui/ImageUploadSection';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 //
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { imagesApi } from '@/lib/api.ts';
 import type { TaskWithAttemptStatus } from 'shared/types';
 import { useBranchStatus } from '@/hooks';
@@ -84,6 +87,13 @@ export function TaskFollowUpSection({
 
   // Presentation-only: show/hide image upload panel
   const [showImageUpload, setShowImageUpload] = useState(false);
+  const imageUploadRef = useRef<ImageUploadSectionHandle>(null);
+
+  const handlePasteImages = useCallback((files: File[]) => {
+    if (files.length === 0) return;
+    setShowImageUpload(true);
+    void imageUploadRef.current?.addFiles(files);
+  }, []);
 
   // Variant selection (with keyboard cycling)
   const { selectedVariant, setSelectedVariant, currentProfile } =
@@ -253,28 +263,32 @@ export function TaskFollowUpSection({
             </Alert>
           )}
           <div className="space-y-2">
-            {showImageUpload && (
-              <div className="mb-2">
-                <ImageUploadSection
-                  images={images}
-                  onImagesChange={setImages}
-                  onUpload={imagesApi.upload}
-                  onDelete={imagesApi.delete}
-                  onImageUploaded={(image) => {
-                    handleImageUploaded(image);
-                    const markdownText = `![${image.original_name}](${image.file_path})`;
-                    const next =
-                      followUpMessage.trim() === ''
-                        ? markdownText
-                        : followUpMessage + ' ' + markdownText;
-                    setFollowUpMessage(next);
-                  }}
-                  disabled={!isEditable}
-                  collapsible={false}
-                  defaultExpanded={true}
-                />
-              </div>
-            )}
+            <div
+              className={cn(
+                'mb-2',
+                !showImageUpload && images.length === 0 && 'hidden'
+              )}
+            >
+              <ImageUploadSection
+                ref={imageUploadRef}
+                images={images}
+                onImagesChange={setImages}
+                onUpload={imagesApi.upload}
+                onDelete={imagesApi.delete}
+                onImageUploaded={(image) => {
+                  handleImageUploaded(image);
+                  const markdownText = `![${image.original_name}](${image.file_path})`;
+                  const next =
+                    followUpMessage.trim() === ''
+                      ? markdownText
+                      : followUpMessage + ' ' + markdownText;
+                  setFollowUpMessage(next);
+                }}
+                disabled={!isEditable}
+                collapsible={false}
+                defaultExpanded={true}
+              />
+            </div>
 
             {/* Review comments preview */}
             {reviewMarkdown && (
@@ -311,6 +325,7 @@ export function TaskFollowUpSection({
                 showLoadingOverlay={isUnqueuing || !isDraftLoaded}
                 onCommandEnter={onSendFollowUp}
                 onCommandShiftEnter={onSendFollowUp}
+                onPasteFiles={handlePasteImages}
               />
               <FollowUpStatusRow
                 status={{
