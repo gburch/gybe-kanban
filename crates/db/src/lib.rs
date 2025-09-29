@@ -1,7 +1,7 @@
 use std::{str::FromStr, sync::Arc};
 
 use sqlx::{
-    Error, Pool, Sqlite, SqlitePool,
+    Error, Pool, Sqlite,
     sqlite::{SqliteConnectOptions, SqliteConnection, SqlitePoolOptions},
 };
 use utils::assets::asset_dir;
@@ -20,8 +20,17 @@ impl DBService {
             "sqlite://{}",
             asset_dir().join("db.sqlite").to_string_lossy()
         );
-        let options = SqliteConnectOptions::from_str(&database_url)?.create_if_missing(true);
-        let pool = SqlitePool::connect_with(options).await?;
+        let options = SqliteConnectOptions::from_str(&database_url)?
+            .create_if_missing(true)
+            .busy_timeout(std::time::Duration::from_secs(10))
+            .pragma("journal_mode", "WAL")
+            .pragma("synchronous", "NORMAL")
+            .pragma("cache_size", "-64000");
+        let pool = SqlitePoolOptions::new()
+            .max_connections(10)
+            .acquire_timeout(std::time::Duration::from_secs(10))
+            .connect_with(options)
+            .await?;
         sqlx::migrate!("./migrations").run(&pool).await?;
         Ok(DBService { pool })
     }
@@ -54,10 +63,17 @@ impl DBService {
             "sqlite://{}",
             asset_dir().join("db.sqlite").to_string_lossy()
         );
-        let options = SqliteConnectOptions::from_str(&database_url)?.create_if_missing(true);
+        let options = SqliteConnectOptions::from_str(&database_url)?
+            .create_if_missing(true)
+            .busy_timeout(std::time::Duration::from_secs(10))
+            .pragma("journal_mode", "WAL")
+            .pragma("synchronous", "NORMAL")
+            .pragma("cache_size", "-64000");
 
         let pool = if let Some(hook) = after_connect {
             SqlitePoolOptions::new()
+                .max_connections(10)
+                .acquire_timeout(std::time::Duration::from_secs(10))
                 .after_connect(move |conn, _meta| {
                     let hook = hook.clone();
                     Box::pin(async move {
@@ -68,7 +84,11 @@ impl DBService {
                 .connect_with(options)
                 .await?
         } else {
-            SqlitePool::connect_with(options).await?
+            SqlitePoolOptions::new()
+                .max_connections(10)
+                .acquire_timeout(std::time::Duration::from_secs(10))
+                .connect_with(options)
+                .await?
         };
 
         sqlx::migrate!("./migrations").run(&pool).await?;

@@ -91,29 +91,45 @@ impl TaskAttemptRepository {
         is_primary: bool,
         container_ref: Option<&str>,
     ) -> Result<(), sqlx::Error> {
-        let id = Uuid::new_v4();
-        sqlx::query!(
-            r#"INSERT INTO task_attempt_repositories (
-                    id,
-                    task_attempt_id,
-                    project_repository_id,
-                    is_primary,
-                    container_ref
-                )
-                VALUES ($1, $2, $3, $4, $5)
-                ON CONFLICT(task_attempt_id, project_repository_id)
-                DO UPDATE SET
-                    container_ref = excluded.container_ref,
-                    is_primary = excluded.is_primary,
-                    updated_at = datetime('now', 'subsec')"#,
-            id,
-            attempt_id,
-            project_repository_id,
-            is_primary,
-            container_ref
-        )
-        .execute(pool)
-        .await?;
+        // First, try to find existing record
+        let existing = Self::find_for_attempt(pool, attempt_id, project_repository_id).await?;
+
+        if let Some(_existing_record) = existing {
+            // Update existing record
+            sqlx::query!(
+                r#"UPDATE task_attempt_repositories
+                   SET container_ref = $1,
+                       is_primary = $2,
+                       updated_at = datetime('now', 'subsec')
+                   WHERE task_attempt_id = $3 AND project_repository_id = $4"#,
+                container_ref,
+                is_primary,
+                attempt_id,
+                project_repository_id
+            )
+            .execute(pool)
+            .await?;
+        } else {
+            // Insert new record
+            let id = Uuid::new_v4();
+            sqlx::query!(
+                r#"INSERT INTO task_attempt_repositories (
+                        id,
+                        task_attempt_id,
+                        project_repository_id,
+                        is_primary,
+                        container_ref
+                    )
+                    VALUES ($1, $2, $3, $4, $5)"#,
+                id,
+                attempt_id,
+                project_repository_id,
+                is_primary,
+                container_ref
+            )
+            .execute(pool)
+            .await?;
+        }
         Ok(())
     }
 
@@ -124,29 +140,45 @@ impl TaskAttemptRepository {
         is_primary: bool,
         branch: Option<&str>,
     ) -> Result<(), sqlx::Error> {
-        let id = Uuid::new_v4();
-        sqlx::query!(
-            r#"INSERT INTO task_attempt_repositories (
-                    id,
-                    task_attempt_id,
-                    project_repository_id,
-                    is_primary,
-                    branch
-                )
-                VALUES ($1, $2, $3, $4, $5)
-                ON CONFLICT(task_attempt_id, project_repository_id)
-                DO UPDATE SET
-                    branch = excluded.branch,
-                    is_primary = excluded.is_primary,
-                    updated_at = datetime('now', 'subsec')"#,
-            id,
-            attempt_id,
-            project_repository_id,
-            is_primary,
-            branch
-        )
-        .execute(pool)
-        .await?;
+        // First, try to find existing record
+        let existing = Self::find_for_attempt(pool, attempt_id, project_repository_id).await?;
+
+        if let Some(_existing_record) = existing {
+            // Update existing record
+            sqlx::query!(
+                r#"UPDATE task_attempt_repositories
+                   SET branch = $1,
+                       is_primary = $2,
+                       updated_at = datetime('now', 'subsec')
+                   WHERE task_attempt_id = $3 AND project_repository_id = $4"#,
+                branch,
+                is_primary,
+                attempt_id,
+                project_repository_id
+            )
+            .execute(pool)
+            .await?;
+        } else {
+            // Insert new record
+            let id = Uuid::new_v4();
+            sqlx::query!(
+                r#"INSERT INTO task_attempt_repositories (
+                        id,
+                        task_attempt_id,
+                        project_repository_id,
+                        is_primary,
+                        branch
+                    )
+                    VALUES ($1, $2, $3, $4, $5)"#,
+                id,
+                attempt_id,
+                project_repository_id,
+                is_primary,
+                branch
+            )
+            .execute(pool)
+            .await?;
+        }
         Ok(())
     }
 

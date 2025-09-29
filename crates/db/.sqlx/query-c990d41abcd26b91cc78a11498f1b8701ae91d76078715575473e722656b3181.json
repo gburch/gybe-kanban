@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT EXISTS(\n                        SELECT 1\n                        FROM project_repositories\n                        WHERE project_id = $1 AND LOWER(name) = LOWER($2) AND id != $3\n                    ) as \"exists!: bool\"",
+  "describe": {
+    "columns": [
+      {
+        "name": "exists!: bool",
+        "ordinal": 0,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "c990d41abcd26b91cc78a11498f1b8701ae91d76078715575473e722656b3181"
+}
