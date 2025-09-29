@@ -44,7 +44,15 @@ function formatResetLabel(
   return format(`${days}d`);
 }
 
-function ProgressBar({ percent }: { percent: number }) {
+function StackedProgressBar({
+  label,
+  percent,
+  resetLabel,
+}: {
+  label: string;
+  percent: number;
+  resetLabel: string;
+}) {
   const getColorClass = (pct: number) => {
     if (pct >= 90) return 'bg-red-500';
     if (pct >= 70) return 'bg-yellow-500';
@@ -52,33 +60,19 @@ function ProgressBar({ percent }: { percent: number }) {
   };
 
   return (
-    <div className="h-2 w-full rounded-full bg-muted">
-      <div
-        className={`h-full rounded-full transition-all duration-500 ${getColorClass(percent)}`}
-        style={{ width: `${percent}%` }}
-      />
-    </div>
-  );
-}
-
-function UsageWindow({
-  label,
-  window,
-  resetLabel,
-}: {
-  label: string;
-  window: CodexUsageWindow;
-  resetLabel: string;
-}) {
-  const percent = clampPercent(window.used_percent);
-
-  return (
-    <div className="space-y-1">
-      <div className="flex items-center justify-between text-xs text-muted-foreground">
-        <span>{label}</span>
-        <span>{resetLabel}</span>
+    <div className="flex items-center gap-2">
+      <div className="text-[11px] text-muted-foreground w-20 flex-shrink-0">
+        {label}
       </div>
-      <ProgressBar percent={percent} />
+      <div className="flex-1 h-1 rounded-full bg-muted relative">
+        <div
+          className={`h-full rounded-full transition-all duration-500 ${getColorClass(percent)}`}
+          style={{ width: `${percent}%` }}
+        />
+      </div>
+      <div className="text-[10px] text-muted-foreground whitespace-nowrap flex-shrink-0">
+        {percent.toFixed(0)}% • {resetLabel}
+      </div>
     </div>
   );
 }
@@ -120,13 +114,13 @@ function UsageSummary({ usage }: { usage: CodexUsageSnapshot }) {
     );
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-1.5">
       {windows.length > 0 ? (
         windows.map(({ key, label, window }) => (
-          <UsageWindow
+          <StackedProgressBar
             key={key}
             label={label}
-            window={window}
+            percent={clampPercent(window.used_percent)}
             resetLabel={formatReset(window.resets_in_seconds)}
           />
         ))
@@ -134,25 +128,6 @@ function UsageSummary({ usage }: { usage: CodexUsageSnapshot }) {
         <p className="text-sm text-muted-foreground">
           {t('usage.codex.notAvailable')}
         </p>
-      )}
-
-      {usage.token_usage && (
-        <div className="space-y-0.5 text-xs text-muted-foreground">
-          <p>
-            {t('usage.codex.totalTokens', {
-              value: numberFormatter.format(
-                usage.token_usage.total_token_usage.total_tokens
-              ),
-            })}
-          </p>
-          <p>
-            {t('usage.codex.lastTurnTokens', {
-              value: numberFormatter.format(
-                usage.token_usage.last_token_usage.total_tokens
-              ),
-            })}
-          </p>
-        </div>
       )}
     </div>
   );
