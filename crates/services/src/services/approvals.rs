@@ -2,7 +2,12 @@ use std::{collections::HashMap, sync::Arc, time::Duration as StdDuration};
 
 use chrono::{DateTime, Utc};
 use dashmap::DashMap;
-use db::models::executor_session::ExecutorSession;
+use db::models::{
+    executor_session::ExecutorSession,
+    execution_process::ExecutionProcess,
+    task::Task,
+    task::TaskStatus,
+};
 use executors::logs::{
     NormalizedEntry, NormalizedEntryType, ToolStatus,
     utils::patch::{ConversationPatch, extract_normalized_entry_from_patch},
@@ -11,7 +16,7 @@ use sqlx::{Error as SqlxError, SqlitePool};
 use thiserror::Error;
 use tokio::sync::{RwLock, oneshot};
 use utils::{
-    approvals::{ApprovalPendingInfo, ApprovalRequest, ApprovalResponse, ApprovalStatus},
+    approvals::{ApprovalPendingInfo, ApprovalRequest, ApprovalResponse, ApprovalStatus, EXIT_PLAN_MODE_TOOL_NAME},
     log_msg::LogMsg,
     msg_store::MsgStore,
 };
@@ -108,6 +113,17 @@ impl Approvals {
                         response_tx: tx,
                     },
                 );
+
+                // Update task status to InReview when a plan is pending approval
+                if request.tool_name == EXIT_PLAN_MODE_TOOL_NAME {
+                    if let Ok(ctx) = ExecutionProcess::load_context(&self.db_pool, execution_process_id).await {
+                        if let Err(e) = Task::update_status(&self.db_pool, ctx.task.id, TaskStatus::InReview).await {
+                            tracing::error!("Failed to update task status to InReview for plan approval: {}", e);
+                        } else {
+                            tracing::info!("Updated task status to InReview while awaiting plan approval");
+                        }
+                    }
+                }
             }
         } else {
             tracing::warn!(

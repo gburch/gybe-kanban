@@ -721,6 +721,13 @@ pub trait ContainerService {
         )
         .await;
 
+        // Update task status back to InProgress when plan is approved
+        if let Err(e) = Task::update_status(&self.db().pool, ctx.task.id, TaskStatus::InProgress).await {
+            tracing::error!("Failed to update task status back to InProgress after plan approval: {}", e);
+        } else {
+            tracing::info!("Updated task status back to InProgress after plan approval");
+        }
+
         let action = ctx.execution_process.executor_action()?;
         let executor_profile_id = match action.typ() {
             ExecutorActionType::CodingAgentInitialRequest(req) => req.executor_profile_id.clone(),
