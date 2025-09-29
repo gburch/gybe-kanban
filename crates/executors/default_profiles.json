@@ -6,6 +6,12 @@
           "dangerously_skip_permissions": true
         }
       },
+      "SONNET_4_5": {
+        "CLAUDE_CODE": {
+          "model": "claude-sonnet-4-5-20250929",
+          "dangerously_skip_permissions": true
+        }
+      },
       "PLAN": {
         "CLAUDE_CODE": {
           "plan": true
@@ -99,6 +105,12 @@
         "CURSOR": {
           "force": true,
           "model": "sonnet-4.5-thinking"
+        }
+      },
+      "SONNET_4_5": {
+        "CURSOR": {
+          "force": true,
+          "model": "sonnet-4.5"
         }
       },
       "OPUS_4_1": {
