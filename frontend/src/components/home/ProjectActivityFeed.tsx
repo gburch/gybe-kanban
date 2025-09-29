@@ -585,7 +585,7 @@ export function ProjectActivityFeed({
                     <div className="flex shrink-0 flex-col items-end gap-2">
                       {event.cta ? (
                         <Button
-                          variant="secondary"
+                          variant="outline"
                           size="sm"
                           onClick={(ctaEvent) => {
                             ctaEvent.stopPropagation();
