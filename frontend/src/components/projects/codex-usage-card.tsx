@@ -45,10 +45,16 @@ function formatResetLabel(
 }
 
 function ProgressBar({ percent }: { percent: number }) {
+  const getColorClass = (pct: number) => {
+    if (pct >= 90) return 'bg-red-500';
+    if (pct >= 70) return 'bg-yellow-500';
+    return 'bg-green-500';
+  };
+
   return (
     <div className="h-2 w-full rounded-full bg-muted">
       <div
-        className="h-full rounded-full bg-primary transition-all duration-500"
+        className={`h-full rounded-full transition-all duration-500 ${getColorClass(percent)}`}
         style={{ width: `${percent}%` }}
       />
     </div>
@@ -68,12 +74,11 @@ function UsageWindow({
 
   return (
     <div className="space-y-1">
-      <div className="flex items-center justify-between text-sm font-medium">
+      <div className="flex items-center justify-between text-xs text-muted-foreground">
         <span>{label}</span>
-        <span>{percent.toFixed(0)}%</span>
+        <span>{resetLabel}</span>
       </div>
       <ProgressBar percent={percent} />
-      <p className="text-xs text-muted-foreground">{resetLabel}</p>
     </div>
   );
 }
@@ -115,7 +120,7 @@ function UsageSummary({ usage }: { usage: CodexUsageSnapshot }) {
     );
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       {windows.length > 0 ? (
         windows.map(({ key, label, window }) => (
           <UsageWindow
@@ -132,7 +137,7 @@ function UsageSummary({ usage }: { usage: CodexUsageSnapshot }) {
       )}
 
       {usage.token_usage && (
-        <div className="space-y-1 text-xs text-muted-foreground">
+        <div className="space-y-0.5 text-xs text-muted-foreground">
           <p>
             {t('usage.codex.totalTokens', {
               value: numberFormatter.format(
