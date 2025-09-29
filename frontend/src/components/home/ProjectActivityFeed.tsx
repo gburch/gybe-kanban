@@ -403,23 +403,25 @@ export function ProjectActivityFeed({
 
   return (
     <Card className={cn('relative overflow-hidden', className)}>
-      <CardHeader className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between sm:gap-6">
-        <div className="flex flex-col gap-2">
-          <div className="flex items-center gap-3">
-            <CardTitle className="text-xl font-semibold">
-              Recent Activity
-            </CardTitle>
-            {urgentCount > 0 ? (
-              <Badge variant="destructive" className="uppercase">
-                {urgentCount} urgent
-              </Badge>
-            ) : null}
+      <CardHeader className="space-y-4">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div className="flex flex-col gap-2">
+            <div className="flex items-center gap-3">
+              <CardTitle className="text-xl font-semibold">
+                Recent Activity
+              </CardTitle>
+              {urgentCount > 0 ? (
+                <Badge variant="destructive" className="uppercase">
+                  {urgentCount} urgent
+                </Badge>
+              ) : null}
+            </div>
+            <p className="text-sm text-muted-foreground">
+              Stay on top of project updates without leaving home base.
+            </p>
           </div>
-          <p className="text-sm text-muted-foreground">
-            Stay on top of project updates without leaving home base.
-          </p>
         </div>
-        <div className="flex w-full justify-start sm:w-auto sm:justify-end">
+        <div className="flex w-full justify-start">
           <ActivityFilterTabs
             active={filter}
             onSelect={handleFilterChange}

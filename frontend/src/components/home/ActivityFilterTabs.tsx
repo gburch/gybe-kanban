@@ -8,10 +8,10 @@ interface ActivityFilterTabsProps {
   disabled?: boolean;
 }
 
-const FILTERS: Array<{ label: string; value: ActivityFeedFilter }> = [
-  { label: 'Needs Review', value: 'need_review' },
-  { label: 'In Progress', value: 'in_progress' },
-  { label: 'Completed', value: 'recently_completed' },
+const FILTERS: Array<{ label: string; value: ActivityFeedFilter; shortLabel?: string }> = [
+  { label: 'Needs Review', value: 'need_review', shortLabel: 'Review' },
+  { label: 'In Progress', value: 'in_progress', shortLabel: 'Progress' },
+  { label: 'Completed', value: 'recently_completed', shortLabel: 'Done' },
 ];
 
 export function ActivityFilterTabs({
@@ -22,8 +22,8 @@ export function ActivityFilterTabs({
   return (
     <div
       className={cn(
-        'inline-flex gap-1 rounded-full border border-border bg-muted/40 p-1',
-        'max-w-full flex-wrap sm:flex-nowrap'
+        'inline-flex gap-0.5 rounded-full border border-border bg-muted/40 p-1',
+        'max-w-full'
       )}
       role="tablist"
       aria-label="Activity feed filters"
@@ -41,12 +41,13 @@ export function ActivityFilterTabs({
             aria-pressed={isActive}
             disabled={disabled}
             className={cn(
-              'rounded-full px-3 text-sm font-medium transition-colors',
+              'rounded-full px-2 text-xs font-medium transition-colors sm:px-3 sm:text-sm',
               !isActive && 'text-muted-foreground'
             )}
             onClick={() => onSelect(filter.value)}
           >
-            {filter.label}
+            <span className="sm:hidden">{filter.shortLabel || filter.label}</span>
+            <span className="hidden sm:inline">{filter.label}</span>
           </Button>
         );
       })}
