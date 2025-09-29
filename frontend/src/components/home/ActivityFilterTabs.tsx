@@ -22,8 +22,8 @@ export function ActivityFilterTabs({
   return (
     <div
       className={cn(
-        'flex w-full flex-wrap gap-2 rounded-full border border-border bg-muted/40 p-1',
-        'sm:w-auto sm:flex-nowrap sm:gap-0'
+        'inline-flex gap-1 rounded-full border border-border bg-muted/40 p-1',
+        'max-w-full flex-wrap sm:flex-nowrap'
       )}
       role="tablist"
       aria-label="Activity feed filters"
@@ -41,7 +41,7 @@ export function ActivityFilterTabs({
             aria-pressed={isActive}
             disabled={disabled}
             className={cn(
-              'flex-1 rounded-full px-4 text-sm font-medium transition-colors sm:flex-none',
+              'rounded-full px-3 text-sm font-medium transition-colors',
               !isActive && 'text-muted-foreground'
             )}
             onClick={() => onSelect(filter.value)}
