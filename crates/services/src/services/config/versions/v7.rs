@@ -10,10 +10,13 @@ use crate::services::config::versions::v6;
 #[derive(Debug, Clone, Serialize, Deserialize, TS, EnumString)]
 #[ts(use_ts_enum)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-#[strum(serialize_all = "SCREAMING_SNAKE_CASE")]
+#[strum(serialize_all = "SCREAMING_SNAKE_CASE", ascii_case_insensitive)]
 pub enum ThemeMode {
+    #[serde(alias = "light", alias = "Light")]
     Light,
+    #[serde(alias = "dark", alias = "Dark")]
     Dark,
+    #[serde(alias = "system", alias = "System")]
     System,
 }
 

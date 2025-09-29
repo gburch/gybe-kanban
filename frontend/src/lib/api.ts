@@ -48,6 +48,7 @@ import {
   ApprovalResponse,
   ActivityFeedItem,
   ActivityFeedResponse,
+  CodexUsageSnapshot,
 } from 'shared/types';
 
 // Re-export types for convenience
@@ -352,6 +353,13 @@ export const projectsApi = {
       requestOptions
     );
     return handleApiResponse<SearchResult[]>(response);
+  },
+};
+
+export const usageApi = {
+  getCodexUsage: async (): Promise<CodexUsageSnapshot | null> => {
+    const response = await makeRequest('/api/usage/codex');
+    return handleApiResponse<CodexUsageSnapshot | null>(response);
   },
 };
 

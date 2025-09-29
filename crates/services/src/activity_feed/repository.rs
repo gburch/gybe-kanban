@@ -87,7 +87,10 @@ impl ActivityEventRepository<SqlActivityFeedDataSource> {
 mod tests {
     use super::*;
     use async_trait::async_trait;
-    use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
+    use std::sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    };
 
     struct TestDataSource {
         called: Arc<AtomicBool>,
@@ -96,7 +99,12 @@ mod tests {
     impl TestDataSource {
         fn new() -> (Self, Arc<AtomicBool>) {
             let called = Arc::new(AtomicBool::new(false));
-            (Self { called: called.clone() }, called)
+            (
+                Self {
+                    called: called.clone(),
+                },
+                called,
+            )
         }
     }
 

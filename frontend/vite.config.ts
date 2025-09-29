@@ -93,6 +93,29 @@ function getAllowedHosts() {
 
 const useStrictHostCheck = process.env.VITE_STRICT_ALLOWED_HOSTS === "true";
 
+function resolveBackendPort() {
+  if (process.env.BACKEND_PORT && process.env.BACKEND_PORT.trim() !== "") {
+    return process.env.BACKEND_PORT.trim();
+  }
+
+  try {
+    const portFile = path.join(os.tmpdir(), "vibe-kanban", "vibe-kanban.port");
+    if (fs.existsSync(portFile)) {
+      const contents = fs.readFileSync(portFile, "utf8").trim();
+      if (contents) {
+        return contents;
+      }
+    }
+  } catch (error) {
+    console.warn("Unable to read backend port file", error);
+  }
+
+  return "3001"; // Vite proxy default
+}
+
+const backendPort = resolveBackendPort();
+const backendHost = process.env.BACKEND_HOST || "localhost";
+
 export default defineConfig({
   plugins: [
     react(),
@@ -117,7 +140,7 @@ export default defineConfig({
     },
     proxy: {
       "/api": {
-        target: `http://${process.env.BACKEND_HOST || "localhost"}:${process.env.BACKEND_PORT || "3001"}`,
+        target: `http://${backendHost}:${backendPort}`,
         changeOrigin: true,
         ws: true,
       },

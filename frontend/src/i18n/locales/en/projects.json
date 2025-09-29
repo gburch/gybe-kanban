@@ -10,5 +10,21 @@
     "title": "No projects yet",
     "description": "Get started by creating your first project.",
     "createFirst": "Create your first project"
+  },
+  "usage": {
+    "codex": {
+      "title": "Usage",
+      "primaryLimit": "Primary limit",
+      "secondaryLimit": "Secondary limit",
+      "notAvailable": "Usage data not available yet. Run Codex to populate this view.",
+      "resetIn": "Resets in {{time}}",
+      "resetUnknown": "Reset window unknown",
+      "fetchFailed": "Failed to load Codex usage",
+      "loading": "Fetching usage...",
+      "refresh": "Refresh Codex usage",
+      "updated": "Last updated {{time}}",
+      "totalTokens": "Total tokens this session: {{value}}",
+      "lastTurnTokens": "Last turn tokens: {{value}}"
+    }
   }
 }

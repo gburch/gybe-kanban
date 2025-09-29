@@ -194,6 +194,16 @@ export type DiffChangeKind = "added" | "deleted" | "modified" | "renamed" | "cop
 
 export type RepositoryInfo = { id: bigint, name: string, full_name: string, owner: string, description: string | null, clone_url: string, ssh_url: string, default_branch: string, private: boolean, };
 
+export type CodexUsageSnapshot = { captured_at: string, rate_limits: CodexUsageRateLimits, token_usage: CodexTokenUsageInfo | null, };
+
+export type CodexUsageRateLimits = { primary: CodexUsageWindow | null, secondary: CodexUsageWindow | null, };
+
+export type CodexUsageWindow = { used_percent: number, window_minutes: number | null, resets_in_seconds: number | null, };
+
+export type CodexTokenUsageInfo = { total_token_usage: CodexTokenUsage, last_token_usage: CodexTokenUsage, model_context_window: number | null, };
+
+export type CodexTokenUsage = { input_tokens: number, cached_input_tokens: number, output_tokens: number, reasoning_output_tokens: number, total_tokens: number, };
+
 export type CommandBuilder = { 
 /**
  * Base executable command (e.g., "npx -y @anthropic-ai/claude-code@latest")

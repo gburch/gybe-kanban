@@ -185,6 +185,7 @@ pub fn build_feed_response(
 mod tests {
     use super::*;
     use chrono::Duration;
+    use services::activity_feed::models::ActivityEventCta;
 
     fn sample_event(ts_offset_secs: i64) -> ActivityEvent {
         ActivityEvent {
@@ -204,7 +205,7 @@ mod tests {
     #[test]
     fn map_event_to_item_includes_cta_when_present() {
         let mut event = sample_event(0);
-        event.cta = Some(services::activity_feed::ActivityEventCta {
+        event.cta = Some(ActivityEventCta {
             label: "Open task".to_string(),
             href: "/projects/123/tasks/456".to_string(),
         });
