@@ -127,9 +127,11 @@ impl NotificationService {
 
     /// Send macOS notification using osascript
     async fn send_macos_notification(title: &str, message: &str) {
+        // Use a simple AppleScript notification without any app identifier
+        // This prevents macOS from trying to open an unregistered app
         let script = format!(
-            r#"display notification "{message}" with title "{title}" sound name "Glass""#,
-            message = message.replace('"', r#"\""#),
+            r#"display notification "{message}" with title "{title}""#,
+            message = message.replace('"', r#"\""#).replace('\n', " - "),
             title = title.replace('"', r#"\""#)
         );
 
