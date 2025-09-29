@@ -41,7 +41,7 @@ export function ActivityFilterTabs({
             aria-pressed={isActive}
             disabled={disabled}
             className={cn(
-              'flex-1 px-4 text-sm font-medium transition-colors sm:flex-none',
+              'flex-1 rounded-full px-4 text-sm font-medium transition-colors sm:flex-none',
               !isActive && 'text-muted-foreground'
             )}
             onClick={() => onSelect(filter.value)}
