@@ -216,53 +216,57 @@ function buildFlowLayout(
     }
   });
 
-  // Override X positions to strictly enforce status-based columns
-  // Group nodes by status and stack them vertically within each column
-  const columnSpacing = 450; // Space between status columns
-  const baseX = 60; // Starting X position
-  const verticalPadding = 20; // Padding between cards
+  // Adjust X positions to respect both hierarchy AND status
+  // Use Dagre's X positions but shift them based on status zones
+  // This preserves parent-child relationships while grouping by status
 
-  // Group nodes by status
-  const doneNodes = Object.values(nodes).filter(n => {
-    const status = n.task.status.toLowerCase();
-    return status === 'done' || status === 'cancelled';
-  });
-  const activeNodes = Object.values(nodes).filter(n => {
-    const status = n.task.status.toLowerCase();
-    return status === 'inprogress' || status === 'inreview';
-  });
-  const todoNodes = Object.values(nodes).filter(n => {
-    const status = n.task.status.toLowerCase();
-    return status === 'todo';
-  });
+  // Find the min/max X for each status group from Dagre layout
+  const statusGroups: Record<string, { nodes: FlowNode[], minX: number, maxX: number }> = {
+    done: { nodes: [], minX: Infinity, maxX: -Infinity },
+    active: { nodes: [], minX: Infinity, maxX: -Infinity },
+    todo: { nodes: [], minX: Infinity, maxX: -Infinity },
+  };
 
-  // Sort each group by Y position to maintain relative ordering from Dagre
-  doneNodes.sort((a, b) => a.y - b.y);
-  activeNodes.sort((a, b) => a.y - b.y);
-  todoNodes.sort((a, b) => a.y - b.y);
+  Object.values(nodes).forEach(node => {
+    const status = node.task.status.toLowerCase();
+    let group: 'done' | 'active' | 'todo';
 
-  // Position done nodes in column 0 (leftmost)
-  let currentY = 60;
-  doneNodes.forEach(node => {
-    node.x = baseX;
-    node.y = currentY;
-    currentY += CARD_HEIGHT + verticalPadding;
+    if (status === 'done' || status === 'cancelled') {
+      group = 'done';
+    } else if (status === 'inprogress' || status === 'inreview') {
+      group = 'active';
+    } else {
+      group = 'todo';
+    }
+
+    statusGroups[group].nodes.push(node);
+    statusGroups[group].minX = Math.min(statusGroups[group].minX, node.x);
+    statusGroups[group].maxX = Math.max(statusGroups[group].maxX, node.x + CARD_WIDTH);
   });
 
-  // Position active nodes in column 1 (middle)
-  currentY = 60;
-  activeNodes.forEach(node => {
-    node.x = baseX + columnSpacing;
-    node.y = currentY;
-    currentY += CARD_HEIGHT + verticalPadding;
+  // Calculate the width of each status group
+  const doneWidth = statusGroups.done.maxX - statusGroups.done.minX;
+  const activeWidth = statusGroups.active.maxX - statusGroups.active.minX;
+
+  // Define horizontal zones with gaps between status groups
+  const baseX = 60;
+  const statusGap = 100; // Gap between status zones
+
+  const doneZoneStart = baseX;
+  const activeZoneStart = doneZoneStart + doneWidth + statusGap;
+  const todoZoneStart = activeZoneStart + activeWidth + statusGap;
+
+  // Shift each status group to its zone while preserving relative positions
+  statusGroups.done.nodes.forEach(node => {
+    node.x = doneZoneStart + (node.x - statusGroups.done.minX);
   });
 
-  // Position todo nodes in column 2 (rightmost)
-  currentY = 60;
-  todoNodes.forEach(node => {
-    node.x = baseX + columnSpacing * 2;
-    node.y = currentY;
-    currentY += CARD_HEIGHT + verticalPadding;
+  statusGroups.active.nodes.forEach(node => {
+    node.x = activeZoneStart + (node.x - statusGroups.active.minX);
+  });
+
+  statusGroups.todo.nodes.forEach(node => {
+    node.x = todoZoneStart + (node.x - statusGroups.todo.minX);
   });
 
   // Calculate bounds
@@ -555,14 +559,28 @@ function TaskFlowView({
                 const childNode = nodes[childId];
                 if (!childNode) return null;
 
-                // Arrow connects child (left) to parent (right)
-                // Start at child's RIGHT edge, end at parent's LEFT edge
-                const x1 = childNode.x + CARD_WIDTH; // Child right edge
-                const y1 = childNode.y + 65; // Middle of child card
-                const x2 = node.x; // Parent left edge
-                const y2 = node.y + 65; // Middle of parent card
+                // Determine arrow direction based on relative positions
+                // If child is left of parent: arrow goes child-right → parent-left
+                // If child is right of parent: arrow goes child-left → parent-right
+                const childIsLeft = childNode.x < node.x;
 
-                // Curved path from child to parent (left to right)
+                let x1: number, y1: number, x2: number, y2: number;
+
+                if (childIsLeft) {
+                  // Child is on the left, parent on the right (normal flow)
+                  x1 = childNode.x + CARD_WIDTH; // Child's right edge
+                  y1 = childNode.y + 65; // Middle of child
+                  x2 = node.x; // Parent's left edge
+                  y2 = node.y + 65; // Middle of parent
+                } else {
+                  // Child is on the right, parent on the left (reversed due to status)
+                  x1 = childNode.x; // Child's left edge
+                  y1 = childNode.y + 65; // Middle of child
+                  x2 = node.x + CARD_WIDTH; // Parent's right edge
+                  y2 = node.y + 65; // Middle of parent
+                }
+
+                // Curved path
                 const midX = (x1 + x2) / 2;
                 const path = `M ${x1} ${y1} C ${midX} ${y1}, ${midX} ${y2}, ${x2} ${y2}`;
 
