@@ -155,6 +155,13 @@ export function CodexUsageCard() {
 
   useEffect(() => {
     fetchUsage();
+
+    // Auto-refresh every 30 seconds to pick up usage from running Codex sessions
+    const interval = setInterval(() => {
+      fetchUsage();
+    }, 30000);
+
+    return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
