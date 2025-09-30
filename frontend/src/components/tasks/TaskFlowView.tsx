@@ -1,4 +1,4 @@
-import { memo, useMemo } from 'react';
+import { memo, useMemo, useEffect, useRef } from 'react';
 import type { TaskWithAttemptStatus } from 'shared/types';
 import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
@@ -135,11 +135,11 @@ function buildFlowLayout(
   // Create Dagre graph for hierarchical layout
   const g = new dagre.graphlib.Graph();
   g.setGraph({
-    rankdir: 'RL', // Right to left (children left, parents right; done left)
-    nodesep: 80,   // Vertical spacing between nodes
-    ranksep: 200,  // Horizontal spacing between ranks
-    marginx: 60,
-    marginy: 60,
+    rankdir: 'LR', // Left to right - we'll reverse edge direction to get children left of parents
+    nodesep: 100,  // Vertical spacing between nodes
+    ranksep: 350,  // Horizontal spacing between ranks (increased for clarity)
+    marginx: 80,
+    marginy: 80,
   });
   g.setDefaultEdgeLabel(() => ({}));
 
@@ -156,10 +156,12 @@ function buildFlowLayout(
     });
   });
 
-  // Add edges to Dagre
+  // Add edges to Dagre - REVERSED so children appear left of parents
+  // In LR mode: edge(A, B) means A is left of B
+  // So we do edge(child, parent) to put children on the left
   Object.values(nodes).forEach((node) => {
     node.children.forEach((childId) => {
-      g.setEdge(node.task.id, childId);
+      g.setEdge(childId, node.task.id); // Reversed: child → parent
     });
   });
 
@@ -182,10 +184,21 @@ function buildFlowLayout(
   const maxX = Math.max(...allNodes.map(n => n.x + CARD_WIDTH), 1200);
   const maxY = Math.max(...allNodes.map(n => n.y + CARD_HEIGHT), 800);
 
+  // Find rightmost in-progress or todo task for initial scroll position
+  const activeNodes = allNodes.filter(n =>
+    n.task.status.toLowerCase() === 'inprogress' ||
+    n.task.status.toLowerCase() === 'inreview' ||
+    n.task.status.toLowerCase() === 'todo'
+  );
+  const focusX = activeNodes.length > 0
+    ? Math.max(...activeNodes.map(n => n.x))
+    : 0;
+
   return {
     nodes,
-    totalWidth: maxX + 60,
-    totalHeight: maxY + 60,
+    totalWidth: maxX + 80,
+    totalHeight: maxY + 80,
+    focusX, // X position to scroll to
   };
 }
 
@@ -202,15 +215,29 @@ function TaskFlowView({
   selectedTask,
   parentTasksById,
 }: TaskFlowViewProps) {
-  const { nodes, totalWidth, totalHeight } = useMemo(
+  const { nodes, totalWidth, totalHeight, focusX } = useMemo(
     () => buildFlowLayout(tasks, parentTasksById),
     [tasks, parentTasksById]
   );
 
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
   const CARD_WIDTH = 320;
 
+  // Auto-scroll to focus on active tasks
+  useEffect(() => {
+    if (scrollContainerRef.current && focusX > 0) {
+      // Scroll to show the rightmost active task, with some padding
+      const container = scrollContainerRef.current;
+      const scrollTo = focusX - container.clientWidth / 2 + CARD_WIDTH / 2;
+      container.scrollTo({
+        left: Math.max(0, scrollTo),
+        behavior: 'smooth',
+      });
+    }
+  }, [focusX, CARD_WIDTH]);
+
   return (
-    <div className="w-full h-full bg-background overflow-auto">
+    <div ref={scrollContainerRef} className="w-full h-full bg-background overflow-auto">
       <div className="p-8">
         {/* Flow diagram container */}
         <div
