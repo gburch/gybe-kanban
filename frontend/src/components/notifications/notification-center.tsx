@@ -25,6 +25,7 @@ import {
 import { useActivityFeed } from '@/hooks/useActivityFeed';
 import { trackAnalyticsEvent } from '@/lib/analytics';
 import { CompactCodexUsage } from './compact-codex-usage';
+import { CompactClaudeCodeUsage } from './compact-claude-code-usage';
 
 const STORAGE_KEY = 'vk.activity_feed.filter';
 const TOUCH_TAP_MOVE_THRESHOLD = 10;
@@ -413,6 +414,9 @@ export function NotificationCenter({
           </div>
         </div>
       </div>
+
+      {/* Claude Code Limits */}
+      <CompactClaudeCodeUsage />
 
       {/* Codex Limits */}
       <CompactCodexUsage />

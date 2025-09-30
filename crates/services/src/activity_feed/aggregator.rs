@@ -158,7 +158,7 @@ impl ActivityAggregator {
         entity_id: Uuid,
         kind: &ActivityDomainEventKind,
     ) -> Option<ActivityEventCta> {
-        match (entity_type, kind) {
+        let specific = match (entity_type, kind) {
             (ActivityEntityType::Task, _) => Some(ActivityEventCta {
                 label: "Open task".to_string(),
                 href: format!("/projects/{}/tasks/{}", project_id, entity_id),
@@ -179,7 +179,14 @@ impl ActivityAggregator {
                 })
             }
             _ => None,
-        }
+        };
+
+        specific.or_else(|| {
+            Some(ActivityEventCta {
+                label: "Open project".to_string(),
+                href: format!("/projects/{}", project_id),
+            })
+        })
     }
 
     fn default_headline(&self, kind: &ActivityDomainEventKind) -> String {
@@ -381,6 +388,28 @@ mod tests {
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].entity_id, restricted.entity_id);
         assert!(events[0].cta.is_some());
+    }
+
+    #[test]
+    fn comment_events_fallback_to_project_cta() {
+        let now = Utc::now();
+        let aggregator = ActivityAggregator::new(ActivityAggregatorConfig::default());
+        let project_id = Uuid::new_v4();
+
+        let mut comment = build_event(
+            ActivityEntityType::Comment,
+            ActivityDomainEventKind::Comment(CommentDomainDetails { author_id: None }),
+            now - Duration::minutes(10),
+            ActivityVisibility::Public,
+        );
+        comment.project_id = project_id;
+
+        let events = aggregator.aggregate_with_now(None, vec![comment], now);
+        assert_eq!(events.len(), 1);
+
+        let cta = events[0].cta.as_ref().expect("comment events should include CTA");
+        assert_eq!(cta.label, "Open project");
+        assert_eq!(cta.href, format!("/projects/{}", project_id));
     }
 
     #[test]
