@@ -147,12 +147,26 @@ function buildFlowLayout(
   const CARD_WIDTH = 320;
   const CARD_HEIGHT = 140;
 
-  // Add nodes to Dagre
+  // Add nodes to Dagre with rank constraints based on status
+  // Rank determines horizontal position: lower rank = further left
   Object.values(nodes).forEach((node) => {
+    const status = node.task.status.toLowerCase();
+    let rank: number | undefined;
+
+    // Set rank based on status to align tasks horizontally by status
+    // This overrides the graph structure to group by status
+    if (status === 'done' || status === 'cancelled') {
+      rank = 0; // Leftmost - completed tasks
+    } else if (status === 'inprogress' || status === 'inreview') {
+      rank = 2; // Middle-right - active tasks
+    } else if (status === 'todo') {
+      rank = 3; // Rightmost - future tasks
+    }
+
     g.setNode(node.task.id, {
       width: CARD_WIDTH,
       height: CARD_HEIGHT,
-      column: node.column,
+      rank, // Set rank to control horizontal position
     });
   });
 
@@ -184,14 +198,14 @@ function buildFlowLayout(
   const maxX = Math.max(...allNodes.map(n => n.x + CARD_WIDTH), 1200);
   const maxY = Math.max(...allNodes.map(n => n.y + CARD_HEIGHT), 800);
 
-  // Find rightmost in-progress or todo task for initial scroll position
+  // Find leftmost in-progress or in-review task for initial scroll position
+  // We want to focus on active work, not future todos
   const activeNodes = allNodes.filter(n =>
     n.task.status.toLowerCase() === 'inprogress' ||
-    n.task.status.toLowerCase() === 'inreview' ||
-    n.task.status.toLowerCase() === 'todo'
+    n.task.status.toLowerCase() === 'inreview'
   );
   const focusX = activeNodes.length > 0
-    ? Math.max(...activeNodes.map(n => n.x))
+    ? Math.min(...activeNodes.map(n => n.x)) // LEFTMOST active task
     : 0;
 
   return {
@@ -276,10 +290,10 @@ function TaskFlowView({
                     <path
                       d={path}
                       fill="none"
-                      stroke={childNode.isConvergencePoint ? '#fbbf24' : 'hsl(var(--border))'}
-                      strokeWidth={childNode.isConvergencePoint ? 2.5 : 1.5}
-                      strokeDasharray={childNode.isConvergencePoint ? 'none' : '5,5'}
-                      opacity={childNode.isConvergencePoint ? 0.8 : 0.5}
+                      stroke={childNode.isConvergencePoint ? '#fbbf24' : 'hsl(var(--muted-foreground))'}
+                      strokeWidth={childNode.isConvergencePoint ? 3 : 2}
+                      strokeDasharray={childNode.isConvergencePoint ? 'none' : '6,4'}
+                      opacity={childNode.isConvergencePoint ? 0.9 : 0.7}
                       markerEnd={
                         childNode.isConvergencePoint
                           ? 'url(#arrowhead-critical)'
@@ -301,7 +315,7 @@ function TaskFlowView({
                 refY="3"
                 orient="auto"
               >
-                <polygon points="0 0, 10 3, 0 6" fill="hsl(var(--border))" opacity="0.5" />
+                <polygon points="0 0, 10 3, 0 6" fill="hsl(var(--muted-foreground))" opacity="0.7" />
               </marker>
               <marker
                 id="arrowhead-critical"
@@ -311,7 +325,7 @@ function TaskFlowView({
                 refY="3"
                 orient="auto"
               >
-                <polygon points="0 0, 12 3, 0 6" fill="#fbbf24" opacity="0.8" />
+                <polygon points="0 0, 12 3, 0 6" fill="#fbbf24" opacity="0.9" />
               </marker>
             </defs>
           </svg>
