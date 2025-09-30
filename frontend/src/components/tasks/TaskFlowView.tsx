@@ -219,6 +219,8 @@ function buildFlowLayout(
   // Adjust X positions to respect both hierarchy AND status
   // Use Dagre's X positions but shift them based on status zones
   // This preserves parent-child relationships while grouping by status
+  // Layout: DONE (left/past) → TODO (middle) → IN PROGRESS/PARENT (right/active work)
+  // Children come before parents, so completed children and pending todos are on the left
 
   // Find the min/max X for each status group from Dagre layout
   const statusGroups: Record<string, { nodes: FlowNode[], minX: number, maxX: number }> = {
@@ -246,27 +248,28 @@ function buildFlowLayout(
 
   // Calculate the width of each status group
   const doneWidth = statusGroups.done.maxX - statusGroups.done.minX;
-  const activeWidth = statusGroups.active.maxX - statusGroups.active.minX;
+  const todoWidth = statusGroups.todo.maxX - statusGroups.todo.minX;
 
   // Define horizontal zones with gaps between status groups
+  // Order: Done (left) → Todo (middle) → Active (right)
   const baseX = 60;
   const statusGap = 100; // Gap between status zones
 
   const doneZoneStart = baseX;
-  const activeZoneStart = doneZoneStart + doneWidth + statusGap;
-  const todoZoneStart = activeZoneStart + activeWidth + statusGap;
+  const todoZoneStart = doneZoneStart + doneWidth + statusGap;
+  const activeZoneStart = todoZoneStart + todoWidth + statusGap;
 
   // Shift each status group to its zone while preserving relative positions
   statusGroups.done.nodes.forEach(node => {
     node.x = doneZoneStart + (node.x - statusGroups.done.minX);
   });
 
-  statusGroups.active.nodes.forEach(node => {
-    node.x = activeZoneStart + (node.x - statusGroups.active.minX);
-  });
-
   statusGroups.todo.nodes.forEach(node => {
     node.x = todoZoneStart + (node.x - statusGroups.todo.minX);
+  });
+
+  statusGroups.active.nodes.forEach(node => {
+    node.x = activeZoneStart + (node.x - statusGroups.active.minX);
   });
 
   // Calculate bounds
@@ -274,14 +277,14 @@ function buildFlowLayout(
   const maxX = Math.max(...allNodes.map(n => n.x + CARD_WIDTH), 1200);
   const maxY = Math.max(...allNodes.map(n => n.y + CARD_HEIGHT), 800);
 
-  // Find center of in-progress/in-review tasks for initial scroll position
-  // Active work should be in the middle of the viewport
+  // Find active tasks for initial scroll position
+  // Active work is on the right (parents), scroll to show them
   const activeNodesForFocus = allNodes.filter(n =>
     n.task.status.toLowerCase() === 'inprogress' ||
     n.task.status.toLowerCase() === 'inreview'
   );
   const focusX = activeNodesForFocus.length > 0
-    ? Math.min(...activeNodesForFocus.map(n => n.x)) // Leftmost active task
+    ? Math.min(...activeNodesForFocus.map(n => n.x)) // Start of active zone
     : 0;
 
   return {
@@ -467,17 +470,20 @@ function TaskFlowView({
             <span>Branch Point</span>
           </div>
           <div className="flex items-center gap-3 ml-auto">
+            <span className="text-xs text-muted-foreground mr-2">Flow:</span>
             <div className="flex items-center gap-2 text-xs">
               <div className="w-3 h-3 rounded-sm bg-green-500/40" />
               <span>Done</span>
             </div>
-            <div className="flex items-center gap-2 text-xs">
-              <div className="w-3 h-3 rounded-sm bg-blue-500/60" />
-              <span>Active</span>
-            </div>
+            <ArrowRight className="h-3 w-3 text-muted-foreground" />
             <div className="flex items-center gap-2 text-xs">
               <div className="w-3 h-3 rounded-sm bg-zinc-400/40" />
               <span>Todo</span>
+            </div>
+            <ArrowRight className="h-3 w-3 text-muted-foreground" />
+            <div className="flex items-center gap-2 text-xs">
+              <div className="w-3 h-3 rounded-sm bg-blue-500/60" />
+              <span>Active</span>
             </div>
           </div>
         </div>
