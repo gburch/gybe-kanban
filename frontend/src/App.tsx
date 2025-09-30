@@ -1,5 +1,5 @@
-import { useEffect } from 'react';
-import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { I18nextProvider } from 'react-i18next';
 import i18n from '@/i18n';
 import { Navbar } from '@/components/layout/navbar';
@@ -41,6 +41,8 @@ const SentryRoutes = Sentry.withSentryReactRouterV6Routing(Routes);
 function AppContent() {
   const { config, updateAndSaveConfig, loading } = useUserSystem();
   const { isFullscreen } = useTaskViewManager();
+  const [viewMode, setViewMode] = useState<'kanban' | 'flow'>('kanban');
+  const location = useLocation();
 
   usePreventInputZoom();
 
@@ -48,6 +50,9 @@ function AppContent() {
   usePreviousPath();
 
   const showNavbar = !isFullscreen;
+
+  // Show view toggle only on task pages
+  const isTaskPage = location.pathname.includes('/tasks');
 
   useEffect(() => {
     let cancelled = false;
@@ -155,7 +160,12 @@ function AppContent() {
               <WebviewContextMenu />
 
               {showNavbar && <DevBanner />}
-              {showNavbar && <Navbar />}
+              {showNavbar && (
+                <Navbar
+                  viewMode={isTaskPage ? viewMode : undefined}
+                  onViewModeChange={isTaskPage ? setViewMode : undefined}
+                />
+              )}
               <div className="flex-1 h-full overflow-y-scroll">
                 <SentryRoutes>
                   <Route path="/" element={<Projects />} />
@@ -163,23 +173,23 @@ function AppContent() {
                   <Route path="/projects/:projectId" element={<Projects />} />
                   <Route
                     path="/projects/:projectId/tasks"
-                    element={<ProjectTasks />}
+                    element={<ProjectTasks viewMode={viewMode} />}
                   />
                   <Route
                     path="/projects/:projectId/tasks/:taskId/attempts/:attemptId"
-                    element={<ProjectTasks />}
+                    element={<ProjectTasks viewMode={viewMode} />}
                   />
                   <Route
                     path="/projects/:projectId/tasks/:taskId/attempts/:attemptId/full"
-                    element={<ProjectTasks />}
+                    element={<ProjectTasks viewMode={viewMode} />}
                   />
                   <Route
                     path="/projects/:projectId/tasks/:taskId/full"
-                    element={<ProjectTasks />}
+                    element={<ProjectTasks viewMode={viewMode} />}
                   />
                   <Route
                     path="/projects/:projectId/tasks/:taskId"
-                    element={<ProjectTasks />}
+                    element={<ProjectTasks viewMode={viewMode} />}
                   />
                   <Route path="/settings/*" element={<SettingsLayout />}>
                     <Route index element={<Navigate to="general" replace />} />

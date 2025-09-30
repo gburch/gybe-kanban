@@ -31,6 +31,7 @@ import {
 } from '@/lib/responsive-config';
 
 import TaskKanbanBoard from '@/components/tasks/TaskKanbanBoard';
+import TaskFlowView from '@/components/tasks/TaskFlowView';
 import { TaskDetailsPanel } from '@/components/tasks/TaskDetailsPanel';
 import type { TaskWithAttemptStatus, TaskAttempt } from 'shared/types';
 import type { DragEndEvent } from '@/components/ui/shadcn-io/kanban';
@@ -42,7 +43,11 @@ import { useProject } from '@/contexts/project-context';
 
 type Task = TaskWithAttemptStatus;
 
-export function ProjectTasks() {
+interface ProjectTasksProps {
+  viewMode?: 'kanban' | 'flow';
+}
+
+export function ProjectTasks({ viewMode = 'kanban' }: ProjectTasksProps) {
   const { t } = useTranslation(['tasks', 'common']);
   const { projectId, taskId, attemptId } = useParams<{
     projectId: string;
@@ -567,21 +572,30 @@ export function ProjectTasks() {
             </div>
           ) : (
             <div className="w-full h-full">
-              <TaskKanbanBoard
-                groupedTasks={groupedFilteredTasks}
-                onDragEnd={handleDragEnd}
-                onEditTask={handleEditTaskCallback}
-                onDeleteTask={handleDeleteTask}
-                onDuplicateTask={handleDuplicateTaskCallback}
-                onViewTaskDetails={handleViewTaskDetails}
-                selectedTask={selectedTask || undefined}
-                onCreateTask={handleCreateNewTask}
-                parentTasksById={parentTasksById}
-                childTaskSummaryById={childTaskSummaryById}
-                onParentClick={handleParentNavigate}
-                focusParentPillId={focusParentPillId}
-                onParentPillFocus={handleParentPillFocus}
-              />
+              {viewMode === 'kanban' ? (
+                <TaskKanbanBoard
+                  groupedTasks={groupedFilteredTasks}
+                  onDragEnd={handleDragEnd}
+                  onEditTask={handleEditTaskCallback}
+                  onDeleteTask={handleDeleteTask}
+                  onDuplicateTask={handleDuplicateTaskCallback}
+                  onViewTaskDetails={handleViewTaskDetails}
+                  selectedTask={selectedTask || undefined}
+                  onCreateTask={handleCreateNewTask}
+                  parentTasksById={parentTasksById}
+                  childTaskSummaryById={childTaskSummaryById}
+                  onParentClick={handleParentNavigate}
+                  focusParentPillId={focusParentPillId}
+                  onParentPillFocus={handleParentPillFocus}
+                />
+              ) : (
+                <TaskFlowView
+                  tasks={filteredTasks}
+                  tasksById={tasksById}
+                  onViewTaskDetails={handleViewTaskDetails}
+                  selectedTask={selectedTask || undefined}
+                />
+              )}
             </div>
           )}
         </div>
