@@ -1,5 +1,5 @@
 import { Link, useLocation } from 'react-router-dom';
-import { useCallback } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -25,6 +25,9 @@ import { openTaskForm } from '@/lib/openTaskForm';
 import { useProject } from '@/contexts/project-context';
 import { showProjectForm } from '@/lib/modals';
 import { useOpenProjectInEditor } from '@/hooks/useOpenProjectInEditor';
+import { NotificationButton } from '@/components/notifications/notification-button';
+import { projectsApi } from '@/lib/api';
+import type { Project } from 'shared/types';
 
 const INTERNAL_NAV = [
   { label: 'Projects', icon: FolderOpen, to: '/projects' },
@@ -54,6 +57,8 @@ export function Navbar({ viewMode, onViewModeChange }: NavbarProps = {}) {
   const { projectId, project } = useProject();
   const { query, setQuery, active, registerInputRef } = useSearch();
   const handleOpenInEditor = useOpenProjectInEditor(project || null);
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [isProjectsLoading, setIsProjectsLoading] = useState(false);
 
   const setSearchBarRef = useCallback(
     (node: HTMLInputElement | null) => {
@@ -61,6 +66,22 @@ export function Navbar({ viewMode, onViewModeChange }: NavbarProps = {}) {
     },
     [registerInputRef]
   );
+
+  useEffect(() => {
+    const fetchProjects = async () => {
+      setIsProjectsLoading(true);
+      try {
+        const result = await projectsApi.getAll();
+        setProjects(result);
+      } catch (error) {
+        console.error('Failed to fetch projects for notifications:', error);
+      } finally {
+        setIsProjectsLoading(false);
+      }
+    };
+
+    fetchProjects();
+  }, []);
 
   const handleCreateTask = () => {
     if (projectId) {
@@ -102,6 +123,11 @@ export function Navbar({ viewMode, onViewModeChange }: NavbarProps = {}) {
           </div>
 
           <div className="flex-1 flex justify-end">
+            <NotificationButton
+              projectId={projectId ?? null}
+              projects={projects.map(({ id, name }) => ({ id, name }))}
+              isProjectsLoading={isProjectsLoading}
+            />
             {projectId && (
               <>
                 {viewMode && onViewModeChange && (
