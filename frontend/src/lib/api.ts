@@ -49,6 +49,7 @@ import {
   ActivityFeedItem,
   ActivityFeedResponse,
   CodexUsageSnapshot,
+  ClaudeCodeUsageSnapshot,
 } from 'shared/types';
 
 // Re-export types for convenience
@@ -360,6 +361,10 @@ export const usageApi = {
   getCodexUsage: async (): Promise<CodexUsageSnapshot | null> => {
     const response = await makeRequest('/api/usage/codex');
     return handleApiResponse<CodexUsageSnapshot | null>(response);
+  },
+  getClaudeCodeUsage: async (): Promise<ClaudeCodeUsageSnapshot | null> => {
+    const response = await makeRequest('/api/usage/claude-code');
+    return handleApiResponse<ClaudeCodeUsageSnapshot | null>(response);
   },
 };
 

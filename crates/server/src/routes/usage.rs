@@ -6,7 +6,7 @@ use std::{
 };
 
 use axum::{Router, response::Json as ResponseJson, routing::get};
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Timelike, Utc};
 use ignore::WalkBuilder;
 use serde::{Deserialize, Serialize};
 use tokio::task;
@@ -18,7 +18,9 @@ use crate::{DeploymentImpl, error::ApiError};
 use utils::response::ApiResponse;
 
 pub fn router() -> Router<DeploymentImpl> {
-    Router::new().route("/usage/codex", get(get_codex_usage))
+    Router::new()
+        .route("/usage/codex", get(get_codex_usage))
+        .route("/usage/claude-code", get(get_claude_code_usage))
 }
 
 #[derive(Debug, Clone, TS, serde::Serialize)]
@@ -520,5 +522,382 @@ mod tests {
         assert_eq!(secondary.used_percent, 2.5);
         assert_eq!(secondary.window_minutes, Some(10080));
         assert_eq!(secondary.resets_in_seconds, Some(7200));
+    }
+}
+
+// ============================================================================
+// Claude Code Usage Tracking
+// ============================================================================
+
+#[derive(Debug, Clone, TS, serde::Serialize)]
+#[ts(export)]
+pub struct ClaudeCodeUsageSnapshot {
+    pub captured_at: String,
+    pub session_info: ClaudeCodeSessionInfo,
+    pub token_usage: ClaudeCodeTokenUsage,
+    #[ts(type = "number")]
+    pub estimated_limit: u64,
+    pub used_percent: f64,
+}
+
+#[derive(Debug, Clone, TS, serde::Serialize)]
+#[ts(export)]
+pub struct ClaudeCodeSessionInfo {
+    pub session_id: String,
+    pub version: String,
+    pub git_branch: Option<String>,
+    pub cwd: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, TS, serde::Serialize)]
+#[ts(export)]
+pub struct ClaudeCodeTokenUsage {
+    #[ts(type = "number")]
+    pub input_tokens: u64,
+    #[ts(type = "number")]
+    pub cache_creation_input_tokens: u64,
+    #[ts(type = "number")]
+    pub cache_read_input_tokens: u64,
+    #[ts(type = "number")]
+    pub output_tokens: u64,
+    #[ts(type = "number")]
+    pub total_tokens: u64,
+}
+
+pub async fn get_claude_code_usage()
+-> Result<ResponseJson<ApiResponse<Option<ClaudeCodeUsageSnapshot>>>, ApiError> {
+    // Load config to get the Claude plan
+    let config_path = utils::assets::config_path();
+    let config = services::services::config::load_config_from_file(&config_path).await;
+    let estimated_limit = config.claude_plan.token_limit_per_5h_block();
+
+    let snapshot = task::spawn_blocking(move || collect_claude_code_usage(estimated_limit))
+        .await
+        .map_err(|err| {
+            warn!("failed to join claude code usage task: {err}");
+            std::io::Error::new(std::io::ErrorKind::Other, "claude code usage task failed")
+        })??;
+
+    Ok(ResponseJson(ApiResponse::success(snapshot)))
+}
+
+fn collect_claude_code_usage(estimated_limit: u64) -> std::io::Result<Option<ClaudeCodeUsageSnapshot>> {
+    let Some(home) = dirs::home_dir() else {
+        return Ok(None);
+    };
+
+    let projects_dir = home.join(".claude").join("projects");
+    if !projects_dir.exists() {
+        return Ok(None);
+    }
+
+    let mut candidates: Vec<(SystemTime, PathBuf)> = Vec::new();
+    for entry in WalkBuilder::new(&projects_dir)
+        .hidden(false)
+        .ignore(false)
+        .git_ignore(false)
+        .git_exclude(false)
+        .build()
+    {
+        let entry = match entry {
+            Ok(e) => e,
+            Err(err) => {
+                warn!("failed to read claude code project entry: {err}");
+                continue;
+            }
+        };
+
+        if !entry
+            .file_type()
+            .map(|file_type| file_type.is_file())
+            .unwrap_or(false)
+        {
+            continue;
+        }
+
+        let file_name = entry.file_name().to_string_lossy();
+        if !file_name.ends_with(".jsonl") {
+            continue;
+        }
+
+        let metadata = match entry.metadata() {
+            Ok(data) => data,
+            Err(err) => {
+                warn!(
+                    "failed to read metadata for {}: {err}",
+                    entry.path().display()
+                );
+                continue;
+            }
+        };
+
+        let modified = metadata.modified().unwrap_or(SystemTime::UNIX_EPOCH);
+        candidates.push((modified, entry.into_path()));
+    }
+
+    if candidates.is_empty() {
+        return Ok(None);
+    }
+
+    // Sort by modification time, newest first
+    candidates.sort_by(|a, b| b.0.cmp(&a.0));
+
+    let mut latest: Option<(DateTime<Utc>, ClaudeCodeUsageSnapshot)> = None;
+
+    // Check the most recent files
+    for (_, path) in candidates.iter().take(20) {
+        match parse_claude_code_file(path, estimated_limit) {
+            Ok(Some((timestamp, snapshot))) => {
+                if latest
+                    .as_ref()
+                    .map(|(current, _)| timestamp > *current)
+                    .unwrap_or(true)
+                {
+                    latest = Some((timestamp, snapshot));
+                }
+            }
+            Ok(None) => continue,
+            Err(err) => {
+                warn!("failed to parse claude code log {}: {err}", path.display());
+            }
+        }
+    }
+
+    Ok(latest.map(|(_, snapshot)| snapshot))
+}
+
+fn get_five_hour_block_start(timestamp: &DateTime<Utc>) -> DateTime<Utc> {
+    let hour = timestamp.hour();
+    let block_number = hour / 5;
+    let block_start_hour = block_number * 5;
+
+    timestamp
+        .date_naive()
+        .and_hms_opt(block_start_hour, 0, 0)
+        .unwrap()
+        .and_utc()
+}
+
+fn parse_claude_code_file(path: &Path, estimated_limit: u64) -> std::io::Result<Option<(DateTime<Utc>, ClaudeCodeUsageSnapshot)>> {
+    let file = File::open(path)?;
+    let reader = BufReader::new(file);
+
+    let mut best: Option<(DateTime<Utc>, ClaudeCodeUsageSnapshot)> = None;
+    let mut session_info: Option<ClaudeCodeSessionInfo> = None;
+    let mut current_block_start: Option<DateTime<Utc>> = None;
+    let mut accumulated_usage = ClaudeCodeTokenUsage::default();
+
+    for line in reader.lines() {
+        let line = match line {
+            Ok(line) => line,
+            Err(err) => {
+                warn!("failed to read line in {}: {err}", path.display());
+                continue;
+            }
+        };
+
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+
+        let parsed: ClaudeCodeLogLine = match serde_json::from_str(trimmed) {
+            Ok(value) => value,
+            Err(err) => {
+                warn!(
+                    "failed to parse claude code JSON line in {}: {err}",
+                    path.display()
+                );
+                continue;
+            }
+        };
+
+        // Extract session info from first valid entry
+        if session_info.is_none() {
+            session_info = Some(ClaudeCodeSessionInfo {
+                session_id: parsed.session_id.clone(),
+                version: parsed.version.clone(),
+                git_branch: parsed.git_branch.clone(),
+                cwd: parsed.cwd.clone(),
+            });
+        }
+
+        // Only process assistant messages with usage data
+        if parsed.type_field == "assistant" {
+            if let Some(message) = parsed.message {
+                if let Some(usage) = message.usage {
+                    let timestamp = match DateTime::parse_from_rfc3339(&parsed.timestamp) {
+                        Ok(dt) => dt.with_timezone(&Utc),
+                        Err(err) => {
+                            warn!(
+                                "failed to parse timestamp '{}' in {}: {err}",
+                                parsed.timestamp,
+                                path.display()
+                            );
+                            continue;
+                        }
+                    };
+
+                    // Determine which 5-hour block this timestamp belongs to
+                    let block_start = get_five_hour_block_start(&timestamp);
+
+                    // If we've moved to a new block, reset the accumulated usage
+                    if current_block_start.map_or(true, |start| start != block_start) {
+                        current_block_start = Some(block_start);
+                        accumulated_usage = ClaudeCodeTokenUsage::default();
+                    }
+
+                    // Accumulate token usage within the current block
+                    accumulated_usage.input_tokens += usage.input_tokens.unwrap_or(0);
+                    accumulated_usage.cache_creation_input_tokens +=
+                        usage.cache_creation_input_tokens.unwrap_or(0);
+                    accumulated_usage.cache_read_input_tokens +=
+                        usage.cache_read_input_tokens.unwrap_or(0);
+                    accumulated_usage.output_tokens += usage.output_tokens.unwrap_or(0);
+
+                    // Calculate total
+                    accumulated_usage.total_tokens =
+                        accumulated_usage.input_tokens +
+                        accumulated_usage.output_tokens;
+
+                    if let Some(ref info) = session_info {
+                        let used_percent = if estimated_limit > 0 {
+                            (accumulated_usage.total_tokens as f64 / estimated_limit as f64) * 100.0
+                        } else {
+                            0.0
+                        };
+
+                        let snapshot = ClaudeCodeUsageSnapshot {
+                            captured_at: timestamp.to_rfc3339(),
+                            session_info: info.clone(),
+                            token_usage: accumulated_usage.clone(),
+                            estimated_limit,
+                            used_percent,
+                        };
+
+                        if best
+                            .as_ref()
+                            .map(|(current, _)| timestamp > *current)
+                            .unwrap_or(true)
+                        {
+                            best = Some((timestamp, snapshot));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(best)
+}
+
+#[derive(Debug, Deserialize)]
+struct ClaudeCodeLogLine {
+    timestamp: String,
+    #[serde(rename = "type")]
+    type_field: String,
+    #[serde(rename = "sessionId")]
+    session_id: String,
+    version: String,
+    #[serde(rename = "gitBranch")]
+    git_branch: Option<String>,
+    cwd: Option<String>,
+    message: Option<ClaudeCodeMessage>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ClaudeCodeMessage {
+    usage: Option<ClaudeCodeUsageData>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ClaudeCodeUsageData {
+    input_tokens: Option<u64>,
+    cache_creation_input_tokens: Option<u64>,
+    cache_read_input_tokens: Option<u64>,
+    output_tokens: Option<u64>,
+}
+
+#[cfg(test)]
+mod claude_code_tests {
+    use super::*;
+    use std::fs;
+    use tempfile::tempdir;
+
+    #[test]
+    fn parses_claude_code_session() {
+        let dir = tempdir().unwrap();
+        let projects_dir = dir.path().join("projects/test-project");
+        fs::create_dir_all(&projects_dir).unwrap();
+        let file_path = projects_dir.join("session.jsonl");
+
+        let lines = vec![
+            serde_json::json!({
+                "timestamp": "2025-09-30T10:00:00.000Z",
+                "type": "user",
+                "sessionId": "test-session-123",
+                "version": "2.0.0",
+                "gitBranch": "main",
+                "cwd": "/home/user/project",
+                "message": {
+                    "role": "user",
+                    "content": "Hello"
+                }
+            }),
+            serde_json::json!({
+                "timestamp": "2025-09-30T10:00:05.000Z",
+                "type": "assistant",
+                "sessionId": "test-session-123",
+                "version": "2.0.0",
+                "gitBranch": "main",
+                "cwd": "/home/user/project",
+                "message": {
+                    "role": "assistant",
+                    "usage": {
+                        "input_tokens": 100,
+                        "cache_creation_input_tokens": 50,
+                        "cache_read_input_tokens": 25,
+                        "output_tokens": 75
+                    }
+                }
+            }),
+            serde_json::json!({
+                "timestamp": "2025-09-30T10:00:10.000Z",
+                "type": "assistant",
+                "sessionId": "test-session-123",
+                "version": "2.0.0",
+                "gitBranch": "main",
+                "cwd": "/home/user/project",
+                "message": {
+                    "role": "assistant",
+                    "usage": {
+                        "input_tokens": 50,
+                        "cache_creation_input_tokens": 0,
+                        "cache_read_input_tokens": 100,
+                        "output_tokens": 60
+                    }
+                }
+            })
+        ];
+
+        let content = lines
+            .iter()
+            .map(|l| serde_json::to_string(l).unwrap())
+            .collect::<Vec<_>>()
+            .join("\n");
+        fs::write(&file_path, content).unwrap();
+
+        let result = parse_claude_code_file(&file_path, 44_000).unwrap();
+        assert!(result.is_some());
+        let (timestamp, snapshot) = result.unwrap();
+        assert_eq!(timestamp.to_rfc3339(), "2025-09-30T10:00:10+00:00");
+        assert_eq!(snapshot.session_info.session_id, "test-session-123");
+        assert_eq!(snapshot.session_info.version, "2.0.0");
+        assert_eq!(snapshot.session_info.git_branch, Some("main".to_string()));
+        assert_eq!(snapshot.token_usage.input_tokens, 150);
+        assert_eq!(snapshot.token_usage.cache_creation_input_tokens, 50);
+        assert_eq!(snapshot.token_usage.cache_read_input_tokens, 125);
+        assert_eq!(snapshot.token_usage.output_tokens, 135);
+        assert_eq!(snapshot.token_usage.total_tokens, 285);
     }
 }

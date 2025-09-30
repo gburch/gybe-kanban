@@ -11,6 +11,7 @@ import { AlertCircle, Loader2, Plus } from 'lucide-react';
 import ProjectCard from '@/components/projects/ProjectCard.tsx';
 import { useKeyCreate, Scope } from '@/keyboard';
 import { CodexUsageCard } from '@/components/projects/codex-usage-card';
+import { ClaudeCodeUsageCard } from '@/components/projects/claude-code-usage-card';
 
 export function ProjectList() {
   const { t } = useTranslation('projects');
@@ -84,7 +85,10 @@ export function ProjectList() {
       </div>
 
       <div className="mt-6 space-y-6">
-        <CodexUsageCard />
+        <div className="grid gap-4 md:grid-cols-2">
+          <CodexUsageCard />
+          <ClaudeCodeUsageCard />
+        </div>
         {error && (
           <Alert variant="destructive">
             <AlertCircle className="h-4 w-4" />

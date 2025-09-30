@@ -25,6 +25,17 @@
       "updated": "Last updated {{time}}",
       "totalTokens": "Total tokens this session: {{value}}",
       "lastTurnTokens": "Last turn tokens: {{value}}"
+    },
+    "claudeCode": {
+      "title": "Usage",
+      "tokensUsed": "tokens used",
+      "currentBlock": "{{elapsed}} elapsed • {{remaining}} until reset",
+      "branch": "Branch",
+      "notAvailable": "Usage data not available yet. Run Claude Code to populate this view.",
+      "fetchFailed": "Failed to load Claude Code usage",
+      "loading": "Fetching usage...",
+      "refresh": "Refresh Claude Code usage",
+      "updated": "Last updated {{time}}"
     }
   }
 }
