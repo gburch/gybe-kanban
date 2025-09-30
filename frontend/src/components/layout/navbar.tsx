@@ -28,6 +28,7 @@ import { useOpenProjectInEditor } from '@/hooks/useOpenProjectInEditor';
 import { NotificationButton } from '@/components/notifications/notification-button';
 import { projectsApi } from '@/lib/api';
 import type { Project } from 'shared/types';
+import { ProjectSwitcher } from '@/components/layout/ProjectSwitcher';
 
 const INTERNAL_NAV = [
   { label: 'Projects', icon: FolderOpen, to: '/projects' },
@@ -106,10 +107,11 @@ export function Navbar({ viewMode, onViewModeChange }: NavbarProps = {}) {
     <div className="border-b bg-background">
       <div className="w-full px-3">
         <div className="flex items-center h-12 py-2">
-          <div className="flex-1">
+          <div className="flex-1 flex items-center gap-2">
             <Link to="/projects">
               <Logo />
             </Link>
+            <ProjectSwitcher />
           </div>
 
           <div className="hidden sm:flex items-center gap-2">
