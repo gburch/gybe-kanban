@@ -82,9 +82,10 @@ export default function DiffCard({
   const oldName = diff.oldPath || undefined;
   const newName = diff.newPath || oldName || 'unknown';
   const repositoryId = diff.repositoryId ?? null;
-  const repositoryName =
-    diff.repositoryName ||
-    (repositoryId ? repositoriesById[repositoryId]?.name : undefined);
+  const repositoryNameFromContext = repositoryId
+    ? repositoriesById[repositoryId]?.name
+    : undefined;
+  const repositoryName = repositoryNameFromContext || diff.repositoryName || undefined;
   const oldLang =
     getHighLightLanguageFromPath(oldName || newName || '') || 'plaintext';
   const newLang =

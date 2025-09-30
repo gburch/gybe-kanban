@@ -12,7 +12,7 @@ const mockUseReview = vi.fn().mockReturnValue({
   updateComment: vi.fn(),
 });
 const mockUseDiffViewMode = vi.fn().mockReturnValue('unified');
-const mockUseProject = vi.fn().mockReturnValue({
+const defaultProjectContext = {
   projectId: 'proj-1',
   repositoriesById: {
     'repo-123': {
@@ -26,7 +26,9 @@ const mockUseProject = vi.fn().mockReturnValue({
       updated_at: new Date('2025-09-12T00:00:00Z') as unknown as Date,
     },
   },
-});
+};
+
+const mockUseProject = vi.fn().mockReturnValue(defaultProjectContext);
 
 vi.mock('@/components/config-provider', () => ({ useUserSystem: () => mockUseUserSystem() }));
 vi.mock('@/contexts/ReviewProvider', () => ({ useReview: () => mockUseReview() }));
@@ -59,6 +61,10 @@ const baseDiff = {
 };
 
 describe('DiffCard', () => {
+  beforeEach(() => {
+    mockUseProject.mockReturnValue(defaultProjectContext);
+  });
+
   it('renders repository badge when repository metadata is present', () => {
     render(
       <DiffCard
@@ -70,5 +76,37 @@ describe('DiffCard', () => {
     );
 
     expect(screen.getByText('Docs Repo')).toBeInTheDocument();
+  });
+
+  it('prefers project context name over diff metadata when available', () => {
+    render(
+      <DiffCard
+        diff={{ ...baseDiff, repositoryName: 'Outdated Name' }}
+        expanded
+        onToggle={() => undefined}
+        selectedAttempt={null}
+      />
+    );
+
+    expect(screen.getByText('Docs Repo')).toBeInTheDocument();
+    expect(screen.queryByText('Outdated Name')).not.toBeInTheDocument();
+  });
+
+  it('falls back to diff repository name when context is missing', () => {
+    mockUseProject.mockReturnValue({
+      projectId: 'proj-1',
+      repositoriesById: {},
+    });
+
+    render(
+      <DiffCard
+        diff={{ ...baseDiff, repositoryId: 'repo-999', repositoryName: 'Remote Repo' }}
+        expanded
+        onToggle={() => undefined}
+        selectedAttempt={null}
+      />
+    );
+
+    expect(screen.getByText('Remote Repo')).toBeInTheDocument();
   });
 });
