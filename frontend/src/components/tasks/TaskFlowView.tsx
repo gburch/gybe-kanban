@@ -9,6 +9,8 @@ import {
   Loader2,
   GitBranch,
   GitMerge,
+  ArrowLeft,
+  ArrowRight,
 } from 'lucide-react';
 import dagre from 'dagre';
 
@@ -133,7 +135,7 @@ function buildFlowLayout(
   // Create Dagre graph for hierarchical layout
   const g = new dagre.graphlib.Graph();
   g.setGraph({
-    rankdir: 'LR', // Left to right (temporal flow)
+    rankdir: 'RL', // Right to left (children left, parents right; done left)
     nodesep: 80,   // Vertical spacing between nodes
     ranksep: 200,  // Horizontal spacing between ranks
     marginx: 60,
@@ -212,7 +214,7 @@ function TaskFlowView({
       <div className="p-8">
         {/* Flow diagram container */}
         <div
-          className="relative rounded-lg border border-border bg-zinc-950/50"
+          className="relative rounded-lg border border-border/50 bg-background/50 backdrop-blur-sm overflow-hidden"
           style={{
             width: totalWidth,
             height: totalHeight,
@@ -247,8 +249,9 @@ function TaskFlowView({
                     <path
                       d={path}
                       fill="none"
-                      stroke={childNode.isConvergencePoint ? '#fbbf24' : '#71717a'}
-                      strokeWidth={childNode.isConvergencePoint ? 3 : 2}
+                      stroke={childNode.isConvergencePoint ? '#fbbf24' : 'hsl(var(--border))'}
+                      strokeWidth={childNode.isConvergencePoint ? 2.5 : 1.5}
+                      strokeDasharray={childNode.isConvergencePoint ? 'none' : '5,5'}
                       opacity={childNode.isConvergencePoint ? 0.8 : 0.5}
                       markerEnd={
                         childNode.isConvergencePoint
@@ -271,7 +274,7 @@ function TaskFlowView({
                 refY="3"
                 orient="auto"
               >
-                <polygon points="0 0, 10 3, 0 6" fill="#71717a" opacity="0.5" />
+                <polygon points="0 0, 10 3, 0 6" fill="hsl(var(--border))" opacity="0.5" />
               </marker>
               <marker
                 id="arrowhead-critical"
@@ -291,14 +294,15 @@ function TaskFlowView({
             <Card
               key={node.task.id}
               className={cn(
-                'absolute cursor-pointer transition-all duration-200',
-                'hover:scale-105 hover:z-20',
-                'border-2 shadow-lg',
+                'absolute cursor-pointer',
+                'bg-card/95 backdrop-blur-sm border border-border/50',
+                'rounded-lg shadow-sm hover:shadow-md',
+                'transition-all duration-200',
+                'hover:border-primary/50 hover:bg-accent/30 hover:z-20',
                 selectedTask?.id === node.task.id &&
                   'ring-2 ring-primary ring-offset-2 ring-offset-background',
                 node.isConvergencePoint &&
-                  'border-amber-500/70 shadow-amber-500/20 bg-amber-950/20',
-                !node.isConvergencePoint && 'border-zinc-700/70 bg-zinc-900/80'
+                  'ring-1 ring-amber-500/30 bg-amber-500/5 border-amber-500/30'
               )}
               style={{
                 left: `${node.x}px`,
@@ -354,7 +358,7 @@ function TaskFlowView({
         {/* Legend */}
         <div className="mt-8 flex flex-wrap items-center gap-6 text-sm text-muted-foreground">
           <div className="flex items-center gap-2">
-            <div className="w-8 h-0.5 bg-zinc-500" />
+            <div className="w-8 h-0.5 bg-border" />
             <span>Dependency</span>
           </div>
           <div className="flex items-center gap-2">
@@ -368,6 +372,13 @@ function TaskFlowView({
           <div className="flex items-center gap-2">
             <GitBranch className="h-4 w-4 text-blue-400" />
             <span>Branch Point</span>
+          </div>
+          <div className="flex items-center gap-2 ml-auto bg-background/80 backdrop-blur-sm px-3 py-1.5 rounded-md border border-border/50">
+            <ArrowLeft className="w-3 h-3" />
+            <span className="text-xs">Completed</span>
+            <span className="mx-2 opacity-50">|</span>
+            <span className="text-xs">In Progress</span>
+            <ArrowRight className="w-3 h-3" />
           </div>
         </div>
       </div>
