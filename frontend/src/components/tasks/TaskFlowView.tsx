@@ -158,10 +158,11 @@ function buildFlowLayout(
   const g = new dagre.graphlib.Graph();
   g.setGraph({
     rankdir: 'LR', // Left to right - we'll reverse edge direction to get children left of parents
-    nodesep: 60,   // Vertical spacing between nodes (reduced from 100)
-    ranksep: 280,  // Horizontal spacing between ranks (reduced from 350)
-    marginx: 40,   // Reduced margin (from 80)
-    marginy: 40,   // Reduced margin (from 80)
+    nodesep: 60,   // Vertical spacing between nodes
+    ranksep: 400,  // Horizontal spacing between ranks (increased to force status grouping)
+    marginx: 40,
+    marginy: 40,
+    ranker: 'tight-tree', // Use tight-tree ranker to respect rank constraints
   });
   g.setDefaultEdgeLabel(() => ({}));
 
@@ -213,6 +214,55 @@ function buildFlowLayout(
       node.x = dagreNode.x - CARD_WIDTH / 2;
       node.y = dagreNode.y - CARD_HEIGHT / 2;
     }
+  });
+
+  // Override X positions to strictly enforce status-based columns
+  // Group nodes by status and stack them vertically within each column
+  const columnSpacing = 450; // Space between status columns
+  const baseX = 60; // Starting X position
+  const verticalPadding = 20; // Padding between cards
+
+  // Group nodes by status
+  const doneNodes = Object.values(nodes).filter(n => {
+    const status = n.task.status.toLowerCase();
+    return status === 'done' || status === 'cancelled';
+  });
+  const activeNodes = Object.values(nodes).filter(n => {
+    const status = n.task.status.toLowerCase();
+    return status === 'inprogress' || status === 'inreview';
+  });
+  const todoNodes = Object.values(nodes).filter(n => {
+    const status = n.task.status.toLowerCase();
+    return status === 'todo';
+  });
+
+  // Sort each group by Y position to maintain relative ordering from Dagre
+  doneNodes.sort((a, b) => a.y - b.y);
+  activeNodes.sort((a, b) => a.y - b.y);
+  todoNodes.sort((a, b) => a.y - b.y);
+
+  // Position done nodes in column 0 (leftmost)
+  let currentY = 60;
+  doneNodes.forEach(node => {
+    node.x = baseX;
+    node.y = currentY;
+    currentY += CARD_HEIGHT + verticalPadding;
+  });
+
+  // Position active nodes in column 1 (middle)
+  currentY = 60;
+  activeNodes.forEach(node => {
+    node.x = baseX + columnSpacing;
+    node.y = currentY;
+    currentY += CARD_HEIGHT + verticalPadding;
+  });
+
+  // Position todo nodes in column 2 (rightmost)
+  currentY = 60;
+  todoNodes.forEach(node => {
+    node.x = baseX + columnSpacing * 2;
+    node.y = currentY;
+    currentY += CARD_HEIGHT + verticalPadding;
   });
 
   // Calculate bounds
