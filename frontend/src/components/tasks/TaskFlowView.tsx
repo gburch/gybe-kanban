@@ -162,20 +162,43 @@ function TaskFlowView({
   );
 
   const lanes = ['now', 'next', 'later'] as const;
-  const svgWidth = Math.max(maxX + 400, 1200);
-  const svgHeight = 900;
+
+  // Calculate actual dimensions needed based on card positions
+  const CARD_WIDTH = 240;
+  const CARD_HEIGHT = 120;
+  const LANE_HEIGHT = 300;
+  const PADDING = 80;
+  const HEADER_HEIGHT = 60;
+  const LANE_HEADER_WIDTH = 96; // w-24 in Tailwind
+
+  const containerWidth = Math.max(maxX + CARD_WIDTH + PADDING * 2 + LANE_HEADER_WIDTH, 1200);
+  const containerHeight = HEADER_HEIGHT + (LANE_HEIGHT * 3) + PADDING;
 
   return (
     <div className="w-full h-full bg-background overflow-auto">
-      <div className="min-w-full min-h-full p-8">
-        {/* Swim lane labels */}
-        <div className="flex gap-4 mb-4">
-          {lanes.map((lane) => (
-            <div key={lane} className="flex-1">
+      <div className="p-8">
+        {/* Flow diagram container with fixed height */}
+        <div
+          className="relative border rounded-lg bg-muted/20 overflow-visible"
+          style={{
+            width: containerWidth,
+            height: containerHeight,
+          }}
+        >
+          {/* Swim lane headers - positioned on the left */}
+          {lanes.map((lane, idx) => (
+            <div
+              key={lane}
+              className="absolute left-0 flex items-center justify-center w-24 border-r bg-background/80"
+              style={{
+                top: HEADER_HEIGHT + (idx * LANE_HEIGHT),
+                height: LANE_HEIGHT,
+              }}
+            >
               <Badge
                 variant="outline"
                 className={cn(
-                  'text-lg py-2 px-4 w-full justify-center font-semibold',
+                  'text-sm py-1 px-3 font-semibold',
                   lane === 'now' &&
                     'bg-blue-500/10 border-blue-500 text-blue-700 dark:text-blue-300',
                   lane === 'next' &&
@@ -188,13 +211,22 @@ function TaskFlowView({
               </Badge>
             </div>
           ))}
-        </div>
 
-        {/* Flow diagram */}
-        <div className="relative border rounded-lg bg-muted/20" style={{ minHeight: svgHeight }}>
+          {/* Lane separators */}
+          {[1, 2].map((idx) => (
+            <div
+              key={idx}
+              className="absolute right-0 border-t border-border"
+              style={{
+                left: '96px', // Width of lane header (w-24 = 96px)
+                top: HEADER_HEIGHT + idx * LANE_HEIGHT
+              }}
+            />
+          ))}
+          {/* SVG for connection lines */}
           <svg
-            width={svgWidth}
-            height={svgHeight}
+            width={containerWidth}
+            height={containerHeight}
             className="absolute top-0 left-0 pointer-events-none"
           >
             {/* Draw connections first (underneath nodes) */}
@@ -203,10 +235,10 @@ function TaskFlowView({
                 const childNode = nodes[childId];
                 if (!childNode) return null;
 
-                const x1 = node.x + 240 + 40;
-                const y1 = node.y + 60 + getLaneOffset(node.lane) + 40;
-                const x2 = childNode.x + 40;
-                const y2 = childNode.y + 60 + getLaneOffset(childNode.lane) + 40;
+                const x1 = node.x + CARD_WIDTH + PADDING + LANE_HEADER_WIDTH;
+                const y1 = node.y + (CARD_HEIGHT / 2) + getLaneOffset(node.lane, LANE_HEIGHT, HEADER_HEIGHT) + PADDING;
+                const x2 = childNode.x + PADDING + LANE_HEADER_WIDTH;
+                const y2 = childNode.y + (CARD_HEIGHT / 2) + getLaneOffset(childNode.lane, LANE_HEIGHT, HEADER_HEIGHT) + PADDING;
 
                 // Curved path
                 const midX = (x1 + x2) / 2;
@@ -275,8 +307,8 @@ function TaskFlowView({
                 'hover:scale-105 hover:z-10'
               )}
               style={{
-                left: `${node.x + 40}px`,
-                top: `${node.y + getLaneOffset(node.lane) + 40}px`,
+                left: `${node.x + PADDING + LANE_HEADER_WIDTH}px`,
+                top: `${node.y + getLaneOffset(node.lane, LANE_HEIGHT, HEADER_HEIGHT) + PADDING}px`,
               }}
               onClick={() => onViewTaskDetails(node.task)}
             >
@@ -333,8 +365,8 @@ function TaskFlowView({
           ))}
         </div>
 
-        {/* Legend */}
-        <div className="mt-6 flex items-center gap-6 text-sm text-muted-foreground">
+        {/* Legend - outside the flow container */}
+        <div className="mt-8 flex flex-wrap items-center gap-6 text-sm text-muted-foreground">
           <div className="flex items-center gap-2">
             <div className="w-8 h-0.5 bg-muted-foreground/40" />
             <span>Dependency</span>
@@ -357,9 +389,9 @@ function TaskFlowView({
   );
 }
 
-function getLaneOffset(lane: 'now' | 'next' | 'later'): number {
+function getLaneOffset(lane: 'now' | 'next' | 'later', laneHeight: number, headerHeight: number): number {
   const laneIndex = { now: 0, next: 1, later: 2 }[lane];
-  return laneIndex * 300; // Vertical spacing between lanes
+  return headerHeight + (laneIndex * laneHeight);
 }
 
 function getStatusIcon(task: Task) {
