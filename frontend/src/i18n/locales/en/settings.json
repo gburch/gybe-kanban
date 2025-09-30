@@ -111,8 +111,8 @@
           "options": {
             "free": "Free",
             "pro": "Pro ($20/month)",
-            "max_5x": "Max 5x ($100/month)",
-            "max_20x": "Max 20x ($200/month)"
+            "max5x": "Max 5x ($100/month)",
+            "max20x": "Max 20x ($200/month)"
           }
         }
       },
