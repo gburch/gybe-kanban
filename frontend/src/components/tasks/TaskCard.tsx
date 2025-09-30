@@ -114,7 +114,7 @@ export function TaskCard({
       onClick={handleClick}
       isOpen={isOpen}
       forwardedRef={localRef}
-      className={cn(childSummary && 'relative pb-8')}
+      className={cn('relative', childSummary && 'pb-8')}
     >
       <div className="flex flex-1 items-start gap-2 min-w-0">
         <div className="flex min-w-0 flex-1 flex-col gap-1">
@@ -267,6 +267,13 @@ export function TaskCard({
             {childSummary.notStarted}
           </span>
         </div>
+      )}
+      {task.has_running_dev_server && (
+        <div
+          className="absolute bottom-2 right-2 h-2 w-2 rounded-full bg-red-500 animate-pulse"
+          title="Dev server running"
+          aria-label="Dev server running"
+        />
       )}
     </KanbanCard>
   );

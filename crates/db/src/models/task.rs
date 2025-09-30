@@ -37,6 +37,7 @@ pub struct TaskWithAttemptStatus {
     pub has_in_progress_attempt: bool,
     pub has_merged_attempt: bool,
     pub last_attempt_failed: bool,
+    pub has_running_dev_server: bool,
     pub executor: String,
     pub parent_task_id: Option<Uuid>,
     pub child_task_count: i64,
@@ -127,7 +128,7 @@ impl Task {
        AND ep.run_reason IN ('setupscript','cleanupscript','codingagent')
      LIMIT 1
   ) THEN 1 ELSE 0 END            AS "has_in_progress_attempt!: i64",
-  
+
   CASE WHEN (
     SELECT ep.status
       FROM task_attempts ta
@@ -139,6 +140,17 @@ impl Task {
      LIMIT 1
   ) IN ('failed','killed') THEN 1 ELSE 0 END
                                  AS "last_attempt_failed!: i64",
+
+  CASE WHEN EXISTS (
+    SELECT 1
+      FROM task_attempts ta
+      JOIN execution_processes ep
+        ON ep.task_attempt_id = ta.id
+     WHERE ta.task_id       = t.id
+       AND ep.status        = 'running'
+       AND ep.run_reason    = 'devserver'
+     LIMIT 1
+  ) THEN 1 ELSE 0 END            AS "has_running_dev_server!: i64",
 
   ( SELECT ta.executor
       FROM task_attempts ta
@@ -172,6 +184,7 @@ ORDER BY t.created_at DESC"#,
                 has_in_progress_attempt: rec.has_in_progress_attempt != 0,
                 has_merged_attempt: false, // TODO use merges table
                 last_attempt_failed: rec.last_attempt_failed != 0,
+                has_running_dev_server: rec.has_running_dev_server != 0,
                 executor: rec.executor,
                 parent_task_id: rec.parent_task_id,
                 child_task_count: rec.child_task_count,

@@ -239,6 +239,7 @@ pub async fn create_task_and_start(
         has_in_progress_attempt: true,
         has_merged_attempt: false,
         last_attempt_failed: false,
+        has_running_dev_server: false,
         executor: task_attempt.executor,
         parent_task_id: None,
         child_task_count: 0,
