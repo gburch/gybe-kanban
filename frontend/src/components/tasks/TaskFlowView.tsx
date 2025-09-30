@@ -1,7 +1,8 @@
-import { memo, useMemo, useEffect, useRef } from 'react';
+import { memo, useMemo, useEffect, useRef, useState, useCallback } from 'react';
 import type { TaskWithAttemptStatus } from 'shared/types';
 import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import {
   CheckCircle,
@@ -11,6 +12,9 @@ import {
   GitMerge,
   ArrowLeft,
   ArrowRight,
+  ZoomIn,
+  ZoomOut,
+  Maximize2,
 } from 'lucide-react';
 import dagre from 'dagre';
 
@@ -136,16 +140,16 @@ function buildFlowLayout(
   const g = new dagre.graphlib.Graph();
   g.setGraph({
     rankdir: 'LR', // Left to right - we'll reverse edge direction to get children left of parents
-    nodesep: 100,  // Vertical spacing between nodes
-    ranksep: 350,  // Horizontal spacing between ranks (increased for clarity)
-    marginx: 80,
-    marginy: 80,
+    nodesep: 60,   // Vertical spacing between nodes (reduced from 100)
+    ranksep: 280,  // Horizontal spacing between ranks (reduced from 350)
+    marginx: 40,   // Reduced margin (from 80)
+    marginy: 40,   // Reduced margin (from 80)
   });
   g.setDefaultEdgeLabel(() => ({}));
 
   // Constants
-  const CARD_WIDTH = 320;
-  const CARD_HEIGHT = 140;
+  const CARD_WIDTH = 300;   // Reduced from 320
+  const CARD_HEIGHT = 130;  // Reduced from 140
 
   // Add nodes to Dagre with rank constraints based on status
   // Rank determines horizontal position: lower rank = further left
@@ -235,38 +239,164 @@ function TaskFlowView({
   );
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
-  const CARD_WIDTH = 320;
+  const flowContainerRef = useRef<HTMLDivElement>(null);
+  const minimapRef = useRef<HTMLCanvasElement>(null);
+  const [zoom, setZoom] = useState(1);
+  const [isPanning, setIsPanning] = useState(false);
+  const [panStart, setPanStart] = useState({ x: 0, y: 0 });
+  const CARD_WIDTH = 300;
+
+  // Zoom controls
+  const handleZoomIn = useCallback(() => {
+    setZoom(prev => Math.min(prev + 0.2, 2));
+  }, []);
+
+  const handleZoomOut = useCallback(() => {
+    setZoom(prev => Math.max(prev - 0.2, 0.5));
+  }, []);
+
+  const handleZoomReset = useCallback(() => {
+    setZoom(1);
+  }, []);
 
   // Auto-scroll to focus on active tasks
   useEffect(() => {
     if (scrollContainerRef.current && focusX > 0) {
-      // Scroll to show the rightmost active task, with some padding
+      // Scroll to show the leftmost active task, with some padding
       const container = scrollContainerRef.current;
-      const scrollTo = focusX - container.clientWidth / 2 + CARD_WIDTH / 2;
+      const scrollTo = focusX * zoom - container.clientWidth / 2 + (CARD_WIDTH * zoom) / 2;
       container.scrollTo({
         left: Math.max(0, scrollTo),
         behavior: 'smooth',
       });
     }
-  }, [focusX, CARD_WIDTH]);
+  }, [focusX, CARD_WIDTH, zoom]);
+
+  // Draw minimap
+  useEffect(() => {
+    if (!minimapRef.current || !scrollContainerRef.current) return;
+
+    const drawMinimap = () => {
+      const canvas = minimapRef.current;
+      const ctx = canvas?.getContext('2d');
+      if (!ctx || !canvas) return;
+
+      const minimapWidth = 200;
+      const minimapHeight = 150;
+      const scale = Math.min(minimapWidth / totalWidth, minimapHeight / totalHeight);
+
+      canvas.width = minimapWidth;
+      canvas.height = minimapHeight;
+
+      // Clear canvas
+      ctx.fillStyle = 'hsl(var(--muted) / 0.3)';
+      ctx.fillRect(0, 0, minimapWidth, minimapHeight);
+
+      // Draw nodes
+      Object.values(nodes).forEach(node => {
+        const x = node.x * scale;
+        const y = node.y * scale;
+        const w = CARD_WIDTH * scale;
+        const h = 130 * scale; // CARD_HEIGHT
+
+        const status = node.task.status.toLowerCase();
+        if (status === 'done' || status === 'cancelled') {
+          ctx.fillStyle = 'hsl(var(--success) / 0.3)';
+        } else if (status === 'inprogress' || status === 'inreview') {
+          ctx.fillStyle = 'hsl(var(--primary) / 0.6)';
+        } else {
+          ctx.fillStyle = 'hsl(var(--muted-foreground) / 0.3)';
+        }
+        ctx.fillRect(x, y, w, h);
+      });
+
+      // Draw viewport rectangle
+      const container = scrollContainerRef.current;
+      if (!container) return;
+
+      const viewportX = (container.scrollLeft / zoom) * scale;
+      const viewportY = (container.scrollTop / zoom) * scale;
+      const viewportW = (container.clientWidth / zoom) * scale;
+      const viewportH = (container.clientHeight / zoom) * scale;
+
+      ctx.strokeStyle = 'hsl(var(--primary))';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(viewportX, viewportY, viewportW, viewportH);
+    };
+
+    drawMinimap();
+
+    // Redraw on scroll
+    const container = scrollContainerRef.current;
+    if (container) {
+      container.addEventListener('scroll', drawMinimap);
+      return () => container.removeEventListener('scroll', drawMinimap);
+    }
+  }, [nodes, totalWidth, totalHeight, zoom, CARD_WIDTH]);
 
   return (
-    <div ref={scrollContainerRef} className="w-full h-full bg-background overflow-auto">
+    <div ref={scrollContainerRef} className="w-full h-full bg-background overflow-auto relative">
+      {/* Zoom controls */}
+      <div className="absolute top-4 right-4 z-50 flex flex-col gap-2">
+        <Button
+          size="icon"
+          variant="secondary"
+          onClick={handleZoomIn}
+          disabled={zoom >= 2}
+          className="shadow-lg"
+        >
+          <ZoomIn className="h-4 w-4" />
+        </Button>
+        <Button
+          size="icon"
+          variant="secondary"
+          onClick={handleZoomOut}
+          disabled={zoom <= 0.5}
+          className="shadow-lg"
+        >
+          <ZoomOut className="h-4 w-4" />
+        </Button>
+        <Button
+          size="icon"
+          variant="secondary"
+          onClick={handleZoomReset}
+          disabled={zoom === 1}
+          className="shadow-lg"
+        >
+          <Maximize2 className="h-4 w-4" />
+        </Button>
+        <div className="text-xs text-center text-muted-foreground bg-secondary px-2 py-1 rounded">
+          {Math.round(zoom * 100)}%
+        </div>
+      </div>
+
+      {/* Minimap */}
+      <div className="absolute bottom-4 right-4 z-50">
+        <canvas
+          ref={minimapRef}
+          className="border border-border/50 rounded bg-background/80 backdrop-blur-sm shadow-lg"
+          width={200}
+          height={150}
+        />
+      </div>
+
       <div className="p-8">
         {/* Flow diagram container */}
         <div
+          ref={flowContainerRef}
           className="relative rounded-lg border border-border/50 bg-background/50 backdrop-blur-sm overflow-hidden"
           style={{
-            width: totalWidth,
-            height: totalHeight,
+            width: totalWidth * zoom,
+            height: totalHeight * zoom,
             minHeight: '600px',
           }}
         >
 
           {/* SVG for connection lines */}
           <svg
-            width={totalWidth}
-            height={totalHeight}
+            width={totalWidth * zoom}
+            height={totalHeight * zoom}
+            viewBox={`0 0 ${totalWidth} ${totalHeight}`}
             className="absolute top-0 left-0 pointer-events-none"
             style={{ zIndex: 1 }}
           >
@@ -346,9 +476,10 @@ function TaskFlowView({
                   'ring-1 ring-amber-500/30 bg-amber-500/5 border-amber-500/30'
               )}
               style={{
-                left: `${node.x}px`,
-                top: `${node.y}px`,
-                width: `${CARD_WIDTH}px`,
+                left: `${node.x * zoom}px`,
+                top: `${node.y * zoom}px`,
+                width: `${CARD_WIDTH * zoom}px`,
+                fontSize: `${zoom}rem`,
                 zIndex: 10,
               }}
               onClick={() => onViewTaskDetails(node.task)}
