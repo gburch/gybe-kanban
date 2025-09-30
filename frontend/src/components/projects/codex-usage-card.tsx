@@ -7,8 +7,6 @@ import { Button } from '@/components/ui/button';
 import type { CodexUsageSnapshot, CodexUsageWindow } from 'shared/types';
 import { usageApi } from '@/lib/api';
 
-const numberFormatter = new Intl.NumberFormat();
-
 function clampPercent(value: number | undefined | null) {
   if (value === undefined || value === null || Number.isNaN(value)) {
     return 0;

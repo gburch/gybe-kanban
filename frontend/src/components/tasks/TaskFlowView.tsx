@@ -2,6 +2,7 @@ import { memo, useMemo } from 'react';
 import type { TaskWithAttemptStatus } from 'shared/types';
 import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
+import { Card, CardContent } from '@/components/ui/card';
 import {
   CheckCircle,
   Circle,
@@ -9,6 +10,7 @@ import {
   GitBranch,
   GitMerge,
 } from 'lucide-react';
+import dagre from 'dagre';
 
 type Task = TaskWithAttemptStatus;
 
@@ -36,13 +38,42 @@ interface FlowNode {
   isBranchPoint: boolean;
 }
 
-// Helper to build the task graph and layout
+// Detect cycles in the graph using DFS
+function detectCycles(
+  nodeId: string,
+  nodes: Record<string, FlowNode>,
+  visited: Set<string>,
+  recursionStack: Set<string>,
+  cycles: string[][]
+): boolean {
+  visited.add(nodeId);
+  recursionStack.add(nodeId);
+
+  const node = nodes[nodeId];
+  if (!node) return false;
+
+  for (const childId of node.children) {
+    if (!visited.has(childId)) {
+      if (detectCycles(childId, nodes, visited, recursionStack, cycles)) {
+        return true;
+      }
+    } else if (recursionStack.has(childId)) {
+      // Cycle detected
+      cycles.push([nodeId, childId]);
+      return true;
+    }
+  }
+
+  recursionStack.delete(nodeId);
+  return false;
+}
+
+// Helper to build the task graph and layout using Dagre
 function buildFlowLayout(
   tasks: Task[],
   parentTasksById?: Record<string, ParentTaskSummary | null>
 ) {
   const nodes: Record<string, FlowNode> = {};
-  const columns: Task[][] = [[], [], []]; // now, next, later
 
   // Build initial graph structure
   tasks.forEach((task) => {
@@ -57,10 +88,9 @@ function buildFlowLayout(
       isConvergencePoint: false,
       isBranchPoint: false,
     };
-    columns[columnIndex].push(task);
   });
 
-  // Find parent-child relationships using parentTasksById
+  // Find parent-child relationships
   if (parentTasksById) {
     tasks.forEach((task) => {
       const parentSummary = parentTasksById[task.id];
@@ -74,40 +104,87 @@ function buildFlowLayout(
     });
   }
 
+  // Check for cycles
+  const visited = new Set<string>();
+  const cycles: string[][] = [];
+  Object.keys(nodes).forEach((nodeId) => {
+    if (!visited.has(nodeId)) {
+      detectCycles(nodeId, nodes, visited, new Set(), cycles);
+    }
+  });
+
+  if (cycles.length > 0) {
+    console.warn('Circular dependencies detected:', cycles);
+    // Remove cycle edges (keep only parent→child direction)
+    cycles.forEach(([parentId, childId]) => {
+      const parent = nodes[parentId];
+      if (parent) {
+        parent.children = parent.children.filter(id => id !== childId);
+      }
+    });
+  }
+
   // Identify convergence and branch points
   Object.values(nodes).forEach((node) => {
     node.isConvergencePoint = node.parents.length > 1;
     node.isBranchPoint = node.children.length > 1;
   });
 
-  // Layout: Position cards in a grid within each column
-  const COLUMN_WIDTH = 400;
-  const CARD_WIDTH = 280;
-  const CARD_HEIGHT = 140;
-  const VERTICAL_GAP = 20;
-  const HORIZONTAL_PADDING = 60;
-  const LANE_HEADER_WIDTH = 120;
+  // Create Dagre graph for hierarchical layout
+  const g = new dagre.graphlib.Graph();
+  g.setGraph({
+    rankdir: 'LR', // Left to right (temporal flow)
+    nodesep: 80,   // Vertical spacing between nodes
+    ranksep: 200,  // Horizontal spacing between ranks
+    marginx: 60,
+    marginy: 60,
+  });
+  g.setDefaultEdgeLabel(() => ({}));
 
-  columns.forEach((columnTasks, colIndex) => {
-    columnTasks.forEach((task, taskIndex) => {
-      const node = nodes[task.id];
-      node.x = LANE_HEADER_WIDTH + HORIZONTAL_PADDING + (colIndex * COLUMN_WIDTH);
-      node.y = HORIZONTAL_PADDING + (taskIndex * (CARD_HEIGHT + VERTICAL_GAP));
+  // Constants
+  const CARD_WIDTH = 320;
+  const CARD_HEIGHT = 140;
+
+  // Add nodes to Dagre
+  Object.values(nodes).forEach((node) => {
+    g.setNode(node.task.id, {
+      width: CARD_WIDTH,
+      height: CARD_HEIGHT,
+      column: node.column,
     });
   });
 
-  const maxY = Math.max(
-    ...columns.map(
-      (col) =>
-        HORIZONTAL_PADDING +
-        col.length * (CARD_HEIGHT + VERTICAL_GAP)
-    ),
-    600
-  );
+  // Add edges to Dagre
+  Object.values(nodes).forEach((node) => {
+    node.children.forEach((childId) => {
+      g.setEdge(node.task.id, childId);
+    });
+  });
 
-  const totalWidth = LANE_HEADER_WIDTH + HORIZONTAL_PADDING * 2 + (3 * COLUMN_WIDTH) + CARD_WIDTH;
+  // Run Dagre layout
+  dagre.layout(g);
 
-  return { nodes, totalWidth, totalHeight: maxY + HORIZONTAL_PADDING };
+  // Update node positions from Dagre
+  g.nodes().forEach((nodeId) => {
+    const dagreNode = g.node(nodeId);
+    const node = nodes[nodeId];
+    if (node && dagreNode) {
+      // Dagre positions nodes at their center
+      node.x = dagreNode.x - CARD_WIDTH / 2;
+      node.y = dagreNode.y - CARD_HEIGHT / 2;
+    }
+  });
+
+  // Calculate bounds
+  const allNodes = Object.values(nodes);
+  const maxX = Math.max(...allNodes.map(n => n.x + CARD_WIDTH), 1200);
+  const maxY = Math.max(...allNodes.map(n => n.y + CARD_HEIGHT), 800);
+
+  return {
+    nodes,
+    totalWidth: maxX + 60,
+    totalHeight: maxY + 60,
+  };
 }
 
 function getColumnIndex(task: Task): number {
@@ -128,62 +205,20 @@ function TaskFlowView({
     [tasks, parentTasksById]
   );
 
-  const columns = ['NOW', 'NEXT', 'LATER'] as const;
-  const COLUMN_WIDTH = 400;
-  const LANE_HEADER_WIDTH = 120;
-  const CARD_WIDTH = 280;
+  const CARD_WIDTH = 320;
 
   return (
     <div className="w-full h-full bg-background overflow-auto">
       <div className="p-8">
         {/* Flow diagram container */}
         <div
-          className="relative rounded-lg border bg-slate-900/50"
+          className="relative rounded-lg border border-border bg-zinc-950/50"
           style={{
             width: totalWidth,
             height: totalHeight,
             minHeight: '600px',
           }}
         >
-          {/* Column headers and vertical separators */}
-          {columns.map((label, idx) => (
-            <div key={label}>
-              {/* Column header */}
-              <div
-                className="absolute top-0 flex items-center justify-center"
-                style={{
-                  left: LANE_HEADER_WIDTH + 60 + (idx * COLUMN_WIDTH),
-                  width: COLUMN_WIDTH,
-                  height: 60,
-                }}
-              >
-                <Badge
-                  variant="outline"
-                  className={cn(
-                    'text-sm py-1.5 px-4 font-semibold',
-                    idx === 0 &&
-                      'bg-blue-500/10 border-blue-500 text-blue-300',
-                    idx === 1 &&
-                      'bg-purple-500/10 border-purple-500 text-purple-300',
-                    idx === 2 &&
-                      'bg-slate-500/10 border-slate-500 text-slate-300'
-                  )}
-                >
-                  {label}
-                </Badge>
-              </div>
-
-              {/* Vertical separator line */}
-              {idx < 2 && (
-                <div
-                  className="absolute top-16 bottom-0 w-px bg-slate-700/50"
-                  style={{
-                    left: LANE_HEADER_WIDTH + 60 + ((idx + 1) * COLUMN_WIDTH) - COLUMN_WIDTH / 2 + CARD_WIDTH / 2,
-                  }}
-                />
-              )}
-            </div>
-          ))}
 
           {/* SVG for connection lines */}
           <svg
@@ -212,9 +247,9 @@ function TaskFlowView({
                     <path
                       d={path}
                       fill="none"
-                      stroke={childNode.isConvergencePoint ? '#f59e0b' : '#64748b'}
+                      stroke={childNode.isConvergencePoint ? '#fbbf24' : '#71717a'}
                       strokeWidth={childNode.isConvergencePoint ? 3 : 2}
-                      opacity={0.6}
+                      opacity={childNode.isConvergencePoint ? 0.8 : 0.5}
                       markerEnd={
                         childNode.isConvergencePoint
                           ? 'url(#arrowhead-critical)'
@@ -236,7 +271,7 @@ function TaskFlowView({
                 refY="3"
                 orient="auto"
               >
-                <polygon points="0 0, 10 3, 0 6" fill="#64748b" opacity="0.6" />
+                <polygon points="0 0, 10 3, 0 6" fill="#71717a" opacity="0.5" />
               </marker>
               <marker
                 id="arrowhead-critical"
@@ -246,18 +281,24 @@ function TaskFlowView({
                 refY="3"
                 orient="auto"
               >
-                <polygon points="0 0, 12 3, 0 6" fill="#f59e0b" />
+                <polygon points="0 0, 12 3, 0 6" fill="#fbbf24" opacity="0.8" />
               </marker>
             </defs>
           </svg>
 
           {/* Task nodes */}
           {Object.values(nodes).map((node) => (
-            <div
+            <Card
               key={node.task.id}
               className={cn(
                 'absolute cursor-pointer transition-all duration-200',
-                'hover:scale-105 hover:z-20'
+                'hover:scale-105 hover:z-20',
+                'border-2 shadow-lg',
+                selectedTask?.id === node.task.id &&
+                  'ring-2 ring-primary ring-offset-2 ring-offset-background',
+                node.isConvergencePoint &&
+                  'border-amber-500/70 shadow-amber-500/20 bg-amber-950/20',
+                !node.isConvergencePoint && 'border-zinc-700/70 bg-zinc-900/80'
               )}
               style={{
                 left: `${node.x}px`,
@@ -267,16 +308,7 @@ function TaskFlowView({
               }}
               onClick={() => onViewTaskDetails(node.task)}
             >
-              <div
-                className={cn(
-                  'rounded-lg border-2 bg-slate-800 p-4 shadow-lg h-full',
-                  selectedTask?.id === node.task.id &&
-                    'ring-2 ring-blue-500 ring-offset-2 ring-offset-slate-900',
-                  node.isConvergencePoint &&
-                    'border-amber-500 shadow-amber-500/30',
-                  !node.isConvergencePoint && 'border-slate-700'
-                )}
-              >
+              <CardContent className="p-4">
                 {/* Convergence indicator */}
                 {node.isConvergencePoint && (
                   <div className="flex items-center gap-1 mb-2 text-xs font-semibold text-amber-400">
@@ -297,7 +329,7 @@ function TaskFlowView({
                 <div className="flex items-start gap-2 mb-2">
                   {getStatusIcon(node.task)}
                   <div className="flex-1 min-w-0">
-                    <h3 className="font-medium text-sm line-clamp-2 text-slate-100">
+                    <h3 className="font-medium text-sm line-clamp-2 text-foreground">
                       {node.task.title}
                     </h3>
                   </div>
@@ -305,32 +337,32 @@ function TaskFlowView({
 
                 {/* Task metadata */}
                 <div className="flex items-center justify-between mt-3">
-                  <Badge variant="outline" className="text-xs bg-slate-900/50 border-slate-600 text-slate-300">
+                  <Badge variant="outline" className="text-xs">
                     {getStatusLabel(node.task.status)}
                   </Badge>
                   {node.children.length > 0 && (
-                    <span className="text-xs text-slate-400">
+                    <span className="text-xs text-muted-foreground">
                       {node.children.length} child{node.children.length > 1 ? 'ren' : ''}
                     </span>
                   )}
                 </div>
-              </div>
-            </div>
+              </CardContent>
+            </Card>
           ))}
         </div>
 
         {/* Legend */}
         <div className="mt-8 flex flex-wrap items-center gap-6 text-sm text-muted-foreground">
           <div className="flex items-center gap-2">
-            <div className="w-8 h-0.5 bg-slate-500" />
+            <div className="w-8 h-0.5 bg-zinc-500" />
             <span>Dependency</span>
           </div>
           <div className="flex items-center gap-2">
-            <div className="w-8 h-0.5 bg-amber-500" />
+            <div className="w-8 h-0.5 bg-amber-400" />
             <span>Critical Path</span>
           </div>
           <div className="flex items-center gap-2">
-            <GitMerge className="h-4 w-4 text-amber-500" />
+            <GitMerge className="h-4 w-4 text-amber-400" />
             <span>Convergence Point</span>
           </div>
           <div className="flex items-center gap-2">
