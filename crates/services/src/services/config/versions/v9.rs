@@ -7,6 +7,7 @@ pub use v8::{ActivityFeedConfig, EditorConfig, EditorType, GitHubConfig, Notific
 use crate::services::config::versions::v8;
 
 #[derive(Clone, Debug, Serialize, Deserialize, TS, Default)]
+#[ts(export)]
 #[serde(rename_all = "snake_case")]
 pub enum ClaudePlan {
     #[default]

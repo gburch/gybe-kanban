@@ -164,6 +164,8 @@ export enum SoundFile { ABSTRACT_SOUND1 = "ABSTRACT_SOUND1", ABSTRACT_SOUND2 = "
 
 export type UiLanguage = "BROWSER" | "EN" | "JA" | "ES";
 
+export type ClaudePlan = "free" | "pro" | "max5x" | "max20x";
+
 export type ActivityFeedItem = { id: string, headline: string, summary: string | null, cta: ActivityFeedItemCta | null, urgencyScore: number, actionRequired: boolean, createdAt: Date, };
 
 export type ActivityFeedItemCta = { label: string, href: string, };

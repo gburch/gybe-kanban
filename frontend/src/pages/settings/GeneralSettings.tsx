@@ -30,7 +30,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { ChevronDown, Key, Loader2, Volume2 } from 'lucide-react';
 import {
   BaseCodingAgent,
-  ClaudePlan,
+  type ClaudePlan,
   EditorType,
   ExecutorProfileId,
   SoundFile,
