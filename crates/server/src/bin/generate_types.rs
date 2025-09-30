@@ -64,6 +64,7 @@ fn generate_types_content() -> String {
         services::services::config::ActivityFeedConfig::decl(),
         services::services::config::SoundFile::decl(),
         services::services::config::UiLanguage::decl(),
+        services::services::config::ClaudePlan::decl(),
         server::activity_feed::ActivityFeedItem::decl(),
         server::activity_feed::ActivityFeedItemCta::decl(),
         server::activity_feed::ActivityFeedResponse::decl(),

@@ -22,41 +22,62 @@ function formatTimeRemaining(seconds: number): string {
   return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
 }
 
+function UsageProgressBar({
+  percent,
+  resetLabel,
+}: {
+  percent: number;
+  resetLabel: string;
+}) {
+  const getColorClass = (pct: number) => {
+    if (pct >= 90) return 'bg-red-500';
+    if (pct >= 70) return 'bg-yellow-500';
+    return 'bg-green-500';
+  };
+
+  return (
+    <div className="flex items-center gap-2">
+      <div className="text-[11px] text-muted-foreground w-24 flex-shrink-0">
+        5hr block
+      </div>
+      <div className="flex-1 h-1 rounded-full bg-muted relative">
+        <div
+          className={`h-full rounded-full transition-all duration-500 ${getColorClass(percent)}`}
+          style={{ width: `${Math.min(100, percent)}%` }}
+        />
+      </div>
+      <div className="text-[10px] text-muted-foreground whitespace-nowrap flex-shrink-0">
+        {percent.toFixed(0)}% • {resetLabel}
+      </div>
+    </div>
+  );
+}
+
 function UsageSummary({ usage }: { usage: ClaudeCodeUsageSnapshot }) {
   const { t } = useTranslation('projects');
-  const { token_usage } = usage;
 
   // Calculate time since block started (5-hour blocks)
-  const blockStart = useMemo(() => {
+  const timeInfo = useMemo(() => {
     const capturedAt = new Date(usage.captured_at);
     const hours = capturedAt.getHours();
-    // Find the start of the current 5-hour block
     const blockNumber = Math.floor(hours / 5);
     const blockStartHour = blockNumber * 5;
 
-    const blockStartTime = new Date(capturedAt);
-    blockStartTime.setHours(blockStartHour, 0, 0, 0);
+    const blockStart = new Date(capturedAt);
+    blockStart.setHours(blockStartHour, 0, 0, 0);
 
-    return blockStartTime;
-  }, [usage.captured_at]);
-
-  const timeInfo = useMemo(() => {
     const now = new Date();
     const blockEnd = new Date(blockStart);
     blockEnd.setHours(blockEnd.getHours() + 5);
 
-    const elapsed = (now.getTime() - blockStart.getTime()) / 1000;
     const remaining = Math.max(0, (blockEnd.getTime() - now.getTime()) / 1000);
 
     return {
-      elapsed,
-      remaining,
-      elapsedFormatted: formatTimeRemaining(elapsed),
       remainingFormatted: formatTimeRemaining(remaining),
     };
-  }, [blockStart]);
+  }, [usage.captured_at]);
 
-  const totalTokens = token_usage.total_tokens;
+  const totalTokens = usage.token_usage.total_tokens;
 
   return (
     <div className="space-y-3">
@@ -67,18 +88,10 @@ function UsageSummary({ usage }: { usage: ClaudeCodeUsageSnapshot }) {
         </div>
       </div>
 
-      <div className="text-xs text-muted-foreground">
-        {t('usage.claudeCode.currentBlock', {
-          elapsed: timeInfo.elapsedFormatted,
-          remaining: timeInfo.remainingFormatted
-        })}
-      </div>
-
-      {usage.session_info.git_branch && (
-        <div className="text-xs text-muted-foreground pt-1 border-t">
-          {t('usage.claudeCode.branch')}: {usage.session_info.git_branch}
-        </div>
-      )}
+      <UsageProgressBar
+        percent={usage.used_percent}
+        resetLabel={timeInfo.remainingFormatted}
+      />
     </div>
   );
 }

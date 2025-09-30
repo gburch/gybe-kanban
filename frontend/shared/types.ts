@@ -146,7 +146,7 @@ export type ImageResponse = { id: string, file_path: string, original_name: stri
 
 export enum GitHubServiceError { TOKEN_INVALID = "TOKEN_INVALID", INSUFFICIENT_PERMISSIONS = "INSUFFICIENT_PERMISSIONS", REPO_NOT_FOUND_OR_NO_ACCESS = "REPO_NOT_FOUND_OR_NO_ACCESS" }
 
-export type Config = { config_version: string, theme: ThemeMode, executor_profile: ExecutorProfileId, disclaimer_acknowledged: boolean, onboarding_acknowledged: boolean, github_login_acknowledged: boolean, telemetry_acknowledged: boolean, notifications: NotificationConfig, editor: EditorConfig, github: GitHubConfig, analytics_enabled: boolean | null, workspace_dir: string | null, last_app_version: string | null, show_release_notes: boolean, language: UiLanguage, activity_feed: ActivityFeedConfig, };
+export type Config = { config_version: string, theme: ThemeMode, executor_profile: ExecutorProfileId, disclaimer_acknowledged: boolean, onboarding_acknowledged: boolean, github_login_acknowledged: boolean, telemetry_acknowledged: boolean, notifications: NotificationConfig, editor: EditorConfig, github: GitHubConfig, analytics_enabled: boolean | null, workspace_dir: string | null, last_app_version: string | null, show_release_notes: boolean, language: UiLanguage, activity_feed: ActivityFeedConfig, claude_plan: ClaudePlan, };
 
 export type NotificationConfig = { sound_enabled: boolean, push_enabled: boolean, sound_file: SoundFile, };
 
@@ -163,6 +163,8 @@ export type ActivityFeedConfig = { enabled: boolean, window_days: number, };
 export enum SoundFile { ABSTRACT_SOUND1 = "ABSTRACT_SOUND1", ABSTRACT_SOUND2 = "ABSTRACT_SOUND2", ABSTRACT_SOUND3 = "ABSTRACT_SOUND3", ABSTRACT_SOUND4 = "ABSTRACT_SOUND4", COW_MOOING = "COW_MOOING", PHONE_VIBRATION = "PHONE_VIBRATION", ROOSTER = "ROOSTER" }
 
 export type UiLanguage = "BROWSER" | "EN" | "JA" | "ES";
+
+export type ClaudePlan = "free" | "pro" | "max5x" | "max20x";
 
 export type ActivityFeedItem = { id: string, headline: string, summary: string | null, cta: ActivityFeedItemCta | null, urgencyScore: number, actionRequired: boolean, createdAt: Date, };
 
@@ -204,7 +206,7 @@ export type CodexTokenUsageInfo = { total_token_usage: CodexTokenUsage, last_tok
 
 export type CodexTokenUsage = { input_tokens: number, cached_input_tokens: number, output_tokens: number, reasoning_output_tokens: number, total_tokens: number, };
 
-export type ClaudeCodeUsageSnapshot = { captured_at: string, session_info: ClaudeCodeSessionInfo, token_usage: ClaudeCodeTokenUsage, };
+export type ClaudeCodeUsageSnapshot = { captured_at: string, session_info: ClaudeCodeSessionInfo, token_usage: ClaudeCodeTokenUsage, estimated_limit: number, used_percent: number, };
 
 export type ClaudeCodeSessionInfo = { session_id: string, version: string, git_branch: string | null, cwd: string | null, };
 

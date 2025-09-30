@@ -30,6 +30,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { ChevronDown, Key, Loader2, Volume2 } from 'lucide-react';
 import {
   BaseCodingAgent,
+  ClaudePlan,
   EditorType,
   ExecutorProfileId,
   SoundFile,
@@ -735,6 +736,46 @@ export function GeneralSettings() {
                 {t('settings.general.privacy.telemetry.helper')}
               </p>
             </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>{t('settings.general.claudeUsage.title')}</CardTitle>
+          <CardDescription>
+            {t('settings.general.claudeUsage.description')}
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="claude-plan">
+              {t('settings.general.claudeUsage.plan.label')}
+            </Label>
+            <Select
+              value={draft?.claude_plan}
+              onValueChange={(value: ClaudePlan) =>
+                updateDraft({ claude_plan: value })
+              }
+            >
+              <SelectTrigger id="claude-plan">
+                <SelectValue
+                  placeholder={t(
+                    'settings.general.claudeUsage.plan.placeholder'
+                  )}
+                />
+              </SelectTrigger>
+              <SelectContent>
+                {Object.values(ClaudePlan).map((plan) => (
+                  <SelectItem key={plan} value={plan}>
+                    {t(`settings.general.claudeUsage.plan.options.${plan}`)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-sm text-muted-foreground">
+              {t('settings.general.claudeUsage.plan.helper')}
+            </p>
           </div>
         </CardContent>
       </Card>

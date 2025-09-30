@@ -101,6 +101,21 @@
           "helper": "Enables anonymous usage events tracking to help improve the application. No prompts or project information are collected."
         }
       },
+      "claudeUsage": {
+        "title": "Claude Code Usage",
+        "description": "Configure your Claude subscription plan to see accurate usage limits.",
+        "plan": {
+          "label": "Subscription Plan",
+          "placeholder": "Select your plan",
+          "helper": "Choose your Claude subscription tier to calculate usage percentages accurately. This helps you track your 5-hour block limits.",
+          "options": {
+            "free": "Free",
+            "pro": "Pro ($20/month)",
+            "max_5x": "Max 5x ($100/month)",
+            "max_20x": "Max 20x ($200/month)"
+          }
+        }
+      },
       "taskTemplates": {
         "title": "Task Templates",
         "description": "Manage global task templates that can be used across all projects."
