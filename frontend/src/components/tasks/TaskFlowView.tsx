@@ -242,8 +242,7 @@ function TaskFlowView({
   const flowContainerRef = useRef<HTMLDivElement>(null);
   const minimapRef = useRef<HTMLCanvasElement>(null);
   const [zoom, setZoom] = useState(1);
-  const [isPanning, setIsPanning] = useState(false);
-  const [panStart, setPanStart] = useState({ x: 0, y: 0 });
+  const [isMinimapDragging, setIsMinimapDragging] = useState(false);
   const CARD_WIDTH = 300;
 
   // Zoom controls
@@ -258,6 +257,42 @@ function TaskFlowView({
   const handleZoomReset = useCallback(() => {
     setZoom(1);
   }, []);
+
+  // Minimap interaction handlers
+  const handleMinimapClick = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (!minimapRef.current || !scrollContainerRef.current) return;
+
+    const canvas = minimapRef.current;
+    const rect = canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+
+    const minimapWidth = 200;
+    const minimapHeight = 150;
+    const scale = Math.min(minimapWidth / totalWidth, minimapHeight / totalHeight);
+
+    const scrollX = (x / scale) * zoom - scrollContainerRef.current.clientWidth / 2;
+    const scrollY = (y / scale) * zoom - scrollContainerRef.current.clientHeight / 2;
+
+    scrollContainerRef.current.scrollTo({
+      left: Math.max(0, scrollX),
+      top: Math.max(0, scrollY),
+      behavior: 'smooth',
+    });
+  }, [totalWidth, totalHeight, zoom]);
+
+  const handleMinimapMouseDown = useCallback(() => {
+    setIsMinimapDragging(true);
+  }, []);
+
+  const handleMinimapMouseUp = useCallback(() => {
+    setIsMinimapDragging(false);
+  }, []);
+
+  const handleMinimapMouseMove = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (!isMinimapDragging) return;
+    handleMinimapClick(e);
+  }, [isMinimapDragging, handleMinimapClick]);
 
   // Auto-scroll to focus on active tasks
   useEffect(() => {
@@ -336,8 +371,37 @@ function TaskFlowView({
 
   return (
     <div ref={scrollContainerRef} className="w-full h-full bg-background overflow-auto relative">
+      {/* Legend - Sticky at top */}
+      <div className="sticky top-0 z-40 bg-background/95 backdrop-blur-sm border-b border-border/50 px-8 py-3">
+        <div className="flex flex-wrap items-center gap-6 text-sm text-muted-foreground">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-0.5 bg-border" />
+            <span>Dependency</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-0.5 bg-amber-400" />
+            <span>Critical Path</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <GitMerge className="h-4 w-4 text-amber-400" />
+            <span>Convergence Point</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <GitBranch className="h-4 w-4 text-blue-400" />
+            <span>Branch Point</span>
+          </div>
+          <div className="flex items-center gap-2 ml-auto bg-background/80 backdrop-blur-sm px-3 py-1.5 rounded-md border border-border/50">
+            <ArrowLeft className="w-3 h-3" />
+            <span className="text-xs">Completed</span>
+            <span className="mx-2 opacity-50">|</span>
+            <span className="text-xs">In Progress</span>
+            <ArrowRight className="w-3 h-3" />
+          </div>
+        </div>
+      </div>
+
       {/* Zoom controls */}
-      <div className="absolute top-4 right-4 z-50 flex flex-col gap-2">
+      <div className="fixed top-20 right-4 z-50 flex flex-col gap-2">
         <Button
           size="icon"
           variant="secondary"
@@ -371,12 +435,17 @@ function TaskFlowView({
       </div>
 
       {/* Minimap */}
-      <div className="absolute bottom-4 right-4 z-50">
+      <div className="fixed bottom-4 right-4 z-50">
         <canvas
           ref={minimapRef}
-          className="border border-border/50 rounded bg-background/80 backdrop-blur-sm shadow-lg"
+          className="border border-border/50 rounded bg-background/80 backdrop-blur-sm shadow-lg cursor-pointer"
           width={200}
           height={150}
+          onClick={handleMinimapClick}
+          onMouseDown={handleMinimapMouseDown}
+          onMouseUp={handleMinimapMouseUp}
+          onMouseMove={handleMinimapMouseMove}
+          onMouseLeave={handleMinimapMouseUp}
         />
       </div>
 
@@ -407,12 +476,14 @@ function TaskFlowView({
                 const childNode = nodes[childId];
                 if (!childNode) return null;
 
-                const x1 = node.x + CARD_WIDTH;
-                const y1 = node.y + 70; // Middle of card
-                const x2 = childNode.x;
-                const y2 = childNode.y + 70;
+                // Arrow should point from parent to child (right to left in our layout)
+                // Parent is on the right, child is on the left
+                const x1 = node.x + CARD_WIDTH; // Parent right edge
+                const y1 = node.y + 65; // Middle of parent card
+                const x2 = childNode.x; // Child left edge
+                const y2 = childNode.y + 65; // Middle of child card
 
-                // Curved path
+                // Curved path from parent to child
                 const midX = (x1 + x2) / 2;
                 const path = `M ${x1} ${y1} C ${midX} ${y1}, ${midX} ${y2}, ${x2} ${y2}`;
 
@@ -425,10 +496,10 @@ function TaskFlowView({
                       strokeWidth={childNode.isConvergencePoint ? 3 : 2}
                       strokeDasharray={childNode.isConvergencePoint ? 'none' : '6,4'}
                       opacity={childNode.isConvergencePoint ? 0.9 : 0.7}
-                      markerEnd={
+                      markerStart={
                         childNode.isConvergencePoint
-                          ? 'url(#arrowhead-critical)'
-                          : 'url(#arrowhead)'
+                          ? 'url(#arrowhead-critical-start)'
+                          : 'url(#arrowhead-start)'
                       }
                     />
                   </g>
@@ -436,27 +507,27 @@ function TaskFlowView({
               })
             )}
 
-            {/* Arrow markers */}
+            {/* Arrow markers - pointing left (from parent to child) */}
             <defs>
               <marker
-                id="arrowhead"
+                id="arrowhead-start"
                 markerWidth="10"
                 markerHeight="10"
-                refX="9"
+                refX="1"
                 refY="3"
                 orient="auto"
               >
-                <polygon points="0 0, 10 3, 0 6" fill="hsl(var(--muted-foreground))" opacity="0.7" />
+                <polygon points="10 0, 0 3, 10 6" fill="hsl(var(--muted-foreground))" opacity="0.7" />
               </marker>
               <marker
-                id="arrowhead-critical"
+                id="arrowhead-critical-start"
                 markerWidth="12"
                 markerHeight="12"
-                refX="10"
+                refX="2"
                 refY="3"
                 orient="auto"
               >
-                <polygon points="0 0, 12 3, 0 6" fill="#fbbf24" opacity="0.9" />
+                <polygon points="12 0, 0 3, 12 6" fill="#fbbf24" opacity="0.9" />
               </marker>
             </defs>
           </svg>
@@ -525,33 +596,6 @@ function TaskFlowView({
               </CardContent>
             </Card>
           ))}
-        </div>
-
-        {/* Legend */}
-        <div className="mt-8 flex flex-wrap items-center gap-6 text-sm text-muted-foreground">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-0.5 bg-border" />
-            <span>Dependency</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-0.5 bg-amber-400" />
-            <span>Critical Path</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <GitMerge className="h-4 w-4 text-amber-400" />
-            <span>Convergence Point</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <GitBranch className="h-4 w-4 text-blue-400" />
-            <span>Branch Point</span>
-          </div>
-          <div className="flex items-center gap-2 ml-auto bg-background/80 backdrop-blur-sm px-3 py-1.5 rounded-md border border-border/50">
-            <ArrowLeft className="w-3 h-3" />
-            <span className="text-xs">Completed</span>
-            <span className="mx-2 opacity-50">|</span>
-            <span className="text-xs">In Progress</span>
-            <ArrowRight className="w-3 h-3" />
-          </div>
         </div>
       </div>
     </div>
