@@ -594,6 +594,7 @@ export function ProjectTasks({ viewMode = 'kanban' }: ProjectTasksProps) {
                   tasksById={tasksById}
                   onViewTaskDetails={handleViewTaskDetails}
                   selectedTask={selectedTask || undefined}
+                  parentTasksById={parentTasksById}
                 />
               )}
             </div>

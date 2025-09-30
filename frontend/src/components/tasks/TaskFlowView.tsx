@@ -12,11 +12,17 @@ import {
 
 type Task = TaskWithAttemptStatus;
 
+interface ParentTaskSummary {
+  id: string;
+  title: string;
+}
+
 interface TaskFlowViewProps {
   tasks: Task[];
   tasksById: Record<string, Task>;
   onViewTaskDetails: (task: Task) => void;
   selectedTask?: Task;
+  parentTasksById?: Record<string, ParentTaskSummary | null>;
 }
 
 interface FlowNode {
@@ -31,7 +37,10 @@ interface FlowNode {
 }
 
 // Helper to build the task graph and layout
-function buildFlowLayout(tasks: Task[]) {
+function buildFlowLayout(
+  tasks: Task[],
+  parentTasksById?: Record<string, ParentTaskSummary | null>
+) {
   const nodes: Record<string, FlowNode> = {};
   const rootTasks: Task[] = [];
 
@@ -49,21 +58,19 @@ function buildFlowLayout(tasks: Task[]) {
     };
   });
 
-  // Find parent-child relationships
-  tasks.forEach((task) => {
-    if (task.parent_task_attempt) {
-      // Find parent task by checking all tasks for matching attempt
-      // Note: In a real implementation, you'd need to fetch attempt data
-      // For now, we'll use a simplified approach
-      const parent = tasks.find((t) =>
-        t.id === task.parent_task_attempt?.split('-')[0] // Simplified parent detection
-      );
-      if (parent && nodes[parent.id] && nodes[task.id]) {
-        nodes[parent.id].children.push(task.id);
-        nodes[task.id].parents.push(parent.id);
+  // Find parent-child relationships using parentTasksById
+  if (parentTasksById) {
+    tasks.forEach((task) => {
+      const parentSummary = parentTasksById[task.id];
+      if (parentSummary && parentSummary.id) {
+        const parentId = parentSummary.id;
+        if (nodes[parentId] && nodes[task.id]) {
+          nodes[parentId].children.push(task.id);
+          nodes[task.id].parents.push(parentId);
+        }
       }
-    }
-  });
+    });
+  }
 
   // Identify convergence and branch points
   Object.values(nodes).forEach((node) => {
@@ -147,10 +154,11 @@ function TaskFlowView({
   tasks,
   onViewTaskDetails,
   selectedTask,
+  parentTasksById,
 }: TaskFlowViewProps) {
   const { nodes, maxX } = useMemo(
-    () => buildFlowLayout(tasks),
-    [tasks]
+    () => buildFlowLayout(tasks, parentTasksById),
+    [tasks, parentTasksById]
   );
 
   const lanes = ['now', 'next', 'later'] as const;
