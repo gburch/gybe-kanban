@@ -85,7 +85,7 @@ export const ImageUploadSection = forwardRef<
       if (collapsible && images.length > 0 && !isExpanded) {
         setIsExpanded(true);
       }
-    }, [collapsible, images.length, isExpanded]);
+    }, [collapsible, images.length]);
 
     const handleFiles = useCallback(
       async (filesInput: FileList | File[] | null) => {
