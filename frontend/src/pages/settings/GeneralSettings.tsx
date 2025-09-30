@@ -45,6 +45,8 @@ import { useUserSystem } from '@/components/config-provider';
 import { TaskTemplateManager } from '@/components/TaskTemplateManager';
 import NiceModal from '@ebay/nice-modal-react';
 
+const CLAUDE_PLAN_OPTIONS = ['free', 'pro', 'max5x', 'max20x'] as const satisfies ReadonlyArray<ClaudePlan>;
+
 export function GeneralSettings() {
   const { t } = useTranslation(['settings', 'common']);
 
@@ -766,7 +768,7 @@ export function GeneralSettings() {
                 />
               </SelectTrigger>
               <SelectContent>
-                {Object.values(ClaudePlan).map((plan) => (
+                {CLAUDE_PLAN_OPTIONS.map((plan) => (
                   <SelectItem key={plan} value={plan}>
                     {t(`settings.general.claudeUsage.plan.options.${plan}`)}
                   </SelectItem>
