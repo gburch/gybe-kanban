@@ -223,15 +223,12 @@ pub async fn follow_up(
         .ensure_container_exists(&task_attempt)
         .await?;
 
-    // Get latest session id (ignoring dropped)
-    let session_id = ExecutionProcess::find_latest_session_id_by_task_attempt(
+    // Try to get latest session id (ignoring dropped)
+    let session_id_opt = ExecutionProcess::find_latest_session_id_by_task_attempt(
         &deployment.db().pool,
         task_attempt.id,
     )
-    .await?
-    .ok_or(ApiError::TaskAttempt(TaskAttemptError::ValidationError(
-        "Couldn't find a prior session_id, please create a new task attempt".to_string(),
-    )))?;
+    .await?;
 
     // Get ExecutionProcess for profile data
     let latest_execution_process = ExecutionProcess::find_latest_by_task_attempt_and_run_reason(
@@ -239,25 +236,32 @@ pub async fn follow_up(
         task_attempt.id,
         &ExecutionProcessRunReason::CodingAgent,
     )
-    .await?
-    .ok_or(ApiError::TaskAttempt(TaskAttemptError::ValidationError(
-        "Couldn't find initial coding agent process, has it run yet?".to_string(),
-    )))?;
-    let initial_executor_profile_id = match &latest_execution_process
-        .executor_action()
-        .map_err(|e| ApiError::TaskAttempt(TaskAttemptError::ValidationError(e.to_string())))?
-        .typ
-    {
-        ExecutorActionType::CodingAgentInitialRequest(request) => {
-            Ok(request.executor_profile_id.clone())
-        }
-        ExecutorActionType::CodingAgentFollowUpRequest(request) => {
-            Ok(request.executor_profile_id.clone())
-        }
-        _ => Err(ApiError::TaskAttempt(TaskAttemptError::ValidationError(
-            "Couldn't find profile from initial request".to_string(),
-        ))),
-    }?;
+    .await?;
+
+    // Determine executor profile ID from previous execution or use default
+    let initial_executor_profile_id = if let Some(latest_process) = &latest_execution_process {
+        match &latest_process
+            .executor_action()
+            .map_err(|e| ApiError::TaskAttempt(TaskAttemptError::ValidationError(e.to_string())))?
+            .typ
+        {
+            ExecutorActionType::CodingAgentInitialRequest(request) => {
+                Ok(request.executor_profile_id.clone())
+            }
+            ExecutorActionType::CodingAgentFollowUpRequest(request) => {
+                Ok(request.executor_profile_id.clone())
+            }
+            _ => Err(ApiError::TaskAttempt(TaskAttemptError::ValidationError(
+                "Couldn't find profile from initial request".to_string(),
+            ))),
+        }?
+    } else {
+        // No previous execution found - this shouldn't happen in normal flow,
+        // but if it does, we'll need an executor profile from somewhere
+        return Err(ApiError::TaskAttempt(TaskAttemptError::ValidationError(
+            "No previous coding agent execution found. Please start a new task attempt instead.".to_string(),
+        )));
+    };
 
     let executor_profile_id = ExecutorProfileId {
         executor: initial_executor_profile_id.executor,
@@ -304,22 +308,46 @@ pub async fn follow_up(
         ))
     });
 
-    let follow_up_request = CodingAgentFollowUpRequest {
-        prompt,
-        session_id,
-        executor_profile_id,
-    };
+    // Create either a follow-up request (if we have a session_id) or an initial request
+    let coding_agent_action = if let Some(session_id) = session_id_opt {
+        // We have a valid session, use follow-up
+        let follow_up_request = CodingAgentFollowUpRequest {
+            prompt,
+            session_id,
+            executor_profile_id,
+        };
+        ExecutorAction::new(
+            ExecutorActionType::CodingAgentFollowUpRequest(follow_up_request),
+            cleanup_action,
+        )
+    } else {
+        // No valid session found - start a fresh session with contextual prompt
+        tracing::info!(
+            "No session_id found for task attempt {}. Starting fresh session with contextual prompt.",
+            task_attempt.id
+        );
 
-    let follow_up_action = ExecutorAction::new(
-        ExecutorActionType::CodingAgentFollowUpRequest(follow_up_request),
-        cleanup_action,
-    );
+        // Build a contextual prompt that references the previous work
+        let contextual_prompt = format!(
+            "Continuing work on this task. Previous context exists in the git history and worktree.\n\n{}",
+            prompt
+        );
+
+        let initial_request = executors::actions::coding_agent_initial::CodingAgentInitialRequest {
+            prompt: contextual_prompt,
+            executor_profile_id,
+        };
+        ExecutorAction::new(
+            ExecutorActionType::CodingAgentInitialRequest(initial_request),
+            cleanup_action,
+        )
+    };
 
     let execution_process = deployment
         .container()
         .start_execution(
             &task_attempt,
-            &follow_up_action,
+            &coding_agent_action,
             &ExecutionProcessRunReason::CodingAgent,
         )
         .await?;
@@ -727,15 +755,12 @@ async fn start_follow_up_from_draft(
         .ensure_container_exists(task_attempt)
         .await?;
 
-    // Get latest session id (ignoring dropped)
-    let session_id = ExecutionProcess::find_latest_session_id_by_task_attempt(
+    // Try to get latest session id (ignoring dropped)
+    let session_id_opt = ExecutionProcess::find_latest_session_id_by_task_attempt(
         &deployment.db().pool,
         task_attempt.id,
     )
-    .await?
-    .ok_or(ApiError::TaskAttempt(TaskAttemptError::ValidationError(
-        "Couldn't find a prior session_id, please create a new task attempt".to_string(),
-    )))?;
+    .await?;
 
     // Get latest coding agent process to inherit executor profile
     let latest_execution_process = ExecutionProcess::find_latest_by_task_attempt_and_run_reason(
@@ -743,25 +768,32 @@ async fn start_follow_up_from_draft(
         task_attempt.id,
         &ExecutionProcessRunReason::CodingAgent,
     )
-    .await?
-    .ok_or(ApiError::TaskAttempt(TaskAttemptError::ValidationError(
-        "Couldn't find initial coding agent process, has it run yet?".to_string(),
-    )))?;
-    let initial_executor_profile_id = match &latest_execution_process
-        .executor_action()
-        .map_err(|e| ApiError::TaskAttempt(TaskAttemptError::ValidationError(e.to_string())))?
-        .typ
-    {
-        ExecutorActionType::CodingAgentInitialRequest(request) => {
-            Ok(request.executor_profile_id.clone())
-        }
-        ExecutorActionType::CodingAgentFollowUpRequest(request) => {
-            Ok(request.executor_profile_id.clone())
-        }
-        _ => Err(ApiError::TaskAttempt(TaskAttemptError::ValidationError(
-            "Couldn't find profile from initial request".to_string(),
-        ))),
-    }?;
+    .await?;
+
+    // Determine executor profile ID from previous execution or use default
+    let initial_executor_profile_id = if let Some(latest_process) = &latest_execution_process {
+        match &latest_process
+            .executor_action()
+            .map_err(|e| ApiError::TaskAttempt(TaskAttemptError::ValidationError(e.to_string())))?
+            .typ
+        {
+            ExecutorActionType::CodingAgentInitialRequest(request) => {
+                Ok(request.executor_profile_id.clone())
+            }
+            ExecutorActionType::CodingAgentFollowUpRequest(request) => {
+                Ok(request.executor_profile_id.clone())
+            }
+            _ => Err(ApiError::TaskAttempt(TaskAttemptError::ValidationError(
+                "Couldn't find profile from initial request".to_string(),
+            ))),
+        }?
+    } else {
+        // No previous execution found - this shouldn't happen in normal flow,
+        // but if it does, we'll need an executor profile from somewhere
+        return Err(ApiError::TaskAttempt(TaskAttemptError::ValidationError(
+            "No previous coding agent execution found. Please start a new task attempt instead.".to_string(),
+        )));
+    };
 
     // Inherit executor profile; override variant if provided in draft
     let executor_profile_id = ExecutorProfileId {
@@ -805,22 +837,46 @@ async fn start_follow_up_from_draft(
         }
     }
 
-    let follow_up_request = CodingAgentFollowUpRequest {
-        prompt,
-        session_id,
-        executor_profile_id,
-    };
+    // Create either a follow-up request (if we have a session_id) or an initial request
+    let coding_agent_action = if let Some(session_id) = session_id_opt {
+        // We have a valid session, use follow-up
+        let follow_up_request = CodingAgentFollowUpRequest {
+            prompt,
+            session_id,
+            executor_profile_id,
+        };
+        ExecutorAction::new(
+            ExecutorActionType::CodingAgentFollowUpRequest(follow_up_request),
+            cleanup_action,
+        )
+    } else {
+        // No valid session found - start a fresh session with contextual prompt
+        tracing::info!(
+            "No session_id found for task attempt {} (draft). Starting fresh session with contextual prompt.",
+            task_attempt.id
+        );
 
-    let follow_up_action = ExecutorAction::new(
-        ExecutorActionType::CodingAgentFollowUpRequest(follow_up_request),
-        cleanup_action,
-    );
+        // Build a contextual prompt that references the previous work
+        let contextual_prompt = format!(
+            "Continuing work on this task. Previous context exists in the git history and worktree.\n\n{}",
+            prompt
+        );
+
+        let initial_request = executors::actions::coding_agent_initial::CodingAgentInitialRequest {
+            prompt: contextual_prompt,
+            executor_profile_id,
+        };
+        ExecutorAction::new(
+            ExecutorActionType::CodingAgentInitialRequest(initial_request),
+            cleanup_action,
+        )
+    };
 
     let execution_process = deployment
         .container()
         .start_execution(
             task_attempt,
-            &follow_up_action,
+            &coding_agent_action,
             &ExecutionProcessRunReason::CodingAgent,
         )
         .await?;
