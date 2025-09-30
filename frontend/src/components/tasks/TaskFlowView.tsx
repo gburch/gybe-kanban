@@ -288,8 +288,8 @@ function TaskFlowView({
       canvas.width = minimapWidth;
       canvas.height = minimapHeight;
 
-      // Clear canvas
-      ctx.fillStyle = 'hsl(var(--muted) / 0.3)';
+      // Clear canvas - use gray background
+      ctx.fillStyle = '#18181b'; // zinc-900
       ctx.fillRect(0, 0, minimapWidth, minimapHeight);
 
       // Draw nodes
@@ -301,11 +301,11 @@ function TaskFlowView({
 
         const status = node.task.status.toLowerCase();
         if (status === 'done' || status === 'cancelled') {
-          ctx.fillStyle = 'hsl(var(--success) / 0.3)';
+          ctx.fillStyle = 'rgba(34, 197, 94, 0.4)'; // green-500
         } else if (status === 'inprogress' || status === 'inreview') {
-          ctx.fillStyle = 'hsl(var(--primary) / 0.6)';
+          ctx.fillStyle = 'rgba(59, 130, 246, 0.7)'; // blue-500
         } else {
-          ctx.fillStyle = 'hsl(var(--muted-foreground) / 0.3)';
+          ctx.fillStyle = 'rgba(161, 161, 170, 0.4)'; // zinc-400
         }
         ctx.fillRect(x, y, w, h);
       });
@@ -319,7 +319,7 @@ function TaskFlowView({
       const viewportW = (container.clientWidth / zoom) * scale;
       const viewportH = (container.clientHeight / zoom) * scale;
 
-      ctx.strokeStyle = 'hsl(var(--primary))';
+      ctx.strokeStyle = 'rgba(59, 130, 246, 1)'; // blue-500
       ctx.lineWidth = 2;
       ctx.strokeRect(viewportX, viewportY, viewportW, viewportH);
     };
@@ -380,23 +380,24 @@ function TaskFlowView({
         />
       </div>
 
-      <div className="p-8">
+      <div className="p-8" style={{ width: totalWidth * zoom, height: totalHeight * zoom }}>
         {/* Flow diagram container */}
         <div
           ref={flowContainerRef}
-          className="relative rounded-lg border border-border/50 bg-background/50 backdrop-blur-sm overflow-hidden"
+          className="relative rounded-lg border border-border/50 bg-background/50 backdrop-blur-sm overflow-hidden origin-top-left"
           style={{
-            width: totalWidth * zoom,
-            height: totalHeight * zoom,
+            width: totalWidth,
+            height: totalHeight,
             minHeight: '600px',
+            transform: `scale(${zoom})`,
+            transformOrigin: '0 0',
           }}
         >
 
           {/* SVG for connection lines */}
           <svg
-            width={totalWidth * zoom}
-            height={totalHeight * zoom}
-            viewBox={`0 0 ${totalWidth} ${totalHeight}`}
+            width={totalWidth}
+            height={totalHeight}
             className="absolute top-0 left-0 pointer-events-none"
             style={{ zIndex: 1 }}
           >
@@ -476,10 +477,9 @@ function TaskFlowView({
                   'ring-1 ring-amber-500/30 bg-amber-500/5 border-amber-500/30'
               )}
               style={{
-                left: `${node.x * zoom}px`,
-                top: `${node.y * zoom}px`,
-                width: `${CARD_WIDTH * zoom}px`,
-                fontSize: `${zoom}rem`,
+                left: `${node.x}px`,
+                top: `${node.y}px`,
+                width: `${CARD_WIDTH}px`,
                 zIndex: 10,
               }}
               onClick={() => onViewTaskDetails(node.task)}
