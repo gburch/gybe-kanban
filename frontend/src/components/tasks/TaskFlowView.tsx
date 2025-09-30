@@ -170,19 +170,19 @@ function buildFlowLayout(
   const CARD_HEIGHT = 130;  // Reduced from 140
 
   // Add nodes to Dagre with rank constraints based on status
-  // Rank determines horizontal position: lower rank = further left
+  // Rank determines horizontal position in LR layout: lower rank = further left
+  // Layout: DONE (left/past) → IN PROGRESS (middle) → TODO (right/future)
   Object.values(nodes).forEach((node) => {
     const status = node.task.status.toLowerCase();
     let rank: number | undefined;
 
     // Set rank based on status to align tasks horizontally by status
-    // This overrides the graph structure to group by status
     if (status === 'done' || status === 'cancelled') {
-      rank = 0; // Leftmost - completed tasks
+      rank = 0; // Leftmost - completed tasks (past)
     } else if (status === 'inprogress' || status === 'inreview') {
-      rank = 2; // Middle-right - active tasks
+      rank = 1; // Middle - active work (present)
     } else if (status === 'todo') {
-      rank = 3; // Rightmost - future tasks
+      rank = 2; // Rightmost - future tasks
     }
 
     g.setNode(node.task.id, {
@@ -220,14 +220,14 @@ function buildFlowLayout(
   const maxX = Math.max(...allNodes.map(n => n.x + CARD_WIDTH), 1200);
   const maxY = Math.max(...allNodes.map(n => n.y + CARD_HEIGHT), 800);
 
-  // Find leftmost in-progress or in-review task for initial scroll position
-  // We want to focus on active work, not future todos
+  // Find center of in-progress/in-review tasks for initial scroll position
+  // Active work should be in the middle of the viewport
   const activeNodes = allNodes.filter(n =>
     n.task.status.toLowerCase() === 'inprogress' ||
     n.task.status.toLowerCase() === 'inreview'
   );
   const focusX = activeNodes.length > 0
-    ? Math.min(...activeNodes.map(n => n.x)) // LEFTMOST active task
+    ? Math.min(...activeNodes.map(n => n.x)) // Leftmost active task
     : 0;
 
   return {
