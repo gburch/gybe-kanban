@@ -375,11 +375,15 @@ function TaskFlowView({
       <div className="sticky top-0 z-40 bg-background/95 backdrop-blur-sm border-b border-border/50 px-8 py-3">
         <div className="flex flex-wrap items-center gap-6 text-sm text-muted-foreground">
           <div className="flex items-center gap-2">
-            <div className="w-8 h-0.5 bg-border" />
+            <svg width="32" height="2" className="opacity-70">
+              <line x1="0" y1="1" x2="32" y2="1" stroke="#71717a" strokeWidth="2" strokeDasharray="6,4" />
+            </svg>
             <span>Dependency</span>
           </div>
           <div className="flex items-center gap-2">
-            <div className="w-8 h-0.5 bg-amber-400" />
+            <svg width="32" height="3">
+              <line x1="0" y1="1.5" x2="32" y2="1.5" stroke="#fbbf24" strokeWidth="3" />
+            </svg>
             <span>Critical Path</span>
           </div>
           <div className="flex items-center gap-2">
@@ -390,12 +394,19 @@ function TaskFlowView({
             <GitBranch className="h-4 w-4 text-blue-400" />
             <span>Branch Point</span>
           </div>
-          <div className="flex items-center gap-2 ml-auto bg-background/80 backdrop-blur-sm px-3 py-1.5 rounded-md border border-border/50">
-            <ArrowLeft className="w-3 h-3" />
-            <span className="text-xs">Completed</span>
-            <span className="mx-2 opacity-50">|</span>
-            <span className="text-xs">In Progress</span>
-            <ArrowRight className="w-3 h-3" />
+          <div className="flex items-center gap-3 ml-auto">
+            <div className="flex items-center gap-2 text-xs">
+              <div className="w-3 h-3 rounded-sm bg-green-500/40" />
+              <span>Done</span>
+            </div>
+            <div className="flex items-center gap-2 text-xs">
+              <div className="w-3 h-3 rounded-sm bg-blue-500/60" />
+              <span>Active</span>
+            </div>
+            <div className="flex items-center gap-2 text-xs">
+              <div className="w-3 h-3 rounded-sm bg-zinc-400/40" />
+              <span>Todo</span>
+            </div>
           </div>
         </div>
       </div>
@@ -476,14 +487,14 @@ function TaskFlowView({
                 const childNode = nodes[childId];
                 if (!childNode) return null;
 
-                // Arrow should point from parent to child (right to left in our layout)
-                // Parent is on the right, child is on the left
-                const x1 = node.x + CARD_WIDTH; // Parent right edge
-                const y1 = node.y + 65; // Middle of parent card
-                const x2 = childNode.x; // Child left edge
-                const y2 = childNode.y + 65; // Middle of child card
+                // Arrow connects child (left) to parent (right)
+                // Start at child's RIGHT edge, end at parent's LEFT edge
+                const x1 = childNode.x + CARD_WIDTH; // Child right edge
+                const y1 = childNode.y + 65; // Middle of child card
+                const x2 = node.x; // Parent left edge
+                const y2 = node.y + 65; // Middle of parent card
 
-                // Curved path from parent to child
+                // Curved path from child to parent (left to right)
                 const midX = (x1 + x2) / 2;
                 const path = `M ${x1} ${y1} C ${midX} ${y1}, ${midX} ${y2}, ${x2} ${y2}`;
 
@@ -492,14 +503,14 @@ function TaskFlowView({
                     <path
                       d={path}
                       fill="none"
-                      stroke={childNode.isConvergencePoint ? '#fbbf24' : 'hsl(var(--muted-foreground))'}
+                      stroke={childNode.isConvergencePoint ? '#fbbf24' : '#71717a'}
                       strokeWidth={childNode.isConvergencePoint ? 3 : 2}
                       strokeDasharray={childNode.isConvergencePoint ? 'none' : '6,4'}
                       opacity={childNode.isConvergencePoint ? 0.9 : 0.7}
-                      markerStart={
+                      markerEnd={
                         childNode.isConvergencePoint
-                          ? 'url(#arrowhead-critical-start)'
-                          : 'url(#arrowhead-start)'
+                          ? 'url(#arrowhead-critical)'
+                          : 'url(#arrowhead)'
                       }
                     />
                   </g>
@@ -507,27 +518,27 @@ function TaskFlowView({
               })
             )}
 
-            {/* Arrow markers - pointing left (from parent to child) */}
+            {/* Arrow markers - pointing right (from child to parent) */}
             <defs>
               <marker
-                id="arrowhead-start"
+                id="arrowhead"
                 markerWidth="10"
                 markerHeight="10"
-                refX="1"
+                refX="9"
                 refY="3"
                 orient="auto"
               >
-                <polygon points="10 0, 0 3, 10 6" fill="hsl(var(--muted-foreground))" opacity="0.7" />
+                <polygon points="0 0, 10 3, 0 6" fill="#71717a" opacity="0.7" />
               </marker>
               <marker
-                id="arrowhead-critical-start"
+                id="arrowhead-critical"
                 markerWidth="12"
                 markerHeight="12"
-                refX="2"
+                refX="10"
                 refY="3"
                 orient="auto"
               >
-                <polygon points="12 0, 0 3, 12 6" fill="#fbbf24" opacity="0.9" />
+                <polygon points="0 0, 12 3, 0 6" fill="#fbbf24" opacity="0.9" />
               </marker>
             </defs>
           </svg>
