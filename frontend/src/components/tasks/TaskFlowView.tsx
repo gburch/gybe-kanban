@@ -136,6 +136,24 @@ function buildFlowLayout(
     node.isBranchPoint = node.children.length > 1;
   });
 
+  // Mark critical path - tasks that are convergence points or lead to them
+  const criticalPathNodes = new Set<string>();
+  const markCriticalPath = (nodeId: string) => {
+    if (criticalPathNodes.has(nodeId)) return;
+    criticalPathNodes.add(nodeId);
+    const node = nodes[nodeId];
+    if (node) {
+      node.parents.forEach(parentId => markCriticalPath(parentId));
+    }
+  };
+
+  // Start from convergence points and mark their ancestor paths
+  Object.values(nodes).forEach(node => {
+    if (node.isConvergencePoint) {
+      markCriticalPath(node.task.id);
+    }
+  });
+
   // Create Dagre graph for hierarchical layout
   const g = new dagre.graphlib.Graph();
   g.setGraph({
@@ -498,17 +516,20 @@ function TaskFlowView({
                 const midX = (x1 + x2) / 2;
                 const path = `M ${x1} ${y1} C ${midX} ${y1}, ${midX} ${y2}, ${x2} ${y2}`;
 
+                // Check if this connection is on the critical path
+                const isCriticalConnection = node.isConvergencePoint || childNode.isConvergencePoint;
+
                 return (
                   <g key={`${node.task.id}-${childId}`}>
                     <path
                       d={path}
                       fill="none"
-                      stroke={childNode.isConvergencePoint ? '#fbbf24' : '#71717a'}
-                      strokeWidth={childNode.isConvergencePoint ? 3 : 2}
-                      strokeDasharray={childNode.isConvergencePoint ? 'none' : '6,4'}
-                      opacity={childNode.isConvergencePoint ? 0.9 : 0.7}
+                      stroke={isCriticalConnection ? '#fbbf24' : '#71717a'}
+                      strokeWidth={isCriticalConnection ? 3 : 2}
+                      strokeDasharray={isCriticalConnection ? 'none' : '6,4'}
+                      opacity={isCriticalConnection ? 0.9 : 0.7}
                       markerEnd={
-                        childNode.isConvergencePoint
+                        isCriticalConnection
                           ? 'url(#arrowhead-critical)'
                           : 'url(#arrowhead)'
                       }
@@ -544,19 +565,31 @@ function TaskFlowView({
           </svg>
 
           {/* Task nodes */}
-          {Object.values(nodes).map((node) => (
+          {Object.values(nodes).map((node) => {
+            const status = node.task.status.toLowerCase();
+            const isDone = status === 'done' || status === 'cancelled';
+            const isActive = status === 'inprogress' || status === 'inreview';
+            const isTodo = status === 'todo';
+
+            return (
             <Card
               key={node.task.id}
               className={cn(
                 'absolute cursor-pointer',
-                'bg-card/95 backdrop-blur-sm border border-border/50',
+                'backdrop-blur-sm',
                 'rounded-lg shadow-sm hover:shadow-md',
                 'transition-all duration-200',
-                'hover:border-primary/50 hover:bg-accent/30 hover:z-20',
+                'hover:z-20',
+                // Status-based colors matching legend
+                isDone && 'bg-green-500/10 border-green-500/30 hover:bg-green-500/15',
+                isActive && 'bg-blue-500/15 border-blue-500/40 hover:bg-blue-500/20',
+                isTodo && 'bg-zinc-700/20 border-zinc-600/40 hover:bg-zinc-700/30',
+                // Selected state
                 selectedTask?.id === node.task.id &&
                   'ring-2 ring-primary ring-offset-2 ring-offset-background',
+                // Critical path highlighting (stronger border + glow)
                 node.isConvergencePoint &&
-                  'ring-1 ring-amber-500/30 bg-amber-500/5 border-amber-500/30'
+                  'ring-1 ring-amber-400/60 border-amber-400/70 shadow-amber-400/20'
               )}
               style={{
                 left: `${node.x}px`,
@@ -606,7 +639,8 @@ function TaskFlowView({
                 </div>
               </CardContent>
             </Card>
-          ))}
+            );
+          })}
         </div>
       </div>
     </div>
