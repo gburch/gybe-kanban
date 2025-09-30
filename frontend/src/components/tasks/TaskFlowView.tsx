@@ -272,12 +272,12 @@ function buildFlowLayout(
 
   // Find center of in-progress/in-review tasks for initial scroll position
   // Active work should be in the middle of the viewport
-  const activeNodes = allNodes.filter(n =>
+  const activeNodesForFocus = allNodes.filter(n =>
     n.task.status.toLowerCase() === 'inprogress' ||
     n.task.status.toLowerCase() === 'inreview'
   );
-  const focusX = activeNodes.length > 0
-    ? Math.min(...activeNodes.map(n => n.x)) // Leftmost active task
+  const focusX = activeNodesForFocus.length > 0
+    ? Math.min(...activeNodesForFocus.map(n => n.x)) // Leftmost active task
     : 0;
 
   return {
