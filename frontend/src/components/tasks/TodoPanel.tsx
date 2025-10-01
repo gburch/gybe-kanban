@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import { Circle, CircleCheckBig, CircleDotDashed } from 'lucide-react';
 import { useEntries } from '@/contexts/EntriesContext';
 import { usePinnedTodos } from '@/hooks/usePinnedTodos';
@@ -45,4 +46,5 @@ function TodoPanel() {
   );
 }
 
-export default TodoPanel;
+// Memoize to prevent re-renders when entries haven't actually changed todos
+export default memo(TodoPanel);

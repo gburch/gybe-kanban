@@ -37,7 +37,8 @@ export const EntriesProvider = ({ children }: EntriesProviderProps) => {
       setEntries,
       reset,
     }),
-    [entries, setEntries, reset]
+    // Only re-create when entries change - setEntries/reset are stable
+    [entries]
   );
 
   return (
