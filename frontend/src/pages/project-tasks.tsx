@@ -9,6 +9,7 @@ import { tasksApi, attemptsApi } from '@/lib/api';
 import { openTaskForm } from '@/lib/openTaskForm';
 
 import { useSearch } from '@/contexts/search-context';
+import { useProject } from '@/contexts/project-context';
 import { useQuery } from '@tanstack/react-query';
 import { useTaskViewManager } from '@/hooks/useTaskViewManager';
 import {
@@ -31,7 +32,6 @@ import {
 } from '@/lib/responsive-config';
 
 import TaskKanbanBoard from '@/components/tasks/TaskKanbanBoard';
-import TaskFlowView from '@/components/tasks/TaskFlowView';
 import { TaskDetailsPanel } from '@/components/tasks/TaskDetailsPanel';
 import type { TaskWithAttemptStatus, TaskAttempt } from 'shared/types';
 import type { DragEndEvent } from '@/components/ui/shadcn-io/kanban';
@@ -39,23 +39,26 @@ import { useProjectTasks } from '@/hooks/useProjectTasks';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import NiceModal from '@ebay/nice-modal-react';
 import { useHotkeysContext } from 'react-hotkeys-hook';
-import { useProject } from '@/contexts/project-context';
 
 type Task = TaskWithAttemptStatus;
 
-interface ProjectTasksProps {
-  viewMode?: 'kanban' | 'flow';
-}
-
-export function ProjectTasks({ viewMode = 'kanban' }: ProjectTasksProps) {
+export function ProjectTasks() {
   const { t } = useTranslation(['tasks', 'common']);
-  const { projectId, taskId, attemptId } = useParams<{
+  const { taskId, attemptId } = useParams<{
     projectId: string;
     taskId?: string;
     attemptId?: string;
   }>();
   const navigate = useNavigate();
   const { enableScope, disableScope } = useHotkeysContext();
+
+  // Use project context for project data
+  const {
+    project,
+    projectId,
+    isLoading: projectLoading,
+    error: projectError,
+  } = useProject();
 
   useEffect(() => {
     enableScope(Scope.KANBAN);
@@ -65,28 +68,22 @@ export function ProjectTasks({ viewMode = 'kanban' }: ProjectTasksProps) {
     };
   }, [enableScope, disableScope]);
 
-  const {
-    project,
-    isLoading: isProjectLoading,
-    error: projectError,
-  } = useProject();
-  const [pageError, setPageError] = useState<string | null>(null);
   // Helper functions to open task forms
   const handleCreateTask = () => {
-    if (project?.id) {
-      openTaskForm({ projectId: project.id });
+    if (projectId) {
+      openTaskForm({ projectId });
     }
   };
 
   const handleEditTask = (task: Task) => {
-    if (project?.id) {
-      openTaskForm({ projectId: project.id, task });
+    if (projectId) {
+      openTaskForm({ projectId, task });
     }
   };
 
   const handleDuplicateTask = (task: Task) => {
-    if (project?.id) {
-      openTaskForm({ projectId: project.id, initialTask: task });
+    if (projectId) {
+      openTaskForm({ projectId, initialTask: task });
     }
   };
   const { query: searchQuery, focusInput } = useSearch();
@@ -94,9 +91,6 @@ export function ProjectTasks({ viewMode = 'kanban' }: ProjectTasksProps) {
   // Panel state
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [isPanelOpen, setIsPanelOpen] = useState(false);
-  const [parentPillFocusTaskId, setParentPillFocusTaskId] = useState<string | null>(
-    null
-  );
 
   // Fullscreen state using custom hook
   const { isFullscreen, navigateToTask, navigateToAttempt, toggleFullscreen } =
@@ -294,8 +288,6 @@ export function ProjectTasks({ viewMode = 'kanban' }: ProjectTasksProps) {
     }
   );
 
-  // Full screen
-
   const handleClosePanel = useCallback(() => {
     // setIsPanelOpen(false);
     // setSelectedTask(null);
@@ -349,40 +341,6 @@ export function ProjectTasks({ viewMode = 'kanban' }: ProjectTasksProps) {
     },
     [projectId, navigateToTask, navigateToAttempt]
   );
-
-  const handleParentNavigate = useCallback(
-    ({
-      parent,
-      sourceTaskId,
-    }: {
-      parent: { taskId: string; title: string };
-      sourceTaskId: string;
-    }) => {
-      if (!projectId) return;
-
-      setParentPillFocusTaskId(sourceTaskId);
-
-      navigateToTask(projectId, parent.taskId, {
-        fullscreen: isFullscreen,
-        replace: false,
-        state: { fromChildTaskId: sourceTaskId },
-      });
-    },
-    [projectId, navigateToTask, isFullscreen]
-  );
-
-  const handleParentPillFocus = useCallback((taskId: string) => {
-    setParentPillFocusTaskId((current) => (current === taskId ? null : current));
-  }, []);
-
-  useEffect(() => {
-    if (!taskId) {
-      setParentPillFocusTaskId(null);
-    }
-  }, [taskId]);
-
-  const focusParentPillId =
-    taskId && taskId === parentPillFocusTaskId ? parentPillFocusTaskId : null;
 
   // Navigation functions that use filtered/grouped tasks
   const selectNextTask = useCallback(() => {
@@ -477,6 +435,14 @@ export function ProjectTasks({ viewMode = 'kanban' }: ProjectTasksProps) {
     }
   }, [selectedTask, groupedFilteredTasks, handleViewTaskDetails]);
 
+  const handleParentNavigation = useCallback(
+    ({ parent }: { parent: { taskId: string; title: string } }) => {
+      if (!projectId) return;
+      navigateToTask(projectId, parent.taskId, { replace: false });
+    },
+    [projectId, navigateToTask]
+  );
+
   const handleDragEnd = useCallback(
     async (event: DragEndEvent) => {
       const { active, over } = event;
@@ -497,26 +463,16 @@ export function ProjectTasks({ viewMode = 'kanban' }: ProjectTasksProps) {
         });
         // UI will update via WebSocket stream
       } catch (err) {
-        setPageError('Failed to update task status');
+        console.error('Failed to update task status:', err);
       }
     },
     [tasksById]
   );
 
-  // Remove legacy direct-navigation handler; live sync above covers this
+  // Combine loading states for initial load
+  const isInitialTasksLoad = isLoading && tasks.length === 0;
 
-  const isInitialLoading = isLoading || isProjectLoading;
-  const projectErrorMessage = projectError
-    ? projectError instanceof Error
-      ? projectError.message
-      : String(projectError)
-    : null;
-  const combinedError = pageError ?? projectErrorMessage;
-  if (isInitialLoading) {
-    return <Loader message={t('loading')} size={32} className="py-8" />;
-  }
-
-  if (combinedError) {
+  if (projectError) {
     return (
       <div className="p-4">
         <Alert>
@@ -524,10 +480,16 @@ export function ProjectTasks({ viewMode = 'kanban' }: ProjectTasksProps) {
             <AlertTriangle size="16" />
             {t('common:states.error')}
           </AlertTitle>
-          <AlertDescription>{combinedError}</AlertDescription>
+          <AlertDescription>
+            {projectError.message || 'Failed to load project'}
+          </AlertDescription>
         </Alert>
       </div>
     );
+  }
+
+  if (projectLoading && isInitialTasksLoad) {
+    return <Loader message={t('loading')} size={32} className="py-8" />;
   }
 
   return (
@@ -572,37 +534,25 @@ export function ProjectTasks({ viewMode = 'kanban' }: ProjectTasksProps) {
             </div>
           ) : (
             <div className="w-full h-full">
-              {viewMode === 'kanban' ? (
-                <TaskKanbanBoard
-                  groupedTasks={groupedFilteredTasks}
-                  onDragEnd={handleDragEnd}
-                  onEditTask={handleEditTaskCallback}
-                  onDeleteTask={handleDeleteTask}
-                  onDuplicateTask={handleDuplicateTaskCallback}
-                  onViewTaskDetails={handleViewTaskDetails}
-                  selectedTask={selectedTask || undefined}
-                  onCreateTask={handleCreateNewTask}
-                  parentTasksById={parentTasksById}
-                  childTaskSummaryById={childTaskSummaryById}
-                  onParentClick={handleParentNavigate}
-                  focusParentPillId={focusParentPillId}
-                  onParentPillFocus={handleParentPillFocus}
-                />
-              ) : (
-                <TaskFlowView
-                  tasks={filteredTasks}
-                  tasksById={tasksById}
-                  onViewTaskDetails={handleViewTaskDetails}
-                  selectedTask={selectedTask || undefined}
-                  parentTasksById={parentTasksById}
-                />
-              )}
+              <TaskKanbanBoard
+                groupedTasks={groupedFilteredTasks}
+                onDragEnd={handleDragEnd}
+                onEditTask={handleEditTaskCallback}
+                onDeleteTask={handleDeleteTask}
+                onDuplicateTask={handleDuplicateTaskCallback}
+                onViewTaskDetails={handleViewTaskDetails}
+                selectedTask={selectedTask || undefined}
+                onCreateTask={handleCreateNewTask}
+                parentTasksById={parentTasksById}
+                childTaskSummaryById={childTaskSummaryById}
+                onParentClick={handleParentNavigation}
+              />
             </div>
           )}
         </div>
 
         {/* Right Column - Task Details Panel */}
-        {isPanelOpen && (
+        {isPanelOpen && !projectLoading && (
           <TaskDetailsPanel
             task={selectedTask}
             projectHasDevScript={!!project?.dev_script}

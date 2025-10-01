@@ -13,7 +13,6 @@ use ts_rs::TS;
 use workspace_utils::msg_store::MsgStore;
 
 use crate::{
-    actions::ExecutorSpawnContext,
     executors::{
         amp::Amp, claude::ClaudeCode, codex::Codex, cursor::Cursor, gemini::Gemini,
         opencode::Opencode, qwen::QwenCode,
@@ -137,14 +136,10 @@ impl CodingAgent {
 #[async_trait]
 #[enum_dispatch(CodingAgent)]
 pub trait StandardCodingAgentExecutor {
-    async fn spawn(
-        &self,
-        ctx: ExecutorSpawnContext<'_>,
-        prompt: &str,
-    ) -> Result<SpawnedChild, ExecutorError>;
+    async fn spawn(&self, current_dir: &Path, prompt: &str) -> Result<SpawnedChild, ExecutorError>;
     async fn spawn_follow_up(
         &self,
-        ctx: ExecutorSpawnContext<'_>,
+        current_dir: &Path,
         prompt: &str,
         session_id: &str,
     ) -> Result<SpawnedChild, ExecutorError>;

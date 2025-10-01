@@ -25,21 +25,18 @@ type UiAction =
   | { type: 'CREATE_PR_START' }
   | { type: 'CREATE_PR_DONE' }
   | { type: 'ENTER_CREATE_MODE' }
-  | { type: 'LEAVE_CREATE_MODE' }
-  | { type: 'SET_ERROR'; payload: string | null };
+  | { type: 'LEAVE_CREATE_MODE' };
 
 interface UiState {
   showCreatePRDialog: boolean;
   creatingPR: boolean;
   userForcedCreateMode: boolean;
-  error: string | null;
 }
 
 const initialUi: UiState = {
   showCreatePRDialog: false,
   creatingPR: false,
   userForcedCreateMode: false,
-  error: null,
 };
 
 function uiReducer(state: UiState, action: UiAction): UiState {
@@ -56,8 +53,6 @@ function uiReducer(state: UiState, action: UiAction): UiState {
       return { ...state, userForcedCreateMode: true };
     case 'LEAVE_CREATE_MODE':
       return { ...state, userForcedCreateMode: false };
-    case 'SET_ERROR':
-      return { ...state, error: action.payload };
     default:
       return state;
   }
@@ -97,7 +92,7 @@ function TaskDetailsToolbar({
   const [selectedBranch, setSelectedBranch] = useState<string | null>(null);
   const [selectedProfile, setSelectedProfile] =
     useState<ExecutorProfileId | null>(null);
-  const [parentBaseBranch, setParentBaseBranch] = useState<string | null>(null);
+  const [parentTargetBranch, setParentTargetBranch] = useState<string | null>(null);
   // const { attemptId: urlAttemptId } = useParams<{ attemptId?: string }>();
   const { system, profiles } = useUserSystem();
 
@@ -126,21 +121,21 @@ function TaskDetailsToolbar({
 
     // 2. Latest attempt's base branch (existing behavior for resume/rerun)
     if (
-      latestAttempt?.base_branch &&
-      branches.some((b: GitBranch) => b.name === latestAttempt.base_branch)
+      latestAttempt?.target_branch &&
+      branches.some((b: GitBranch) => b.name === latestAttempt.target_branch)
     ) {
-      return latestAttempt.base_branch;
+      return latestAttempt.target_branch;
     }
 
     // 3. Parent task attempt's base branch (NEW - for inherited tasks)
-    if (parentBaseBranch) {
-      return parentBaseBranch;
+    if (parentTargetBranch) {
+      return parentTargetBranch;
     }
 
     // 4. Fall back to current branch
     const currentBranch = branches.find((b) => b.is_current);
     return currentBranch?.name || null;
-  }, [latestAttempt, branches, selectedBranch, parentBaseBranch]);
+  }, [latestAttempt, branches, selectedBranch, parentTargetBranch]);
 
   const fetchProjectBranches = useCallback(async () => {
     const result = await projectsApi.getBranches(
@@ -171,10 +166,10 @@ function TaskDetailsToolbar({
     if (task.parent_task_attempt) {
       attemptsApi
         .get(task.parent_task_attempt)
-        .then((attempt) => setParentBaseBranch(attempt.branch))
-        .catch(() => setParentBaseBranch(null));
+        .then((attempt) => setParentTargetBranch(attempt.target_branch))
+        .catch(() => setParentTargetBranch(null));
     } else {
-      setParentBaseBranch(null);
+      setParentTargetBranch(null);
     }
   }, [task.parent_task_attempt]);
 
@@ -218,24 +213,9 @@ function TaskDetailsToolbar({
   );
 
   // Wrapper functions for UI state dispatch
-  const setError = useCallback(
-    (value: string | null | ((prev: string | null) => string | null)) => {
-      const errorValue = typeof value === 'function' ? value(ui.error) : value;
-      dispatch({ type: 'SET_ERROR', payload: errorValue });
-    },
-    [ui.error]
-  );
-
   return (
     <>
       <div>
-        {/* Error Display */}
-        {ui.error && (
-          <div className="mb-4 p-3 bg-red-50 border border-red-200">
-            <div className="text-destructive text-sm">{ui.error}</div>
-          </div>
-        )}
-
         {isInCreateAttemptMode ? (
           <CreateAttempt
             task={task}
@@ -265,11 +245,7 @@ function TaskDetailsToolbar({
                     projectHasDevScript={projectHasDevScript ?? false}
                     selectedAttempt={selectedAttempt}
                     taskAttempts={taskAttempts}
-                    selectedBranch={selectedBranch}
-                    setError={setError}
-                    creatingPR={ui.creatingPR}
                     handleEnterCreateAttemptMode={handleEnterCreateAttemptMode}
-                    branches={branches}
                     setSelectedAttempt={setSelectedAttempt}
                   />
                 ) : (

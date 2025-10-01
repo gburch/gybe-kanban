@@ -1,9 +1,11 @@
+use std::path::Path;
+
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use crate::{
-    actions::{Executable, ExecutorSpawnContext},
+    actions::Executable,
     executors::{ExecutorError, SpawnedChild, StandardCodingAgentExecutor},
     profile::{ExecutorConfigs, ExecutorProfileId},
 };
@@ -27,7 +29,7 @@ impl CodingAgentFollowUpRequest {
 
 #[async_trait]
 impl Executable for CodingAgentFollowUpRequest {
-    async fn spawn(&self, ctx: ExecutorSpawnContext<'_>) -> Result<SpawnedChild, ExecutorError> {
+    async fn spawn(&self, current_dir: &Path) -> Result<SpawnedChild, ExecutorError> {
         let executor_profile_id = self.get_executor_profile_id();
         let agent = ExecutorConfigs::get_cached()
             .get_coding_agent(&executor_profile_id)
@@ -36,7 +38,7 @@ impl Executable for CodingAgentFollowUpRequest {
             ))?;
 
         agent
-            .spawn_follow_up(ctx, &self.prompt, &self.session_id)
+            .spawn_follow_up(current_dir, &self.prompt, &self.session_id)
             .await
     }
 }

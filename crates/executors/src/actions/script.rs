@@ -1,3 +1,5 @@
+use std::path::Path;
+
 use async_trait::async_trait;
 use command_group::AsyncCommandGroup;
 use serde::{Deserialize, Serialize};
@@ -6,7 +8,7 @@ use ts_rs::TS;
 use workspace_utils::shell::get_shell_command;
 
 use crate::{
-    actions::{Executable, ExecutorSpawnContext},
+    actions::Executable,
     executors::{ExecutorError, SpawnedChild},
 };
 
@@ -31,7 +33,7 @@ pub struct ScriptRequest {
 
 #[async_trait]
 impl Executable for ScriptRequest {
-    async fn spawn(&self, ctx: ExecutorSpawnContext<'_>) -> Result<SpawnedChild, ExecutorError> {
+    async fn spawn(&self, current_dir: &Path) -> Result<SpawnedChild, ExecutorError> {
         let (shell_cmd, shell_arg) = get_shell_command();
         let mut command = Command::new(shell_cmd);
         command
@@ -40,9 +42,7 @@ impl Executable for ScriptRequest {
             .stderr(std::process::Stdio::piped())
             .arg(shell_arg)
             .arg(&self.script)
-            .current_dir(ctx.current_dir);
-
-        ctx.apply_environment(&mut command);
+            .current_dir(current_dir);
 
         let child = command.group_spawn()?;
 

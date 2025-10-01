@@ -8,7 +8,6 @@ use workspace_utils::msg_store::MsgStore;
 
 pub use super::acp::AcpAgentHarness;
 use crate::{
-    actions::ExecutorSpawnContext,
     command::{CmdOverrides, CommandBuilder, apply_overrides},
     executors::{AppendPrompt, ExecutorError, SpawnedChild, StandardCodingAgentExecutor},
 };
@@ -63,22 +62,18 @@ impl Gemini {
 
 #[async_trait]
 impl StandardCodingAgentExecutor for Gemini {
-    async fn spawn(
-        &self,
-        ctx: ExecutorSpawnContext<'_>,
-        prompt: &str,
-    ) -> Result<SpawnedChild, ExecutorError> {
+    async fn spawn(&self, current_dir: &Path, prompt: &str) -> Result<SpawnedChild, ExecutorError> {
         let harness = AcpAgentHarness::new();
         let combined_prompt = self.append_prompt.combine_prompt(prompt);
         let gemini_command = self.build_command_builder().build_initial();
         harness
-            .spawn_with_command(ctx, combined_prompt, gemini_command)
+            .spawn_with_command(current_dir, combined_prompt, gemini_command)
             .await
     }
 
     async fn spawn_follow_up(
         &self,
-        ctx: ExecutorSpawnContext<'_>,
+        current_dir: &Path,
         prompt: &str,
         session_id: &str,
     ) -> Result<SpawnedChild, ExecutorError> {
@@ -86,7 +81,7 @@ impl StandardCodingAgentExecutor for Gemini {
         let combined_prompt = self.append_prompt.combine_prompt(prompt);
         let gemini_command = self.build_command_builder().build_follow_up(&[]);
         harness
-            .spawn_follow_up_with_command(ctx, combined_prompt, session_id, gemini_command)
+            .spawn_follow_up_with_command(current_dir, combined_prompt, session_id, gemini_command)
             .await
     }
 

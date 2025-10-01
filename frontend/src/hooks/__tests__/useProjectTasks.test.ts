@@ -1,9 +1,10 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { renderHook } from '@testing-library/react';
+import { renderHook, waitFor } from '@testing-library/react';
 import { useProjectTasks } from '@/hooks/useProjectTasks';
-import type { TaskStatus, TaskWithAttemptStatus } from 'shared/types';
+import type { TaskStatus, TaskWithAttemptStatus, TaskAttempt } from 'shared/types';
 
 const mockUseJsonPatchWsStream = vi.fn();
+const mockAttemptsApiGet = vi.fn();
 
 vi.mock('@/hooks/useJsonPatchWsStream', () => ({
   useJsonPatchWsStream: (
@@ -13,14 +14,18 @@ vi.mock('@/hooks/useJsonPatchWsStream', () => ({
   ) => mockUseJsonPatchWsStream(endpoint, enabled, initialData),
 }));
 
+vi.mock('@/lib/api', () => ({
+  attemptsApi: {
+    get: (attemptId: string) => mockAttemptsApiGet(attemptId),
+  },
+}));
+
 describe('useProjectTasks', () => {
   const baseTask = (overrides: Partial<TaskWithAttemptStatus>): TaskWithAttemptStatus => ({
     has_in_progress_attempt: false,
     has_merged_attempt: false,
     last_attempt_failed: false,
     executor: 'agent',
-    parent_task_id: null,
-    child_task_count: BigInt(0),
     id: 'task-id',
     project_id: 'project-1',
     title: 'Task title',
@@ -34,21 +39,37 @@ describe('useProjectTasks', () => {
 
   beforeEach(() => {
     mockUseJsonPatchWsStream.mockReset();
+    mockAttemptsApiGet.mockReset();
   });
 
-  it('resolves parent metadata when the parent task exists in the payload', () => {
+  it('resolves parent metadata via parent task attempt lookups', async () => {
     const parentTask = baseTask({
       id: 'parent-1',
       title: 'Parent task',
-      status: 'inprogress' as TaskStatus,
+      status: 'inreview' as TaskStatus,
     });
 
     const childTask = baseTask({
       id: 'child-1',
       title: 'Child task',
-      parent_task_id: 'parent-1',
+      parent_task_attempt: 'attempt-123',
       created_at: new Date('2024-02-01T00:00:00Z').toISOString(),
     });
+
+    const attemptStub: TaskAttempt = {
+      id: 'attempt-123',
+      task_id: parentTask.id,
+      container_ref: null,
+      branch: 'feature/child',
+      target_branch: 'main',
+      executor: 'executor',
+      worktree_deleted: false,
+      setup_completed_at: null,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+
+    mockAttemptsApiGet.mockResolvedValue(attemptStub);
 
     mockUseJsonPatchWsStream.mockReturnValue({
       data: { tasks: { [parentTask.id]: parentTask, [childTask.id]: childTask } },
@@ -58,11 +79,14 @@ describe('useProjectTasks', () => {
 
     const { result } = renderHook(() => useProjectTasks('project-1'));
 
-    expect(result.current.parentTasksById[childTask.id]).toEqual({
-      id: parentTask.id,
-      title: parentTask.title,
-      status: parentTask.status,
+    await waitFor(() => {
+      expect(result.current.parentTasksById[childTask.id]).toEqual({
+        id: parentTask.id,
+        title: parentTask.title,
+        status: parentTask.status,
+      });
     });
+
     expect(result.current.getParentTask(childTask.id)).toEqual({
       id: parentTask.id,
       title: parentTask.title,
@@ -71,18 +95,72 @@ describe('useProjectTasks', () => {
     expect(result.current.getParentTask(parentTask.id)).toBeNull();
   });
 
-  it('returns null when the parent is not present in the payload', () => {
-    const orphanTask = baseTask({ id: 'orphan-1', parent_task_id: 'missing-1' });
+  it('computes child task summaries for parent tasks', async () => {
+    const parentTask = baseTask({ id: 'parent-1', title: 'Parent task' });
+    const childTodo = baseTask({
+      id: 'child-todo',
+      title: 'Child todo',
+      parent_task_attempt: 'attempt-todo',
+    });
+    const childDone = baseTask({
+      id: 'child-done',
+      title: 'Child done',
+      status: 'done' as TaskStatus,
+      parent_task_attempt: 'attempt-done',
+    });
+
+    const attemptStubs: Record<string, TaskAttempt> = {
+      'attempt-todo': {
+        id: 'attempt-todo',
+        task_id: parentTask.id,
+        container_ref: null,
+        branch: 'feature/a',
+        target_branch: 'main',
+        executor: 'executor',
+        worktree_deleted: false,
+        setup_completed_at: null,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      },
+      'attempt-done': {
+        id: 'attempt-done',
+        task_id: parentTask.id,
+        container_ref: null,
+        branch: 'feature/b',
+        target_branch: 'main',
+        executor: 'executor',
+        worktree_deleted: false,
+        setup_completed_at: null,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      },
+    };
+
+    mockAttemptsApiGet.mockImplementation((attemptId: string) =>
+      Promise.resolve(attemptStubs[attemptId])
+    );
 
     mockUseJsonPatchWsStream.mockReturnValue({
-      data: { tasks: { [orphanTask.id]: orphanTask } },
+      data: {
+        tasks: {
+          [parentTask.id]: parentTask,
+          [childTodo.id]: childTodo,
+          [childDone.id]: childDone,
+        },
+      },
       isConnected: true,
       error: null,
     });
 
     const { result } = renderHook(() => useProjectTasks('project-1'));
 
-    expect(result.current.parentTasksById[orphanTask.id]).toBeNull();
-    expect(result.current.getParentTask(orphanTask.id)).toBeNull();
+    await waitFor(() => {
+      expect(result.current.childTaskSummaryById[parentTask.id]).toEqual({
+        complete: 1,
+        inProgress: 0,
+        notStarted: 1,
+        total: 2,
+      });
+    });
   });
 });

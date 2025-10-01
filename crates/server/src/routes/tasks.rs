@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::path::PathBuf;
 
 use anyhow;
@@ -15,10 +14,8 @@ use axum::{
 };
 use db::models::{
     image::TaskImage,
-    project_repository::ProjectRepository,
     task::{CreateTask, Task, TaskWithAttemptStatus, UpdateTask},
-    task_attempt::{CreateTaskAttempt, CreateTaskAttemptRepository, TaskAttempt},
-    task_attempt_repository::TaskAttemptRepository,
+    task_attempt::{CreateTaskAttempt, TaskAttempt},
 };
 use deployment::Deployment;
 use executors::profile::ExecutorProfileId;
@@ -32,7 +29,6 @@ use ts_rs::TS;
 use utils::response::ApiResponse;
 use uuid::Uuid;
 
-use super::task_attempts::AttemptRepositorySelection;
 use crate::{DeploymentImpl, error::ApiError, middleware::load_task_middleware};
 
 #[derive(Debug, Deserialize)]
@@ -117,15 +113,6 @@ pub async fn create_task(
         payload.project_id
     );
 
-    if let Some(parent_attempt_id) = payload.parent_task_attempt {
-        TaskAttempt::ensure_active_for_project(
-            &deployment.db().pool,
-            parent_attempt_id,
-            payload.project_id,
-        )
-        .await?;
-    }
-
     let task = Task::create(&deployment.db().pool, &payload, id).await?;
 
     if let Some(image_ids) = &payload.image_ids {
@@ -152,23 +139,12 @@ pub struct CreateAndStartTaskRequest {
     pub task: CreateTask,
     pub executor_profile_id: ExecutorProfileId,
     pub base_branch: String,
-    #[serde(default)]
-    pub repositories: Vec<AttemptRepositorySelection>,
 }
 
 pub async fn create_task_and_start(
     State(deployment): State<DeploymentImpl>,
     Json(payload): Json<CreateAndStartTaskRequest>,
 ) -> Result<ResponseJson<ApiResponse<TaskWithAttemptStatus>>, ApiError> {
-    if let Some(parent_attempt_id) = payload.task.parent_task_attempt {
-        TaskAttempt::ensure_active_for_project(
-            &deployment.db().pool,
-            parent_attempt_id,
-            payload.task.project_id,
-        )
-        .await?;
-    }
-
     let task_id = Uuid::new_v4();
     let task = Task::create(&deployment.db().pool, &payload.task, task_id).await?;
 
@@ -187,24 +163,8 @@ pub async fn create_task_and_start(
             }),
         )
         .await;
-
-    let repository_links = if payload.repositories.is_empty() {
-        None
-    } else {
-        Some(
-            payload
-                .repositories
-                .iter()
-                .map(|repo| CreateTaskAttemptRepository {
-                    project_repository_id: repo.project_repository_id,
-                    is_primary: repo.is_primary,
-                })
-                .collect::<Vec<_>>(),
-        )
-    };
-
     let attempt_id = Uuid::new_v4();
-    let branch_name = deployment
+    let git_branch_name = deployment
         .container()
         .git_branch_from_task_attempt(&attempt_id, &task.title);
 
@@ -213,8 +173,7 @@ pub async fn create_task_and_start(
         &CreateTaskAttempt {
             executor: payload.executor_profile_id.executor,
             base_branch: payload.base_branch,
-            branch: branch_name,
-            repositories: repository_links,
+            branch: git_branch_name,
         },
         attempt_id,
         task.id,
@@ -246,10 +205,7 @@ pub async fn create_task_and_start(
         has_in_progress_attempt: true,
         has_merged_attempt: false,
         last_attempt_failed: false,
-        has_running_dev_server: false,
         executor: task_attempt.executor,
-        parent_task_id: None,
-        child_task_count: 0,
     })))
 }
 
@@ -269,15 +225,6 @@ pub async fn update_task(
     let parent_task_attempt = payload
         .parent_task_attempt
         .or(existing_task.parent_task_attempt);
-
-    if let Some(parent_attempt_id) = payload.parent_task_attempt {
-        TaskAttempt::ensure_active_for_project(
-            &deployment.db().pool,
-            parent_attempt_id,
-            existing_task.project_id,
-        )
-        .await?;
-    }
 
     let task = Task::update(
         &deployment.db().pool,
@@ -325,61 +272,19 @@ pub async fn delete_task(
         .await?
         .ok_or_else(|| ApiError::Database(SqlxError::RowNotFound))?;
 
-    let project_repositories =
-        ProjectRepository::list_for_project(&deployment.db().pool, project.id)
-            .await
-            .map_err(|e| {
-                tracing::error!(
-                    "Failed to load project repositories for project {}: {}",
-                    project.id,
-                    e
-                );
-                ApiError::Database(e)
-            })?;
-
-    let repo_lookup: HashMap<Uuid, PathBuf> = project_repositories
-        .into_iter()
-        .map(|repo| (repo.id, repo.git_repo_path))
+    let cleanup_data: Vec<WorktreeCleanupData> = attempts
+        .iter()
+        .filter_map(|attempt| {
+            attempt
+                .container_ref
+                .as_ref()
+                .map(|worktree_path| WorktreeCleanupData {
+                    attempt_id: attempt.id,
+                    worktree_path: PathBuf::from(worktree_path),
+                    git_repo_path: Some(project.git_repo_path.clone()),
+                })
+        })
         .collect();
-
-    let mut cleanup_data: Vec<WorktreeCleanupData> = Vec::new();
-    for attempt in &attempts {
-        match TaskAttemptRepository::list_for_attempt(&deployment.db().pool, attempt.id).await {
-            Ok(repo_entries) => {
-                for repo_entry in repo_entries {
-                    let container_path = repo_entry.container_ref.clone().or_else(|| {
-                        if repo_entry.is_primary {
-                            attempt.container_ref.clone()
-                        } else {
-                            None
-                        }
-                    });
-
-                    let Some(container_ref) = container_path else {
-                        continue;
-                    };
-
-                    let git_repo_path = repo_lookup
-                        .get(&repo_entry.project_repository_id)
-                        .cloned()
-                        .or_else(|| Some(project.git_repo_path.clone()));
-
-                    cleanup_data.push(WorktreeCleanupData {
-                        attempt_id: attempt.id,
-                        worktree_path: PathBuf::from(container_ref),
-                        git_repo_path,
-                    });
-                }
-            }
-            Err(e) => {
-                tracing::warn!(
-                    "Failed to load attempt repositories for attempt {}: {}",
-                    attempt.id,
-                    e
-                );
-            }
-        }
-    }
 
     // Delete task from database (FK CASCADE will handle task_attempts)
     let rows_affected = Task::delete(&deployment.db().pool, task.id).await?;

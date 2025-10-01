@@ -349,9 +349,13 @@ impl ExecutionProcess {
         .fetch_one(pool)
         .await
     }
-    pub async fn was_killed(pool: &SqlitePool, id: Uuid) -> bool {
+
+    pub async fn was_stopped(pool: &SqlitePool, id: Uuid) -> bool {
         if let Ok(exp_process) = Self::find_by_id(pool, id).await
-            && exp_process.is_some_and(|ep| ep.status == ExecutionProcessStatus::Killed)
+            && exp_process.is_some_and(|ep| {
+                ep.status == ExecutionProcessStatus::Killed
+                    || ep.status == ExecutionProcessStatus::Completed
+            })
         {
             return true;
         }
@@ -536,21 +540,6 @@ impl ExecutionProcess {
             task_attempt,
             task,
         })
-    }
-
-    /// Require latest session_id for a task attempt; error if none exists
-    pub async fn require_latest_session_id(
-        pool: &SqlitePool,
-        attempt_id: Uuid,
-    ) -> Result<String, ExecutionProcessError> {
-        Self::find_latest_session_id_by_task_attempt(pool, attempt_id)
-            .await?
-            .ok_or_else(|| {
-                ExecutionProcessError::ValidationError(
-                    "Couldn't find a prior session_id, please create a new task attempt"
-                        .to_string(),
-                )
-            })
     }
 
     /// Fetch the latest CodingAgent executor profile for a task attempt

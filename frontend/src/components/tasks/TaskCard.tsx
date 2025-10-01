@@ -268,13 +268,6 @@ export function TaskCard({
           </span>
         </div>
       )}
-      {task.has_running_dev_server && (
-        <div
-          className="absolute bottom-2 right-2 h-2 w-2 rounded-full bg-red-500 animate-pulse"
-          title="Dev server running"
-          aria-label="Dev server running"
-        />
-      )}
     </KanbanCard>
   );
 }

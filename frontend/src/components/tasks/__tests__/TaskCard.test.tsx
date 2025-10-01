@@ -19,8 +19,6 @@ const baseTask = (): TaskWithAttemptStatus => ({
   has_merged_attempt: false,
   last_attempt_failed: false,
   executor: 'executor',
-  parent_task_id: null,
-  child_task_count: 0n,
 });
 
 const renderWithDnd = (ui: ReactNode) =>

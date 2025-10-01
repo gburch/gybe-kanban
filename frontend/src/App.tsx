@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom';
+import { useEffect } from 'react';
+import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { I18nextProvider } from 'react-i18next';
 import i18n from '@/i18n';
 import { Navbar } from '@/components/layout/navbar';
@@ -22,6 +22,7 @@ import {
 import { ThemeProvider } from '@/components/theme-provider';
 import { SearchProvider } from '@/contexts/search-context';
 import { KeyboardShortcutsProvider } from '@/contexts/keyboard-shortcuts-context';
+
 import { ShortcutsHelp } from '@/components/shortcuts-help';
 import { HotkeysProvider } from 'react-hotkeys-hook';
 
@@ -35,14 +36,13 @@ import { WebviewContextMenu } from '@/vscode/ContextMenu';
 import { DevBanner } from '@/components/DevBanner';
 import NiceModal from '@ebay/nice-modal-react';
 import { OnboardingResult } from './components/dialogs/global/OnboardingDialog';
+import { ClickedElementsProvider } from './contexts/ClickedElementsProvider';
 
 const SentryRoutes = Sentry.withSentryReactRouterV6Routing(Routes);
 
 function AppContent() {
   const { config, updateAndSaveConfig, loading } = useUserSystem();
   const { isFullscreen } = useTaskViewManager();
-  const [viewMode, setViewMode] = useState<'kanban' | 'flow'>('kanban');
-  const location = useLocation();
 
   usePreventInputZoom();
 
@@ -50,9 +50,6 @@ function AppContent() {
   usePreviousPath();
 
   const showNavbar = !isFullscreen;
-
-  // Show view toggle only on task pages
-  const isTaskPage = location.pathname.includes('/tasks');
 
   useEffect(() => {
     let cancelled = false;
@@ -160,12 +157,7 @@ function AppContent() {
               <WebviewContextMenu />
 
               {showNavbar && <DevBanner />}
-              {showNavbar && (
-                <Navbar
-                  viewMode={isTaskPage ? viewMode : undefined}
-                  onViewModeChange={isTaskPage ? setViewMode : undefined}
-                />
-              )}
+              {showNavbar && <Navbar />}
               <div className="flex-1 h-full overflow-y-scroll">
                 <SentryRoutes>
                   <Route path="/" element={<Projects />} />
@@ -173,23 +165,23 @@ function AppContent() {
                   <Route path="/projects/:projectId" element={<Projects />} />
                   <Route
                     path="/projects/:projectId/tasks"
-                    element={<ProjectTasks viewMode={viewMode} />}
+                    element={<ProjectTasks />}
                   />
                   <Route
                     path="/projects/:projectId/tasks/:taskId/attempts/:attemptId"
-                    element={<ProjectTasks viewMode={viewMode} />}
+                    element={<ProjectTasks />}
                   />
                   <Route
                     path="/projects/:projectId/tasks/:taskId/attempts/:attemptId/full"
-                    element={<ProjectTasks viewMode={viewMode} />}
+                    element={<ProjectTasks />}
                   />
                   <Route
                     path="/projects/:projectId/tasks/:taskId/full"
-                    element={<ProjectTasks viewMode={viewMode} />}
+                    element={<ProjectTasks />}
                   />
                   <Route
                     path="/projects/:projectId/tasks/:taskId"
-                    element={<ProjectTasks viewMode={viewMode} />}
+                    element={<ProjectTasks />}
                   />
                   <Route path="/settings/*" element={<SettingsLayout />}>
                     <Route index element={<Navigate to="general" replace />} />
@@ -217,15 +209,17 @@ function App() {
   return (
     <BrowserRouter>
       <UserSystemProvider>
-        <ProjectProvider>
-          <HotkeysProvider initiallyActiveScopes={['*', 'global', 'kanban']}>
-            <KeyboardShortcutsProvider>
-              <NiceModal.Provider>
-                <AppContent />
-              </NiceModal.Provider>
-            </KeyboardShortcutsProvider>
-          </HotkeysProvider>
-        </ProjectProvider>
+        <ClickedElementsProvider>
+          <ProjectProvider>
+            <HotkeysProvider initiallyActiveScopes={['*', 'global', 'kanban']}>
+              <KeyboardShortcutsProvider>
+                <NiceModal.Provider>
+                  <AppContent />
+                </NiceModal.Provider>
+              </KeyboardShortcutsProvider>
+            </HotkeysProvider>
+          </ProjectProvider>
+        </ClickedElementsProvider>
       </UserSystemProvider>
     </BrowserRouter>
   );

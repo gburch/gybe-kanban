@@ -1,4 +1,3 @@
-import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
 import MarkdownRenderer from '@/components/ui/markdown-renderer.tsx';
 import {
@@ -402,12 +401,7 @@ const PlanPresentationCard: React.FC<{
         </button>
 
         {expanded && (
-          <div
-            className={cn(
-              'px-3 py-2 max-h-[50vh] overflow-y-auto',
-              tone.contentBg
-            )}
-          >
+          <div className={cn('px-3 py-2', tone.contentBg)}>
             <div className={cn('text-sm', tone.contentText)}>
               <MarkdownRenderer
                 content={plan}
@@ -773,14 +767,4 @@ function DisplayConversationEntry({
   );
 }
 
-// Memoize to prevent unnecessary re-renders during log streaming
-export default memo(DisplayConversationEntry, (prevProps, nextProps) => {
-  // Re-render only if entry content or expansion key changes
-  return (
-    prevProps.expansionKey === nextProps.expansionKey &&
-    prevProps.entry === nextProps.entry &&
-    prevProps.diffDeletable === nextProps.diffDeletable &&
-    prevProps.executionProcessId === nextProps.executionProcessId &&
-    prevProps.taskAttempt?.id === nextProps.taskAttempt?.id
-  );
-});
+export default DisplayConversationEntry;

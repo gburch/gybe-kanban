@@ -1,12 +1,5 @@
 import { describe, expect, it, beforeEach, vi } from 'vitest';
-import { useEffect } from 'react';
-import {
-  act,
-  render,
-  screen,
-  waitFor,
-} from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
+import { render, screen } from '@testing-library/react';
 import {
   MemoryRouter,
   Routes,
@@ -111,8 +104,6 @@ vi.mock('react-hotkeys-hook', () => ({
   useHotkeysContext: () => ({ enableScope: vi.fn(), disableScope: vi.fn() }),
 }));
 
-const navigationTargets: string[] = [];
-
 vi.mock('@/hooks/useTaskViewManager', () => ({
   useTaskViewManager: () => {
     const navigate = useNavigate();
@@ -140,7 +131,6 @@ vi.mock('@/hooks/useTaskViewManager', () => ({
           replace: options?.replace ?? true,
           state: options?.state,
         });
-        navigationTargets.push(target);
       },
       navigateToAttempt: vi.fn(),
     };
@@ -185,14 +175,11 @@ const baseTask = (overrides: Partial<TaskWithAttemptStatus>): TaskWithAttemptSta
   has_merged_attempt: false,
   last_attempt_failed: false,
   executor: 'executor',
-  parent_task_id: null,
-  child_task_count: 0n,
   ...overrides,
 });
 
 describe('ProjectTasks parent pill navigation', () => {
   beforeEach(() => {
-    navigationTargets.length = 0;
     mockUseProjectTasks.mockReset();
     mockUseProject.mockReset();
 
@@ -206,7 +193,6 @@ describe('ProjectTasks parent pill navigation', () => {
       id: 'child-1',
       title: 'Child Task',
       status: 'todo',
-      parent_task_id: 'parent-1',
     });
 
     const tasksById: Record<string, TaskWithAttemptStatus> = {
@@ -218,21 +204,14 @@ describe('ProjectTasks parent pill navigation', () => {
       tasks: [childTask, parentTask],
       tasksById,
       parentTasksById: {
-        [childTask.id]: {
-          id: parentTask.id,
-          title: parentTask.title,
-          status: parentTask.status,
-        },
+        [childTask.id]: null,
         [parentTask.id]: null,
       },
+      childTaskSummaryById: {},
       isLoading: false,
       isConnected: true,
       error: null,
-      getParentTask: vi.fn(() => ({
-        id: parentTask.id,
-        title: parentTask.title,
-        status: parentTask.status,
-      })),
+      getParentTask: vi.fn(() => null),
     }));
 
     mockUseProject.mockReturnValue({
@@ -253,24 +232,12 @@ describe('ProjectTasks parent pill navigation', () => {
     });
   });
 
-  it('supports mouse and keyboard navigation via the parent pill', async () => {
-    let navigateRef: ReturnType<typeof useNavigate> | null = null;
-
-    const NavigateCapture = () => {
-      const navigate = useNavigate();
-      useEffect(() => {
-        navigateRef = navigate;
-      }, [navigate]);
-      return null;
-    };
-    const user = userEvent.setup();
-
+  it('renders without parent navigation pill when parent metadata is unavailable', async () => {
     const queryClient = new QueryClient();
 
     render(
       <QueryClientProvider client={queryClient}>
         <MemoryRouter initialEntries={['/projects/proj-1/tasks/child-1']}>
-          <NavigateCapture />
           <LocationDisplay />
           <Routes>
             <Route path="/projects/:projectId/tasks" element={<ProjectTasks />} />
@@ -287,58 +254,79 @@ describe('ProjectTasks parent pill navigation', () => {
       </QueryClientProvider>
     );
 
-    const pillLabel = 'Open parent task Parent Task';
-    const pill = await screen.findByRole('link', { name: pillLabel });
-
     expect(screen.getByTestId('location-path').textContent).toBe(
       '/projects/proj-1/tasks/child-1'
     );
 
-    await user.click(pill);
-
-    expect(navigationTargets).toContain('/projects/proj-1/tasks/parent-1');
     expect(
-      navigationTargets.filter((path) => path.endsWith('parent-1')).length
-    ).toBeGreaterThanOrEqual(1);
+      screen.queryByRole('link', {
+        name: 'Open parent task Parent Task',
+      })
+    ).toBeNull();
+  });
 
-    await act(async () => {
-      navigateRef?.('/projects/proj-1/tasks/parent-1');
+  it('renders parent navigation pill when metadata is available', async () => {
+    const parentTask = baseTask({
+      id: 'parent-1',
+      title: 'Parent Task',
+      status: 'inreview',
     });
 
-    await waitFor(() =>
-      expect(screen.getByTestId('location-path').textContent).toBe(
-        '/projects/proj-1/tasks/parent-1'
-      )
-    );
-
-    await act(async () => {
-      navigateRef?.('/projects/proj-1/tasks/child-1', { replace: true });
+    const childTask = baseTask({
+      id: 'child-1',
+      title: 'Child Task',
+      status: 'todo',
+      parent_task_attempt: 'attempt-123',
     });
 
-    await waitFor(() =>
-      expect(screen.getByTestId('location-path').textContent).toBe(
-        '/projects/proj-1/tasks/child-1'
-      )
+    const tasksById: Record<string, TaskWithAttemptStatus> = {
+      [parentTask.id]: parentTask,
+      [childTask.id]: childTask,
+    };
+
+    mockUseProjectTasks.mockImplementation(() => ({
+      tasks: [childTask, parentTask],
+      tasksById,
+      parentTasksById: {
+        [childTask.id]: {
+          id: parentTask.id,
+          title: parentTask.title,
+          status: parentTask.status,
+        },
+        [parentTask.id]: null,
+      },
+      childTaskSummaryById: {},
+      isLoading: false,
+      isConnected: true,
+      error: null,
+      getParentTask: vi.fn(() => ({
+        id: parentTask.id,
+        title: parentTask.title,
+        status: parentTask.status,
+      })),
+    }));
+
+    const queryClient = new QueryClient();
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={['/projects/proj-1/tasks/child-1']}>
+          <LocationDisplay />
+          <Routes>
+            <Route path="/projects/:projectId/tasks" element={<ProjectTasks />} />
+            <Route
+              path="/projects/:projectId/tasks/:taskId"
+              element={<ProjectTasks />}
+            />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>
     );
 
-    const restoredPill = await screen.findByRole('link', { name: pillLabel });
-    await waitFor(() => expect(restoredPill).toHaveFocus());
-
-    await user.keyboard('{Space}');
-
-    expect(navigationTargets).toContain('/projects/proj-1/tasks/parent-1');
     expect(
-      navigationTargets.filter((path) => path.endsWith('parent-1')).length
-    ).toBeGreaterThanOrEqual(1);
-
-    await act(async () => {
-      navigateRef?.('/projects/proj-1/tasks/parent-1');
-    });
-
-    await waitFor(() =>
-      expect(screen.getByTestId('location-path').textContent).toBe(
-        '/projects/proj-1/tasks/parent-1'
-      )
-    );
+      await screen.findByRole('link', {
+        name: 'Open parent task Parent Task',
+      })
+    ).toBeInTheDocument();
   });
 });

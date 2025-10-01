@@ -1,6 +1,7 @@
-import { useCallback, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useJsonPatchWsStream } from './useJsonPatchWsStream';
-import type { TaskWithAttemptStatus } from 'shared/types';
+import { attemptsApi } from '@/lib/api';
+import type { TaskAttempt, TaskWithAttemptStatus } from 'shared/types';
 
 type TasksState = {
   tasks: Record<string, TaskWithAttemptStatus>;
@@ -28,7 +29,7 @@ interface UseProjectTasksResult {
   error: string | null;
   /**
    * Lookup helper for parent metadata; returns null when the parent is missing
-   * from the current websocket payload.
+   * from the cached websocket payload.
    */
   getParentTask: (taskId: string) => ParentTaskSummary | null;
 }
@@ -56,19 +57,68 @@ export const useProjectTasks = (projectId: string): UseProjectTasksResult => {
       new Date(a.created_at as unknown as string).getTime()
   );
 
+  const [parentAttemptMap, setParentAttemptMap] = useState<Record<string, string | null>>({});
+
+  useEffect(() => {
+    const attemptIds = Object.values(tasksById)
+      .map((task) => task.parent_task_attempt)
+      .filter((attemptId): attemptId is string => Boolean(attemptId));
+
+    const missingAttemptIds = Array.from(new Set(attemptIds)).filter(
+      (attemptId) => parentAttemptMap[attemptId] === undefined
+    );
+
+    if (missingAttemptIds.length === 0) {
+      return;
+    }
+
+    let cancelled = false;
+
+    const fetchParentAttempts = async () => {
+      const updates: Record<string, string | null> = {};
+
+      await Promise.all(
+        missingAttemptIds.map(async (attemptId) => {
+          try {
+            const attempt: TaskAttempt = await attemptsApi.get(attemptId);
+            updates[attemptId] = attempt.task_id;
+          } catch (err) {
+            console.error('Failed to load parent attempt', attemptId, err);
+            updates[attemptId] = null;
+          }
+        })
+      );
+
+      if (!cancelled) {
+        setParentAttemptMap((prev) => ({ ...prev, ...updates }));
+      }
+    };
+
+    fetchParentAttempts();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [tasksById, parentAttemptMap]);
+
   const parentTasksById = useMemo(() => {
     const lookup: Record<string, ParentTaskSummary | null> = {};
 
     for (const [taskId, task] of Object.entries(tasksById)) {
-      const parentId = task.parent_task_id;
+      const parentAttemptId = task.parent_task_attempt;
 
-      if (!parentId) {
+      if (!parentAttemptId) {
         lookup[taskId] = null;
         continue;
       }
 
-      const parentTask = tasksById[parentId];
+      const parentTaskId = parentAttemptMap[parentAttemptId];
+      if (!parentTaskId) {
+        lookup[taskId] = null;
+        continue;
+      }
 
+      const parentTask = tasksById[parentTaskId];
       if (!parentTask) {
         lookup[taskId] = null;
         continue;
@@ -82,7 +132,7 @@ export const useProjectTasks = (projectId: string): UseProjectTasksResult => {
     }
 
     return lookup;
-  }, [tasksById]);
+  }, [tasksById, parentAttemptMap]);
 
   const childTaskSummaryById = useMemo(() => {
     const summary: Record<string, ChildTaskSummary> = {};
@@ -100,12 +150,17 @@ export const useProjectTasks = (projectId: string): UseProjectTasksResult => {
     };
 
     for (const task of Object.values(tasksById)) {
-      const parentId = task.parent_task_id;
-      if (!parentId) {
+      const parentAttemptId = task.parent_task_attempt;
+      if (!parentAttemptId) {
         continue;
       }
 
-      const parentSummary = ensureSummary(parentId);
+      const parentTaskId = parentAttemptMap[parentAttemptId];
+      if (!parentTaskId) {
+        continue;
+      }
+
+      const parentSummary = ensureSummary(parentTaskId);
       parentSummary.total += 1;
 
       if (task.status === 'done') {
@@ -122,16 +177,13 @@ export const useProjectTasks = (projectId: string): UseProjectTasksResult => {
     }
 
     return summary;
-  }, [tasksById]);
+  }, [tasksById, parentAttemptMap]);
 
-  /**
-   * Resolve parent metadata for a task id. Returns null when the parent task
-   * is absent from the current websocket snapshot.
-   */
   const getParentTask = useCallback(
     (taskId: string): ParentTaskSummary | null => parentTasksById[taskId] ?? null,
     [parentTasksById]
   );
+
   const isLoading = !data && !error; // until first snapshot
 
   return {

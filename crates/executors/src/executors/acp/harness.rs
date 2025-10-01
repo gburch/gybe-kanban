@@ -1,4 +1,8 @@
-use std::{path::PathBuf, process::Stdio, sync::Arc};
+use std::{
+    path::{Path, PathBuf},
+    process::Stdio,
+    sync::Arc,
+};
 
 use agent_client_protocol as proto;
 use agent_client_protocol::Agent as _;
@@ -10,10 +14,7 @@ use tracing::error;
 use workspace_utils::shell::get_shell_command;
 
 use super::{AcpClient, SessionManager};
-use crate::{
-    actions::ExecutorSpawnContext,
-    executors::{ExecutorError, SpawnedChild, acp::AcpEvent},
-};
+use crate::executors::{ExecutorError, SpawnedChild, acp::AcpEvent};
 
 /// Reusable harness for ACP-based conns (Gemini, Qwen, etc.)
 pub struct AcpAgentHarness {
@@ -44,7 +45,7 @@ impl AcpAgentHarness {
 
     pub async fn spawn_with_command(
         &self,
-        ctx: ExecutorSpawnContext<'_>,
+        current_dir: &Path,
         prompt: String,
         full_command: String,
     ) -> Result<SpawnedChild, ExecutorError> {
@@ -55,19 +56,17 @@ impl AcpAgentHarness {
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
-            .current_dir(ctx.current_dir)
+            .current_dir(current_dir)
             .arg(shell_arg)
             .arg(full_command)
             .env("NODE_NO_WARNINGS", "1");
-
-        ctx.apply_environment(&mut command);
 
         let mut child = command.group_spawn()?;
 
         let (exit_tx, exit_rx) = tokio::sync::oneshot::channel::<()>();
         Self::bootstrap_acp_connection(
             &mut child,
-            ctx.current_dir.to_path_buf(),
+            current_dir.to_path_buf(),
             None,
             prompt,
             Some(exit_tx),
@@ -83,7 +82,7 @@ impl AcpAgentHarness {
 
     pub async fn spawn_follow_up_with_command(
         &self,
-        ctx: ExecutorSpawnContext<'_>,
+        current_dir: &Path,
         prompt: String,
         session_id: &str,
         full_command: String,
@@ -95,19 +94,17 @@ impl AcpAgentHarness {
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
-            .current_dir(ctx.current_dir)
+            .current_dir(current_dir)
             .arg(shell_arg)
             .arg(full_command)
             .env("NODE_NO_WARNINGS", "1");
-
-        ctx.apply_environment(&mut command);
 
         let mut child = command.group_spawn()?;
 
         let (exit_tx, exit_rx) = tokio::sync::oneshot::channel::<()>();
         Self::bootstrap_acp_connection(
             &mut child,
-            ctx.current_dir.to_path_buf(),
+            current_dir.to_path_buf(),
             Some(session_id.to_string()),
             prompt,
             Some(exit_tx),

@@ -15,8 +15,6 @@ import {
   MessageCircleQuestion,
   Menu,
   Plus,
-  LayoutGrid,
-  GitBranch,
 } from 'lucide-react';
 import { Logo } from '@/components/logo';
 import { SearchBar } from '@/components/search-bar';
@@ -48,12 +46,7 @@ const EXTERNAL_LINKS = [
   },
 ];
 
-interface NavbarProps {
-  viewMode?: 'kanban' | 'flow';
-  onViewModeChange?: (mode: 'kanban' | 'flow') => void;
-}
-
-export function Navbar({ viewMode, onViewModeChange }: NavbarProps = {}) {
+export function Navbar() {
   const location = useLocation();
   const { projectId, project } = useProject();
   const { query, setQuery, active, registerInputRef } = useSearch();
@@ -132,28 +125,6 @@ export function Navbar({ viewMode, onViewModeChange }: NavbarProps = {}) {
             />
             {projectId && (
               <>
-                {viewMode && onViewModeChange && (
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() =>
-                      onViewModeChange(
-                        viewMode === 'kanban' ? 'flow' : 'kanban'
-                      )
-                    }
-                    aria-label={
-                      viewMode === 'kanban'
-                        ? 'Switch to flow view'
-                        : 'Switch to kanban view'
-                    }
-                  >
-                    {viewMode === 'kanban' ? (
-                      <GitBranch className="h-4 w-4" />
-                    ) : (
-                      <LayoutGrid className="h-4 w-4" />
-                    )}
-                  </Button>
-                )}
                 <Button
                   variant="ghost"
                   size="icon"

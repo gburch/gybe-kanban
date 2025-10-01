@@ -45,7 +45,7 @@ export function AttemptHeaderCard({
   } = useDevServer(selectedAttempt?.id);
   const rebaseMutation = useRebase(selectedAttempt?.id, projectId);
   const mergeMutation = useMerge(selectedAttempt?.id);
-  const openInEditor = useOpenInEditor(selectedAttempt);
+  const openInEditor = useOpenInEditor(selectedAttempt?.id);
   const { selectedRepositoryId } = useProject();
   const { fileCount, added, deleted } = useDiffSummary(
     selectedAttempt?.id ?? null,
@@ -116,7 +116,7 @@ export function AttemptHeaderCard({
   const handleRebaseClick = async () => {
     setRebasing(true);
     try {
-      await rebaseMutation.mutateAsync(undefined);
+      await rebaseMutation.mutateAsync({});
     } catch (error) {
       // Error handling is done by the mutation
     } finally {

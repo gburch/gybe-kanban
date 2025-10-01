@@ -24,7 +24,7 @@ export function useAttemptCreation(taskId: string) {
         task_id: taskId,
         executor_profile_id: profile,
         base_branch: baseBranch,
-        repositories: repositories ?? [],
+        repositories,
       }),
     onSuccess: (newAttempt: TaskAttempt) => {
       // Optimistically add to cache to prevent UI flicker

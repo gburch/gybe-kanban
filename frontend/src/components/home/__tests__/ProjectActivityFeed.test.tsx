@@ -246,9 +246,7 @@ describe('ProjectActivityFeed', () => {
   it('navigates when tapped in environments without PointerEvent support', () => {
     const originalPointerEvent = window.PointerEvent;
     // Simulate Safari/iOS 12 style browsers without PointerEvent
-    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-    // @ts-expect-error - deleting for test scenario
-    delete window.PointerEvent;
+    delete (window as { PointerEvent?: typeof window.PointerEvent }).PointerEvent;
 
     const event = stubEvent({ id: 'touch-only' });
 
@@ -295,9 +293,8 @@ describe('ProjectActivityFeed', () => {
         value: originalPointerEvent,
       });
     } else {
-      // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-      // @ts-expect-error - ensure clean state
-      delete window.PointerEvent;
+      delete (window as { PointerEvent?: typeof window.PointerEvent })
+        .PointerEvent;
     }
   });
 

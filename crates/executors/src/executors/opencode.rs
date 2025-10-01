@@ -19,7 +19,6 @@ use ts_rs::TS;
 use workspace_utils::{msg_store::MsgStore, path::make_path_relative, shell::get_shell_command};
 
 use crate::{
-    actions::ExecutorSpawnContext,
     command::{CmdOverrides, CommandBuilder, apply_overrides},
     executors::{
         AppendPrompt, ExecutorError, SpawnedChild, StandardCodingAgentExecutor,
@@ -129,11 +128,7 @@ impl Opencode {
 
 #[async_trait]
 impl StandardCodingAgentExecutor for Opencode {
-    async fn spawn(
-        &self,
-        ctx: ExecutorSpawnContext<'_>,
-        prompt: &str,
-    ) -> Result<SpawnedChild, ExecutorError> {
+    async fn spawn(&self, current_dir: &Path, prompt: &str) -> Result<SpawnedChild, ExecutorError> {
         // Start a dedicated local share bridge bound to this opencode process
         let bridge = ShareBridge::start().await.map_err(ExecutorError::Io)?;
         let (shell_cmd, shell_arg) = get_shell_command();
@@ -147,14 +142,12 @@ impl StandardCodingAgentExecutor for Opencode {
             .stdin(Stdio::piped())
             .stdout(Stdio::piped()) // Keep stdout but we won't use it
             .stderr(Stdio::piped())
-            .current_dir(ctx.current_dir)
+            .current_dir(current_dir)
             .arg(shell_arg)
-            .arg(&opencode_command)
+            .arg(opencode_command)
             .env("NODE_NO_WARNINGS", "1")
             .env("OPENCODE_AUTO_SHARE", "1")
             .env("OPENCODE_API", bridge.base_url.clone());
-
-        ctx.apply_environment(&mut command);
 
         let mut child = match command.group_spawn() {
             Ok(c) => c,
@@ -197,7 +190,7 @@ impl StandardCodingAgentExecutor for Opencode {
 
     async fn spawn_follow_up(
         &self,
-        ctx: ExecutorSpawnContext<'_>,
+        current_dir: &Path,
         prompt: &str,
         session_id: &str,
     ) -> Result<SpawnedChild, ExecutorError> {
@@ -216,14 +209,12 @@ impl StandardCodingAgentExecutor for Opencode {
             .stdin(Stdio::piped())
             .stdout(Stdio::piped()) // Keep stdout but we won't use it
             .stderr(Stdio::piped())
-            .current_dir(ctx.current_dir)
+            .current_dir(current_dir)
             .arg(shell_arg)
             .arg(&opencode_command)
             .env("NODE_NO_WARNINGS", "1")
             .env("OPENCODE_AUTO_SHARE", "1")
             .env("OPENCODE_API", bridge.base_url.clone());
-
-        ctx.apply_environment(&mut command);
 
         let mut child = match command.group_spawn() {
             Ok(c) => c,

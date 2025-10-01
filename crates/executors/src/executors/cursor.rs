@@ -19,7 +19,6 @@ use workspace_utils::{
 };
 
 use crate::{
-    actions::ExecutorSpawnContext,
     command::{CmdOverrides, CommandBuilder, apply_overrides},
     executors::{AppendPrompt, ExecutorError, SpawnedChild, StandardCodingAgentExecutor},
     logs::{
@@ -37,7 +36,7 @@ pub struct Cursor {
     #[schemars(description = "Force allow commands unless explicitly denied")]
     pub force: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[schemars(description = "auto, sonnet-4, sonnet-4.5, gpt-5, opus-4.1, grok")]
+    #[schemars(description = "auto, sonnet-4.5, sonnet-4.5-thinking, gpt-5, opus-4.1, grok")]
     pub model: Option<String>,
     #[serde(flatten)]
     pub cmd: CmdOverrides,
@@ -62,11 +61,7 @@ impl Cursor {
 
 #[async_trait]
 impl StandardCodingAgentExecutor for Cursor {
-    async fn spawn(
-        &self,
-        ctx: ExecutorSpawnContext<'_>,
-        prompt: &str,
-    ) -> Result<SpawnedChild, ExecutorError> {
+    async fn spawn(&self, current_dir: &Path, prompt: &str) -> Result<SpawnedChild, ExecutorError> {
         let (shell_cmd, shell_arg) = get_shell_command();
         let agent_cmd = self.build_command_builder().build_initial();
 
@@ -78,11 +73,9 @@ impl StandardCodingAgentExecutor for Cursor {
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
-            .current_dir(ctx.current_dir)
+            .current_dir(current_dir)
             .arg(shell_arg)
             .arg(&agent_cmd);
-
-        ctx.apply_environment(&mut command);
 
         let mut child = command.group_spawn()?;
 
@@ -96,7 +89,7 @@ impl StandardCodingAgentExecutor for Cursor {
 
     async fn spawn_follow_up(
         &self,
-        ctx: ExecutorSpawnContext<'_>,
+        current_dir: &Path,
         prompt: &str,
         session_id: &str,
     ) -> Result<SpawnedChild, ExecutorError> {
@@ -113,11 +106,9 @@ impl StandardCodingAgentExecutor for Cursor {
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
-            .current_dir(ctx.current_dir)
+            .current_dir(current_dir)
             .arg(shell_arg)
             .arg(&agent_cmd);
-
-        ctx.apply_environment(&mut command);
 
         let mut child = command.group_spawn()?;
 

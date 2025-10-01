@@ -22,7 +22,6 @@ use workspace_utils::{
 };
 
 use crate::{
-    actions::ExecutorSpawnContext,
     command::{CmdOverrides, CommandBuilder, apply_overrides},
     executors::{
         AppendPrompt, ExecutorError, SpawnedChild, StandardCodingAgentExecutor,
@@ -97,7 +96,7 @@ pub struct Codex {
 
 impl Codex {
     fn build_command_builder(&self) -> CommandBuilder {
-        let mut builder = CommandBuilder::new("npx -y @openai/codex@0.42.0 exec")
+        let mut builder = CommandBuilder::new("npx -y @openai/codex@0.38.0 exec")
             .params(["--json", "--skip-git-repo-check"]);
 
         if let Some(sandbox) = &self.sandbox {
@@ -148,11 +147,7 @@ impl Codex {
 
 #[async_trait]
 impl StandardCodingAgentExecutor for Codex {
-    async fn spawn(
-        &self,
-        ctx: ExecutorSpawnContext<'_>,
-        prompt: &str,
-    ) -> Result<SpawnedChild, ExecutorError> {
+    async fn spawn(&self, current_dir: &Path, prompt: &str) -> Result<SpawnedChild, ExecutorError> {
         let (shell_cmd, shell_arg) = get_shell_command();
         let codex_command = self.build_command_builder().build_initial();
 
@@ -164,13 +159,11 @@ impl StandardCodingAgentExecutor for Codex {
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
-            .current_dir(ctx.current_dir)
+            .current_dir(current_dir)
             .arg(shell_arg)
             .arg(&codex_command)
             .env("NODE_NO_WARNINGS", "1")
             .env("RUST_LOG", "info");
-
-        ctx.apply_environment(&mut command);
 
         let mut child = command.group_spawn()?;
 
@@ -185,7 +178,7 @@ impl StandardCodingAgentExecutor for Codex {
 
     async fn spawn_follow_up(
         &self,
-        ctx: ExecutorSpawnContext<'_>,
+        current_dir: &Path,
         prompt: &str,
         session_id: &str,
     ) -> Result<SpawnedChild, ExecutorError> {
@@ -206,13 +199,11 @@ impl StandardCodingAgentExecutor for Codex {
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
-            .current_dir(ctx.current_dir)
+            .current_dir(current_dir)
             .arg(shell_arg)
             .arg(&codex_command)
             .env("NODE_NO_WARNINGS", "1")
             .env("RUST_LOG", "info");
-
-        ctx.apply_environment(&mut command);
 
         let mut child = command.group_spawn()?;
 

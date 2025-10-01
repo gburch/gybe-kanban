@@ -59,7 +59,8 @@
       {
         "group": "Operations",
         "pages": [
-          "operations/multi-repo-rollout-checklist"
+          "operations/multi-repo-rollout-checklist",
+          "operations/integration-status"
         ]
       }
     ]

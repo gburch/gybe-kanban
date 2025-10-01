@@ -20,7 +20,6 @@ use workspace_utils::{
 };
 
 use crate::{
-    actions::ExecutorSpawnContext,
     command::{CmdOverrides, CommandBuilder, apply_overrides},
     executors::{AppendPrompt, ExecutorError, SpawnedChild, StandardCodingAgentExecutor},
     logs::{
@@ -42,9 +41,9 @@ const CONFIRM_HOOK_SCRIPT: &str = include_str!("./hooks/confirm.py");
 
 fn base_command(claude_code_router: bool) -> &'static str {
     if claude_code_router {
-        "npx -y @musistudio/claude-code-router@1.0.49 code"
+        "npx -y @musistudio/claude-code-router@2.0.49 code"
     } else {
-        "npx -y @anthropic-ai/claude-code@2.0.0"
+        "npx -y @anthropic-ai/claude-code@2.0.1"
     }
 }
 
@@ -122,11 +121,7 @@ impl ClaudeCode {
 
 #[async_trait]
 impl StandardCodingAgentExecutor for ClaudeCode {
-    async fn spawn(
-        &self,
-        ctx: ExecutorSpawnContext<'_>,
-        prompt: &str,
-    ) -> Result<SpawnedChild, ExecutorError> {
+    async fn spawn(&self, current_dir: &Path, prompt: &str) -> Result<SpawnedChild, ExecutorError> {
         let (shell_cmd, shell_arg) = get_shell_command();
         let command_builder = self.build_command_builder().await;
         let mut base_command = command_builder.build_initial();
@@ -136,7 +131,7 @@ impl StandardCodingAgentExecutor for ClaudeCode {
         }
 
         if self.approvals.unwrap_or(false) || self.plan.unwrap_or(false) {
-            write_python_hook(ctx.current_dir).await?
+            write_python_hook(current_dir).await?
         }
 
         let combined_prompt = self.append_prompt.combine_prompt(prompt);
@@ -147,11 +142,9 @@ impl StandardCodingAgentExecutor for ClaudeCode {
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
-            .current_dir(ctx.current_dir)
+            .current_dir(current_dir)
             .arg(shell_arg)
             .arg(&base_command);
-
-        ctx.apply_environment(&mut command);
 
         let mut child = command.group_spawn()?;
 
@@ -166,22 +159,25 @@ impl StandardCodingAgentExecutor for ClaudeCode {
 
     async fn spawn_follow_up(
         &self,
-        ctx: ExecutorSpawnContext<'_>,
+        current_dir: &Path,
         prompt: &str,
         session_id: &str,
     ) -> Result<SpawnedChild, ExecutorError> {
         let (shell_cmd, shell_arg) = get_shell_command();
         let command_builder = self.build_command_builder().await;
         // Build follow-up command with --resume {session_id}
-        let mut base_command =
-            command_builder.build_follow_up(&["--resume".to_string(), session_id.to_string()]);
+        let mut base_command = command_builder.build_follow_up(&[
+            "--fork-session".to_string(),
+            "--resume".to_string(),
+            session_id.to_string(),
+        ]);
 
         if self.plan.unwrap_or(false) {
             base_command = create_watchkill_script(&base_command);
         }
 
         if self.approvals.unwrap_or(false) || self.plan.unwrap_or(false) {
-            write_python_hook(ctx.current_dir).await?
+            write_python_hook(current_dir).await?
         }
 
         let combined_prompt = self.append_prompt.combine_prompt(prompt);
@@ -192,11 +188,9 @@ impl StandardCodingAgentExecutor for ClaudeCode {
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
-            .current_dir(ctx.current_dir)
+            .current_dir(current_dir)
             .arg(shell_arg)
             .arg(&base_command);
-
-        ctx.apply_environment(&mut command);
 
         let mut child = command.group_spawn()?;
 

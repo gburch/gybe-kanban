@@ -12,7 +12,7 @@ import {
 } from '@/components/ui/ImageUploadSection';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 //
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { imagesApi } from '@/lib/api.ts';
 import type { TaskWithAttemptStatus } from 'shared/types';
 import { useBranchStatus } from '@/hooks';
@@ -21,18 +21,23 @@ import { useUserSystem } from '@/components/config-provider';
 import { cn } from '@/lib/utils';
 //
 import { useReview } from '@/contexts/ReviewProvider';
+import { useClickedElements } from '@/contexts/ClickedElementsProvider';
 //
 import { VariantSelector } from '@/components/tasks/VariantSelector';
 import { FollowUpStatusRow } from '@/components/tasks/FollowUpStatusRow';
 import { useAttemptBranch } from '@/hooks/useAttemptBranch';
 import { FollowUpConflictSection } from '@/components/tasks/follow-up/FollowUpConflictSection';
+import { ClickedElementsBanner } from '@/components/tasks/ClickedElementsBanner';
 import { FollowUpEditorCard } from '@/components/tasks/follow-up/FollowUpEditorCard';
 import { useDraftStream } from '@/hooks/follow-up/useDraftStream';
-import { useDraftEdits } from '@/hooks/follow-up/useDraftEdits';
+import { useRetryUi } from '@/contexts/RetryUiContext';
+import { useDraftEditor } from '@/hooks/follow-up/useDraftEditor';
 import { useDraftAutosave } from '@/hooks/follow-up/useDraftAutosave';
 import { useDraftQueue } from '@/hooks/follow-up/useDraftQueue';
 import { useFollowUpSend } from '@/hooks/follow-up/useFollowUpSend';
 import { useDefaultVariant } from '@/hooks/follow-up/useDefaultVariant';
+import { buildResolveConflictsInstructions } from '@/lib/conflicts';
+import { appendImageMarkdown } from '@/utils/markdownImages';
 
 interface TaskFollowUpSectionProps {
   task: TaskWithAttemptStatus;
@@ -53,20 +58,40 @@ export function TaskFollowUpSection({
     useAttemptBranch(selectedAttemptId);
   const { profiles } = useUserSystem();
   const { comments, generateReviewMarkdown, clearComments } = useReview();
+  const {
+    generateMarkdown: generateClickedMarkdown,
+    clearElements: clearClickedElements,
+  } = useClickedElements();
 
   const reviewMarkdown = useMemo(
     () => generateReviewMarkdown(),
-    [generateReviewMarkdown, comments]
+    [generateReviewMarkdown]
   );
 
+  const clickedMarkdown = useMemo(
+    () => generateClickedMarkdown(),
+    [generateClickedMarkdown]
+  );
+
+  // Non-editable conflict resolution instructions (derived, like review comments)
+  const conflictResolutionInstructions = useMemo(() => {
+    const hasConflicts = (branchStatus?.conflicted_files?.length ?? 0) > 0;
+    if (!hasConflicts) return null;
+    return buildResolveConflictsInstructions(
+      attemptBranch,
+      branchStatus?.target_branch_name,
+      branchStatus?.conflicted_files || [],
+      branchStatus?.conflict_op ?? null
+    );
+  }, [
+    attemptBranch,
+    branchStatus?.target_branch_name,
+    branchStatus?.conflicted_files,
+    branchStatus?.conflict_op,
+  ]);
+
   // Draft stream and synchronization
-  const {
-    draft,
-    isDraftLoaded,
-    lastServerVersionRef,
-    suppressNextSaveRef,
-    forceNextApplyRef,
-  } = useDraftStream(selectedAttemptId);
+  const { draft, isDraftLoaded } = useDraftStream(selectedAttemptId);
 
   // Editor state
   const {
@@ -77,20 +102,20 @@ export function TaskFollowUpSection({
     newlyUploadedImageIds,
     handleImageUploaded,
     clearImagesAndUploads,
-  } = useDraftEdits({
+  } = useDraftEditor({
     draft,
-    lastServerVersionRef,
-    suppressNextSaveRef,
-    forceNextApplyRef,
     taskId: task.id,
   });
 
   // Presentation-only: show/hide image upload panel
   const [showImageUpload, setShowImageUpload] = useState(false);
-  const followUpContainerRef = useRef<HTMLDivElement | null>(null);
-  const followUpImageSectionRef =
-    useRef<ImageUploadSectionHandle | null>(null);
-  const [pendingPastedImages, setPendingPastedImages] = useState<File[]>([]);
+  const imageUploadRef = useRef<ImageUploadSectionHandle>(null);
+
+  const handlePasteImages = useCallback((files: File[]) => {
+    if (files.length === 0) return;
+    setShowImageUpload(true);
+    void imageUploadRef.current?.addFiles(files);
+  }, []);
 
   // Variant selection (with keyboard cycling)
   const { selectedVariant, setSelectedVariant, currentProfile } =
@@ -103,8 +128,6 @@ export function TaskFollowUpSection({
     message: followUpMessage,
     selectedVariant,
     images,
-    suppressNextSaveRef,
-    lastServerVersionRef,
   });
 
   // Presentation-only queue state
@@ -119,6 +142,11 @@ export function TaskFollowUpSection({
   const isQueued = !!draft?.queued;
   const displayQueued = queuedOptimistic ?? isQueued;
 
+  // During retry, follow-up box is greyed/disabled (not hidden)
+  // Use RetryUi context so optimistic retry immediately disables this box
+  const { activeRetryProcessId } = useRetryUi();
+  const isRetryActive = !!activeRetryProcessId;
+
   // Autosave draft when editing
   const { isSaving, saveStatus } = useDraftAutosave({
     attemptId: selectedAttemptId,
@@ -132,9 +160,6 @@ export function TaskFollowUpSection({
     isDraftSending: !!draft?.sending,
     isQueuing: isQueuing,
     isUnqueuing: isUnqueuing,
-    suppressNextSaveRef,
-    lastServerVersionRef,
-    forceNextApplyRef,
   });
 
   // Send follow-up action
@@ -142,11 +167,14 @@ export function TaskFollowUpSection({
     useFollowUpSend({
       attemptId: selectedAttemptId,
       message: followUpMessage,
+      conflictMarkdown: conflictResolutionInstructions,
       reviewMarkdown,
+      clickedMarkdown,
       selectedVariant,
       images,
       newlyUploadedImageIds,
       clearComments,
+      clearClickedElements,
       jumpToLogsTab,
       onAfterSendCleanup: clearImagesAndUploads,
       setMessage: setFollowUpMessage,
@@ -170,12 +198,14 @@ export function TaskFollowUpSection({
       }
     }
 
+    if (isRetryActive) return false; // disable typing while retry editor is active
     return true;
   }, [
     selectedAttemptId,
     processes.length,
     isSendingFollowUp,
     branchStatus?.merges,
+    isRetryActive,
   ]);
 
   const canSendFollowUp = useMemo(() => {
@@ -183,74 +213,25 @@ export function TaskFollowUpSection({
       return false;
     }
 
-    // Allow sending if either review comments exist OR follow-up message is present
-    return Boolean(reviewMarkdown || followUpMessage.trim());
-  }, [canTypeFollowUp, reviewMarkdown, followUpMessage]);
+    // Allow sending if conflict instructions, review comments, clicked elements, or message is present
+    return Boolean(
+      conflictResolutionInstructions ||
+        reviewMarkdown ||
+        clickedMarkdown ||
+        followUpMessage.trim()
+    );
+  }, [
+    canTypeFollowUp,
+    conflictResolutionInstructions,
+    reviewMarkdown,
+    clickedMarkdown,
+    followUpMessage,
+  ]);
   // currentProfile is provided by useDefaultVariant
 
   const isDraftLocked =
     displayQueued || isQueuing || isUnqueuing || !!draft?.sending;
-  const isEditable = isDraftLoaded && !isDraftLocked;
-
-  useEffect(() => {
-    if (!isEditable) return;
-
-    const handlePaste = (event: ClipboardEvent) => {
-      if (!followUpContainerRef.current || !event.clipboardData) return;
-
-      const target = event.target as Node | null;
-      if (target && !followUpContainerRef.current.contains(target)) {
-        return;
-      }
-
-      const files: File[] = [];
-      for (const item of Array.from(event.clipboardData.items)) {
-        if (item.kind !== 'file') continue;
-        const file = item.getAsFile();
-        if (!file) continue;
-        if (file.type.toLowerCase().startsWith('image/')) {
-          files.push(file);
-        }
-      }
-
-      if (files.length === 0) return;
-
-      event.preventDefault();
-
-      if (!showImageUpload) {
-        setShowImageUpload(true);
-        setPendingPastedImages(files);
-        return;
-      }
-
-      if (followUpImageSectionRef.current) {
-        followUpImageSectionRef.current.uploadFiles(files);
-      } else {
-        setPendingPastedImages(files);
-      }
-    };
-
-    document.addEventListener('paste', handlePaste);
-    return () => {
-      document.removeEventListener('paste', handlePaste);
-    };
-  }, [isEditable, showImageUpload]);
-
-  useEffect(() => {
-    if (pendingPastedImages.length === 0) return;
-    if (!followUpImageSectionRef.current) return;
-
-    followUpImageSectionRef.current.uploadFiles(pendingPastedImages);
-    setPendingPastedImages([]);
-  }, [pendingPastedImages]);
-
-  const appendToFollowUpMessage = (text: string) => {
-    setFollowUpMessage((prev) => {
-      const sep =
-        prev.trim().length === 0 ? '' : prev.endsWith('\n') ? '\n' : '\n\n';
-      return prev + sep + text;
-    });
-  };
+  const isEditable = isDraftLoaded && !isDraftLocked && !isRetryActive;
 
   // When a process completes (e.g., agent resolved conflicts), refresh branch status promptly
   const prevRunningRef = useRef<boolean>(isAttemptRunning);
@@ -299,13 +280,15 @@ export function TaskFollowUpSection({
     } else {
       if (isUnqueuing) setIsUnqueuing(false);
     }
-  }, [isQueued]);
+  }, [isQueued, isQueuing, isUnqueuing]);
 
   return (
     selectedAttemptId && (
       <div
-        ref={followUpContainerRef}
-        className="border-t p-4 focus-within:ring ring-inset"
+        className={cn(
+          'border-t p-4 focus-within:ring ring-inset',
+          isRetryActive && 'opacity-50'
+        )}
       >
         <div className="space-y-2">
           {followUpError && (
@@ -315,29 +298,29 @@ export function TaskFollowUpSection({
             </Alert>
           )}
           <div className="space-y-2">
-            {showImageUpload && (
-              <div className="mb-2">
-                <ImageUploadSection
-                  ref={followUpImageSectionRef}
-                  images={images}
-                  onImagesChange={setImages}
-                  onUpload={imagesApi.upload}
-                  onDelete={imagesApi.delete}
-                  onImageUploaded={(image) => {
-                    handleImageUploaded(image);
-                    const markdownText = `![${image.original_name}](${image.file_path})`;
-                    const next =
-                      followUpMessage.trim() === ''
-                        ? markdownText
-                        : followUpMessage + ' ' + markdownText;
-                    setFollowUpMessage(next);
-                  }}
-                  disabled={!isEditable}
-                  collapsible={false}
-                  defaultExpanded={true}
-                />
-              </div>
-            )}
+            <div
+              className={cn(
+                'mb-2',
+                !showImageUpload && images.length === 0 && 'hidden'
+              )}
+            >
+              <ImageUploadSection
+                ref={imageUploadRef}
+                images={images}
+                onImagesChange={setImages}
+                onUpload={(file) => imagesApi.uploadForTask(task.id, file)}
+                onDelete={imagesApi.delete}
+                onImageUploaded={(image) => {
+                  handleImageUploaded(image);
+                  setFollowUpMessage((prev) =>
+                    appendImageMarkdown(prev, image)
+                  );
+                }}
+                disabled={!isEditable}
+                collapsible={false}
+                defaultExpanded={true}
+              />
+            </div>
 
             {/* Review comments preview */}
             {reviewMarkdown && (
@@ -347,21 +330,30 @@ export function TaskFollowUpSection({
             )}
 
             {/* Conflict notice and actions (optional UI) */}
-            <FollowUpConflictSection
-              selectedAttemptId={selectedAttemptId}
-              attemptBranch={attemptBranch}
-              branchStatus={branchStatus}
-              isEditable={isEditable}
-              appendInstructions={appendToFollowUpMessage}
-              refetchBranchStatus={refetchBranchStatus}
-            />
+            {branchStatus && (
+              <FollowUpConflictSection
+                selectedAttemptId={selectedAttemptId}
+                attemptBranch={attemptBranch}
+                branchStatus={branchStatus}
+                isEditable={isEditable}
+                onResolve={onSendFollowUp}
+                enableResolve={
+                  canSendFollowUp && !isAttemptRunning && isEditable
+                }
+                enableAbort={canSendFollowUp && !isAttemptRunning}
+                conflictResolutionInstructions={conflictResolutionInstructions}
+              />
+            )}
+
+            {/* Clicked elements notice and actions */}
+            <ClickedElementsBanner />
 
             <div className="flex flex-col gap-2">
               <FollowUpEditorCard
                 placeholder={
                   isQueued
                     ? 'Type your follow-up… It will auto-send when ready.'
-                    : reviewMarkdown
+                    : reviewMarkdown || conflictResolutionInstructions
                       ? '(Optional) Add additional instructions... Type @ to search files.'
                       : 'Continue working on this task attempt... Type @ to search files.'
                 }
@@ -374,6 +366,7 @@ export function TaskFollowUpSection({
                 showLoadingOverlay={isUnqueuing || !isDraftLoaded}
                 onCommandEnter={onSendFollowUp}
                 onCommandShiftEnter={onSendFollowUp}
+                onPasteFiles={handlePasteImages}
               />
               <FollowUpStatusRow
                 status={{
@@ -433,6 +426,7 @@ export function TaskFollowUpSection({
                         onClick={clearComments}
                         size="sm"
                         variant="destructive"
+                        disabled={!isEditable}
                       >
                         Clear Review Comments
                       </Button>
@@ -443,7 +437,8 @@ export function TaskFollowUpSection({
                         !canSendFollowUp ||
                         isDraftLocked ||
                         !isDraftLoaded ||
-                        isSendingFollowUp
+                        isSendingFollowUp ||
+                        isRetryActive
                       }
                       size="sm"
                     >
@@ -452,7 +447,9 @@ export function TaskFollowUpSection({
                       ) : (
                         <>
                           <Send className="h-4 w-4 mr-2" />
-                          Send
+                          {conflictResolutionInstructions
+                            ? 'Resolve conflicts'
+                            : 'Send'}
                         </>
                       )}
                     </Button>
@@ -513,7 +510,8 @@ export function TaskFollowUpSection({
                             !isDraftLoaded ||
                             isQueuing ||
                             isUnqueuing ||
-                            !!draft?.sending
+                            !!draft?.sending ||
+                            isRetryActive
                       }
                       size="sm"
                       variant="default"

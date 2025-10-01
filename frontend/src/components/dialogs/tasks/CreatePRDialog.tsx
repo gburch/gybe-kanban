@@ -54,8 +54,8 @@ const CreatePrDialog = NiceModal.create(() => {
             setBranches(projectBranches);
 
             // Set smart default: task base branch OR current branch
-            if (data.attempt.base_branch) {
-              setPrBaseBranch(data.attempt.base_branch);
+            if (data.attempt.target_branch) {
+              setPrBaseBranch(data.attempt.target_branch);
             } else {
               const currentBranch = projectBranches.find((b) => b.is_current);
               if (currentBranch) {
@@ -80,8 +80,7 @@ const CreatePrDialog = NiceModal.create(() => {
     const result = await attemptsApi.createPR(data.attempt.id, {
       title: prTitle,
       body: prBody || null,
-      base_branch: prBaseBranch || null,
-      project_repository_id: selectedRepositoryId ?? null,
+      target_branch: prBaseBranch || null,
     });
 
     if (result.success) {

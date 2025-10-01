@@ -10,7 +10,6 @@ import {
   Loader2,
   GitBranch,
   GitMerge,
-  ArrowLeft,
   ArrowRight,
   ZoomIn,
   ZoomOut,

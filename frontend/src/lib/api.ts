@@ -25,7 +25,6 @@ import {
   ProjectRepository,
   CreateProjectRepository,
   UpdateProjectRepository,
-  RebaseTaskAttemptRequest,
   RepositoryInfo,
   SearchResult,
   Task,
@@ -38,14 +37,18 @@ import {
   UpdateTaskTemplate,
   UserSystemInfo,
   GitHubServiceError,
+  UpdateRetryFollowUpDraftRequest,
   McpServerQuery,
   UpdateMcpServersBody,
   GetMcpServerResponse,
   ImageResponse,
-  FollowUpDraftResponse,
+  DraftResponse,
   UpdateFollowUpDraftRequest,
   GitOperationError,
   ApprovalResponse,
+  RebaseTaskAttemptRequest,
+  ChangeTargetBranchRequest,
+  ChangeTargetBranchResponse,
   ActivityFeedItem,
   ActivityFeedResponse,
   CodexUsageSnapshot,
@@ -55,8 +58,8 @@ import {
 // Re-export types for convenience
 export type { RepositoryInfo } from 'shared/types';
 export type {
-  FollowUpDraftResponse,
   UpdateFollowUpDraftRequest,
+  UpdateRetryFollowUpDraftRequest,
 } from 'shared/types';
 
 class ApiError<E = unknown> extends Error {
@@ -340,7 +343,7 @@ export const projectsApi = {
     const repoParam = (() => {
       if (options?.repoIds && options.repoIds.length > 0) {
         return options.repoIds
-          .map((id) => `&repo_ids=${encodeURIComponent(id)}`)
+          .map((rid) => `&repo_ids=${encodeURIComponent(rid)}`)
           .join('');
       }
       if (options?.repoId) {
@@ -348,52 +351,15 @@ export const projectsApi = {
       }
       return '';
     })();
-    const { repoId: _repoId, repoIds: _repoIds, ...requestOptions } = options ?? {};
+
+    const { repoId: _repoId, repoIds: _repoIds, ...requestOptions } =
+      options ?? {};
+
     const response = await makeRequest(
       `/api/projects/${id}/search?q=${encodeURIComponent(query)}${modeParam}${repoParam}`,
       requestOptions
     );
     return handleApiResponse<SearchResult[]>(response);
-  },
-};
-
-export const usageApi = {
-  getCodexUsage: async (): Promise<CodexUsageSnapshot | null> => {
-    const response = await makeRequest('/api/usage/codex');
-    return handleApiResponse<CodexUsageSnapshot | null>(response);
-  },
-  getClaudeCodeUsage: async (): Promise<ClaudeCodeUsageSnapshot | null> => {
-    const response = await makeRequest('/api/usage/claude-code');
-    return handleApiResponse<ClaudeCodeUsageSnapshot | null>(response);
-  },
-};
-
-export const activityFeedApi = {
-  list: async (
-    projectId: string,
-    options: { scope?: 'mine' | 'all'; cursor?: string | null } = {}
-  ): Promise<ActivityFeedResponse & { events: ActivityFeedEvent[] }> => {
-    const params = new URLSearchParams();
-
-    const scope = options.scope ?? 'all';
-    params.set('scope', scope);
-
-    if (options.cursor) {
-      params.set('cursor', options.cursor);
-    }
-
-    const query = params.toString();
-    const endpoint = query
-      ? `/api/projects/${projectId}/activity_feed?${query}`
-      : `/api/projects/${projectId}/activity_feed`;
-
-    const response = await makeRequest(endpoint);
-    const payload = await handleApiResponse<ActivityFeedResponse>(response);
-
-    return {
-      ...payload,
-      events: payload.events.map(deserializeActivityFeedItem),
-    };
   },
 };
 
@@ -462,7 +428,11 @@ export const attemptsApi = {
     return handleApiResponse<TaskAttempt>(response);
   },
 
-  create: async (data: CreateTaskAttemptBody): Promise<TaskAttempt> => {
+  create: async (
+    data: CreateTaskAttemptBody & {
+      repositories?: Array<{ project_repository_id: string; is_primary: boolean }>;
+    }
+  ): Promise<TaskAttempt> => {
     const response = await makeRequest(`/api/task-attempts`, {
       method: 'POST',
       body: JSON.stringify(data),
@@ -511,38 +481,51 @@ export const attemptsApi = {
     return handleApiResponse<void>(response);
   },
 
-  getFollowUpDraft: async (
-    attemptId: string
-  ): Promise<FollowUpDraftResponse> => {
+  getDraft: async (
+    attemptId: string,
+    type: 'follow_up' | 'retry'
+  ): Promise<DraftResponse> => {
     const response = await makeRequest(
-      `/api/task-attempts/${attemptId}/follow-up-draft`
+      `/api/task-attempts/${attemptId}/draft?type=${encodeURIComponent(type)}`
     );
-    return handleApiResponse<FollowUpDraftResponse>(response);
+    return handleApiResponse<DraftResponse>(response);
   },
 
-  saveFollowUpDraft: async (
+  saveDraft: async (
     attemptId: string,
-    data: UpdateFollowUpDraftRequest
-  ): Promise<FollowUpDraftResponse> => {
+    type: 'follow_up' | 'retry',
+    data: UpdateFollowUpDraftRequest | UpdateRetryFollowUpDraftRequest
+  ): Promise<DraftResponse> => {
     const response = await makeRequest(
-      `/api/task-attempts/${attemptId}/follow-up-draft`,
+      `/api/task-attempts/${attemptId}/draft?type=${encodeURIComponent(type)}`,
       {
-        // Server expects PUT for saving/updating the draft
         method: 'PUT',
         body: JSON.stringify(data),
       }
     );
-    return handleApiResponse<FollowUpDraftResponse>(response);
+    return handleApiResponse<DraftResponse>(response);
   },
 
-  setFollowUpQueue: async (
+  deleteDraft: async (
+    attemptId: string,
+    type: 'follow_up' | 'retry'
+  ): Promise<void> => {
+    const response = await makeRequest(
+      `/api/task-attempts/${attemptId}/draft?type=${encodeURIComponent(type)}`,
+      { method: 'DELETE' }
+    );
+    return handleApiResponse<void>(response);
+  },
+
+  setDraftQueue: async (
     attemptId: string,
     queued: boolean,
     expectedQueued?: boolean,
-    expectedVersion?: number
-  ): Promise<FollowUpDraftResponse> => {
+    expectedVersion?: number,
+    type: 'follow_up' | 'retry' = 'follow_up'
+  ): Promise<DraftResponse> => {
     const response = await makeRequest(
-      `/api/task-attempts/${attemptId}/follow-up-draft/queue`,
+      `/api/task-attempts/${attemptId}/draft/queue?type=${encodeURIComponent(type)}`,
       {
         method: 'POST',
         body: JSON.stringify({
@@ -552,7 +535,7 @@ export const attemptsApi = {
         }),
       }
     );
-    return handleApiResponse<FollowUpDraftResponse>(response);
+    return handleApiResponse<DraftResponse>(response);
   },
 
   deleteFile: async (
@@ -627,6 +610,20 @@ export const attemptsApi = {
       }
     );
     return handleApiResponseAsResult<void, GitOperationError>(response);
+  },
+
+  change_target_branch: async (
+    attemptId: string,
+    data: ChangeTargetBranchRequest
+  ): Promise<ChangeTargetBranchResponse> => {
+    const response = await makeRequest(
+      `/api/task-attempts/${attemptId}/change-target-branch`,
+      {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }
+    );
+    return handleApiResponse<ChangeTargetBranchResponse>(response);
   },
 
   abortConflicts: async (attemptId: string): Promise<void> => {
@@ -779,6 +776,46 @@ export const githubApi = {
   },
 };
 
+export const usageApi = {
+  getCodexUsage: async (): Promise<CodexUsageSnapshot | null> => {
+    const response = await makeRequest('/api/usage/codex');
+    return handleApiResponse<CodexUsageSnapshot | null>(response);
+  },
+  getClaudeCodeUsage: async (): Promise<ClaudeCodeUsageSnapshot | null> => {
+    const response = await makeRequest('/api/usage/claude-code');
+    return handleApiResponse<ClaudeCodeUsageSnapshot | null>(response);
+  },
+};
+
+export const activityFeedApi = {
+  list: async (
+    projectId: string,
+    options: { scope?: 'mine' | 'all'; cursor?: string | null } = {}
+  ): Promise<ActivityFeedResponse & { events: ActivityFeedEvent[] }> => {
+    const params = new URLSearchParams();
+
+    const scope = options.scope ?? 'all';
+    params.set('scope', scope);
+
+    if (options.cursor) {
+      params.set('cursor', options.cursor);
+    }
+
+    const query = params.toString();
+    const endpoint = query
+      ? `/api/projects/${projectId}/activity_feed?${query}`
+      : `/api/projects/${projectId}/activity_feed`;
+
+    const response = await makeRequest(endpoint);
+    const payload = await handleApiResponse<ActivityFeedResponse>(response);
+
+    return {
+      ...payload,
+      events: payload.events.map(deserializeActivityFeedItem),
+    };
+  },
+};
+
 // Task Templates APIs
 export const templatesApi = {
   list: async (): Promise<TaskTemplate[]> => {
@@ -889,6 +926,28 @@ export const imagesApi = {
     formData.append('image', file);
 
     const response = await fetch('/api/images/upload', {
+      method: 'POST',
+      body: formData,
+      credentials: 'include',
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new ApiError(
+        `Failed to upload image: ${errorText}`,
+        response.status,
+        response
+      );
+    }
+
+    return handleApiResponse<ImageResponse>(response);
+  },
+
+  uploadForTask: async (taskId: string, file: File): Promise<ImageResponse> => {
+    const formData = new FormData();
+    formData.append('image', file);
+
+    const response = await fetch(`/api/images/task/${taskId}/upload`, {
       method: 'POST',
       body: formData,
       credentials: 'include',

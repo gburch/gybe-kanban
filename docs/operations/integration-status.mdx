@@ -1,0 +1,58 @@
+---
+title: "Fork Integration Status"
+description: "Snapshot of upstream merge epics, migration guidance, and remaining cleanup tasks."
+---
+
+This document tracks the merge effort that brought our fork back in sync with `origin/main` (October&nbsp;2025) while keeping local enhancements.
+
+## Epic Summary
+
+| Epic | Status | Notes |
+|------|--------|-------|
+| Epic 1 – Task attempt branch contract | ✅ Complete | All Rust/TS types now require non-null `branch`/`target_branch`; migrations applied via `npm run prepare-db`. |
+| Epic 2 – Multi-repo & follow-up parity | ✅ Complete | Parent task pills, child summaries, and repository switcher match upstream behaviour. |
+| Epic 3 – Follow-up streaming | ✅ Complete | WebSocket streaming restored; no REST polling fallback. |
+| Epic 4 – Approvals workflow | ✅ Complete | Backend/FE already matched upstream after the mainline merge. |
+| Epic 5 – Documentation & Ops | ⏳ In progress | README + operations docs updated (this page), lint backlog still open. |
+
+## Zero-Data-Loss Checklist
+
+Before rolling out new builds:
+
+1. **Back up** the SQLite database (local dev):
+   ```bash
+   cp dev_assets/db.sqlite dev_assets/db.sqlite.bak-$(date +%Y%m%d)
+   ```
+2. **Apply migrations** (runs automatically on backend start, or manually):
+   ```bash
+   npm run prepare-db
+   ```
+3. **Regenerate sqlx metadata** if you modify migrations:
+   ```bash
+   DATABASE_URL=sqlite://dev_assets/db.sqlite cargo sqlx prepare
+   ```
+4. **Regenerate shared types** before committing backend schema changes:
+   ```bash
+   npm run generate-types
+   ```
+
+## Smoke Tests
+
+After pulling the latest mainline:
+
+```bash
+npm run check            # frontend type-check + cargo check
+npm run lint             # eslint (warnings remain for legacy any/exhaustive-deps)
+npm run test -- --run    # vitest suite (optional but recommended)
+cargo test --workspace   # end-to-end Rust coverage
+```
+
+> **Note:** ESLint warnings for legacy `any` usage and exhaustive-deps are unchanged. Clearing them is the next clean-up milestone.
+
+## Outstanding Cleanup
+
+- Resolve the existing lint warnings (see `npm run lint` output) so CI can run with `--max-warnings 0` again.
+- Revisit automation scripts to ensure they reference the new multi-repo environment variables (`VIBE_REPO_*`).
+- Publish an internal changelog summarising the removal of the follow-up polling mode (WebSockets only).
+
+Add dated entries here whenever an integration milestone ships.

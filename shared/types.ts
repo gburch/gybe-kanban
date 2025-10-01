@@ -14,71 +14,19 @@ export type CreateProject = { name: string, git_repo_path: string, use_existing_
 
 export type UpdateProject = { name: string | null, git_repo_path: string | null, setup_script: string | null, dev_script: string | null, cleanup_script: string | null, copy_files: string | null, };
 
+export type SearchResult = { path: string, is_file: boolean, match_type: SearchMatchType, repository_id?: string, repository_name?: string, };
+
+export type SearchMatchType = "FileName" | "DirectoryName" | "FullPath";
+
 export type ProjectRepository = { id: string, project_id: string, name: string, git_repo_path: string, root_path: string, is_primary: boolean, created_at: Date, updated_at: Date, };
 
 export type CreateProjectRepository = { name: string, git_repo_path: string, root_path: string | null, is_primary: boolean, };
 
 export type UpdateProjectRepository = { name: string | null, git_repo_path: string | null, root_path: string | null, is_primary: boolean | null, };
 
-export type SearchResult = { path: string, is_file: boolean, match_type: SearchMatchType, repository_id?: string, repository_name?: string, };
-
-export type SearchMatchType = "FileName" | "DirectoryName" | "FullPath";
-
 export type ExecutorAction = { typ: ExecutorActionType, next_action: ExecutorAction | null, };
 
 export type McpConfig = { servers: { [key in string]?: JsonValue }, servers_path: Array<string>, template: JsonValue, preconfigured: JsonValue, is_toml_config: boolean, };
-
-export type ExecutorPayload = { 
-/**
- * Schema version for the payload; increment when breaking changes are introduced.
- */
-version: number, 
-/**
- * Identifier of the running task attempt.
- */
-attempt_id: string, 
-/**
- * Identifier of the primary repository for this attempt.
- */
-primary_repository_id: string, 
-/**
- * Repository metadata keyed by repository identifier.
- */
-repositories: Array<ExecutorRepositoryContext>, 
-/**
- * Environment variables that should be exported for the executor process.
- */
-env: { [key in string]?: string }, };
-
-export type ExecutorRepositoryContext = { 
-/**
- * Identifier of the project repository.
- */
-id: string, 
-/**
- * Human-readable repository name.
- */
-name: string, 
-/**
- * Slugified identifier (lowercase, hyphen-separated) for referencing this repo.
- */
-slug: string, 
-/**
- * Absolute filesystem path to the worktree that the executor should operate on.
- */
-worktree_path: string, 
-/**
- * Root path within the repository that should be treated as the execution root.
- */
-root_path: string, 
-/**
- * Current branch checked out inside the worktree.
- */
-branch: string | null, 
-/**
- * Whether this repository is the primary repository for the task.
- */
-is_primary: boolean, };
 
 export type ExecutorActionType = { "type": "CodingAgentInitialRequest" } & CodingAgentInitialRequest | { "type": "CodingAgentFollowUpRequest" } & CodingAgentFollowUpRequest | { "type": "ScriptRequest" } & ScriptRequest;
 
@@ -102,7 +50,7 @@ export type TaskStatus = "todo" | "inprogress" | "inreview" | "done" | "cancelle
 
 export type Task = { id: string, project_id: string, title: string, description: string | null, status: TaskStatus, parent_task_attempt: string | null, created_at: string, updated_at: string, };
 
-export type TaskWithAttemptStatus = { has_in_progress_attempt: boolean, has_merged_attempt: boolean, last_attempt_failed: boolean, has_running_dev_server: boolean, executor: string, parent_task_id: string | null, child_task_count: bigint, id: string, project_id: string, title: string, description: string | null, status: TaskStatus, parent_task_attempt: string | null, created_at: string, updated_at: string, };
+export type TaskWithAttemptStatus = { has_in_progress_attempt: boolean, has_merged_attempt: boolean, last_attempt_failed: boolean, executor: string, id: string, project_id: string, title: string, description: string | null, status: TaskStatus, parent_task_attempt: string | null, created_at: string, updated_at: string, };
 
 export type TaskRelationships = { parent_task: Task | null, current_attempt: TaskAttempt, children: Array<Task>, };
 
@@ -130,21 +78,47 @@ export type UpdateMcpServersBody = { servers: { [key in string]?: JsonValue }, }
 
 export type GetMcpServerResponse = { mcp_config: McpConfig, config_path: string, };
 
-export type CreateFollowUpAttempt = { prompt: string, variant: string | null, image_ids: Array<string> | null, };
+export type CreateFollowUpAttempt = { prompt: string, variant: string | null, image_ids: Array<string> | null, retry_process_id: string | null, force_when_dirty: boolean | null, perform_git_reset: boolean | null, };
 
-export type FollowUpDraftResponse = { task_attempt_id: string, prompt: string, queued: boolean, variant: string | null, image_ids: Array<string> | null, version: bigint, };
+export type DraftResponse = { task_attempt_id: string, draft_type: DraftType, retry_process_id: string | null, prompt: string, queued: boolean, variant: string | null, image_ids: Array<string> | null, version: bigint, };
 
 export type UpdateFollowUpDraftRequest = { prompt: string | null, variant: string | null | null, image_ids: Array<string> | null, version: bigint | null, };
 
-export type AttemptRepositorySelection = { project_repository_id: string, is_primary: boolean, };
+export type UpdateRetryFollowUpDraftRequest = { retry_process_id: string, prompt: string | null, variant: string | null | null, image_ids: Array<string> | null, version: bigint | null, };
 
-export type CreateAndStartTaskRequest = { task: CreateTask, executor_profile_id: ExecutorProfileId, base_branch: string, repositories: Array<AttemptRepositorySelection>, };
+export type ChangeTargetBranchRequest = { new_target_branch: string, };
 
-export type CreateGitHubPrRequest = { title: string, body: string | null, base_branch: string | null, project_repository_id: string | null, };
+export type ChangeTargetBranchResponse = { new_target_branch: string, status: [number, number], };
+
+export type CreateAndStartTaskRequest = { task: CreateTask, executor_profile_id: ExecutorProfileId, base_branch: string, };
+
+export type CreateGitHubPrRequest = { title: string, body: string | null, target_branch: string | null, };
 
 export type ImageResponse = { id: string, file_path: string, original_name: string, mime_type: string | null, size_bytes: bigint, hash: string, created_at: string, updated_at: string, };
 
 export enum GitHubServiceError { TOKEN_INVALID = "TOKEN_INVALID", INSUFFICIENT_PERMISSIONS = "INSUFFICIENT_PERMISSIONS", REPO_NOT_FOUND_OR_NO_ACCESS = "REPO_NOT_FOUND_OR_NO_ACCESS" }
+
+export type CodexUsageSnapshot = { captured_at: string, rate_limits: CodexUsageRateLimits, token_usage: CodexTokenUsageInfo | null, };
+
+export type CodexUsageRateLimits = { primary: CodexUsageWindow | null, secondary: CodexUsageWindow | null, };
+
+export type CodexUsageWindow = { used_percent: number, window_minutes: number | null, resets_in_seconds: number | null, };
+
+export type CodexTokenUsageInfo = { total_token_usage: CodexTokenUsage, last_token_usage: CodexTokenUsage, model_context_window: number | null, };
+
+export type CodexTokenUsage = { input_tokens: number, cached_input_tokens: number, output_tokens: number, reasoning_output_tokens: number, total_tokens: number, };
+
+export type ClaudeCodeUsageSnapshot = { captured_at: string, session_info: ClaudeCodeSessionInfo, token_usage: ClaudeCodeTokenUsage, estimated_limit: number, used_percent: number, };
+
+export type ClaudeCodeSessionInfo = { session_id: string, version: string, git_branch: string | null, cwd: string | null, };
+
+export type ClaudeCodeTokenUsage = { input_tokens: number, cache_creation_input_tokens: number, cache_read_input_tokens: number, output_tokens: number, total_tokens: number, };
+
+export type ActivityFeedItemCta = { label: string, href: string, };
+
+export type ActivityFeedItem = { id: string, headline: string, summary: string | null, cta: ActivityFeedItemCta | null, urgencyScore: number, actionRequired: boolean, createdAt: Date, };
+
+export type ActivityFeedResponse = { events: Array<ActivityFeedItem>, nextCursor: string | null, };
 
 export type Config = { config_version: string, theme: ThemeMode, executor_profile: ExecutorProfileId, disclaimer_acknowledged: boolean, onboarding_acknowledged: boolean, github_login_acknowledged: boolean, telemetry_acknowledged: boolean, notifications: NotificationConfig, editor: EditorConfig, github: GitHubConfig, analytics_enabled: boolean | null, workspace_dir: string | null, last_app_version: string | null, show_release_notes: boolean, language: UiLanguage, activity_feed: ActivityFeedConfig, claude_plan: ClaudePlan, };
 
@@ -158,21 +132,13 @@ export enum EditorType { VS_CODE = "VS_CODE", CURSOR = "CURSOR", WINDSURF = "WIN
 
 export type GitHubConfig = { pat: string | null, oauth_token: string | null, username: string | null, primary_email: string | null, default_pr_base: string | null, branch_prefix: string | null, merge_commit_message_suffix: string | null, };
 
-export type ActivityFeedConfig = { enabled: boolean, window_days: number, };
-
 export enum SoundFile { ABSTRACT_SOUND1 = "ABSTRACT_SOUND1", ABSTRACT_SOUND2 = "ABSTRACT_SOUND2", ABSTRACT_SOUND3 = "ABSTRACT_SOUND3", ABSTRACT_SOUND4 = "ABSTRACT_SOUND4", COW_MOOING = "COW_MOOING", PHONE_VIBRATION = "PHONE_VIBRATION", ROOSTER = "ROOSTER" }
 
 export type UiLanguage = "BROWSER" | "EN" | "JA" | "ES";
 
+export type ActivityFeedConfig = { enabled: boolean, window_days: number, };
+
 export type ClaudePlan = "free" | "pro" | "max5x" | "max20x";
-
-export type ActivityFeedItem = { id: string, headline: string, summary: string | null, cta: ActivityFeedItemCta | null, urgencyScore: number, actionRequired: boolean, createdAt: Date, };
-
-export type ActivityFeedItemCta = { label: string, href: string, };
-
-export type ActivityFeedResponse = { events: Array<ActivityFeedItem>, nextCursor: string | null, };
-
-export type ActivityFeedScope = "mine" | "all";
 
 export type DeviceFlowStartResponse = { user_code: string, verification_uri: string, expires_in: number, interval: number, };
 
@@ -195,22 +161,6 @@ additions: number | null, deletions: number | null, };
 export type DiffChangeKind = "added" | "deleted" | "modified" | "renamed" | "copied" | "permissionChange";
 
 export type RepositoryInfo = { id: bigint, name: string, full_name: string, owner: string, description: string | null, clone_url: string, ssh_url: string, default_branch: string, private: boolean, };
-
-export type CodexUsageSnapshot = { captured_at: string, rate_limits: CodexUsageRateLimits, token_usage: CodexTokenUsageInfo | null, };
-
-export type CodexUsageRateLimits = { primary: CodexUsageWindow | null, secondary: CodexUsageWindow | null, };
-
-export type CodexUsageWindow = { used_percent: number, window_minutes: number | null, resets_in_seconds: number | null, };
-
-export type CodexTokenUsageInfo = { total_token_usage: CodexTokenUsage, last_token_usage: CodexTokenUsage, model_context_window: number | null, };
-
-export type CodexTokenUsage = { input_tokens: number, cached_input_tokens: number, output_tokens: number, reasoning_output_tokens: number, total_tokens: number, };
-
-export type ClaudeCodeUsageSnapshot = { captured_at: string, session_info: ClaudeCodeSessionInfo, token_usage: ClaudeCodeTokenUsage, estimated_limit: number, used_percent: number, };
-
-export type ClaudeCodeSessionInfo = { session_id: string, version: string, git_branch: string | null, cwd: string | null, };
-
-export type ClaudeCodeTokenUsage = { input_tokens: number, cache_creation_input_tokens: number, cache_read_input_tokens: number, output_tokens: number, total_tokens: number, };
 
 export type CommandBuilder = { 
 /**
@@ -244,13 +194,15 @@ export type GeminiModel = "default" | "flash";
 
 export type Amp = { append_prompt: AppendPrompt, dangerously_allow_all?: boolean | null, base_command_override?: string | null, additional_params?: Array<string> | null, };
 
-export type Codex = { append_prompt: AppendPrompt, sandbox?: SandboxMode | null, oss?: boolean | null, model?: string | null, model_reasoning_effort?: ReasoningEffort | null, model_reasoning_summary?: ReasoningSummary | null, base_command_override?: string | null, additional_params?: Array<string> | null, };
+export type Codex = { append_prompt: AppendPrompt, sandbox?: SandboxMode | null, oss?: boolean | null, model?: string | null, model_reasoning_effort?: ReasoningEffort | null, model_reasoning_summary?: ReasoningSummary | null, model_reasoning_summary_format?: ReasoningSummaryFormat | null, base_command_override?: string | null, additional_params?: Array<string> | null, };
 
 export type SandboxMode = "auto" | "read-only" | "workspace-write" | "danger-full-access";
 
 export type ReasoningEffort = "low" | "medium" | "high";
 
 export type ReasoningSummary = "auto" | "concise" | "detailed" | "none";
+
+export type ReasoningSummaryFormat = "none" | "experimental";
 
 export type Cursor = { append_prompt: AppendPrompt, force?: boolean | null, model?: string | null, base_command_override?: string | null, additional_params?: Array<string> | null, };
 
@@ -276,9 +228,9 @@ export type CreateTaskAttemptBody = { task_id: string,
 /**
  * Executor profile specification
  */
-executor_profile_id: ExecutorProfileId, base_branch: string, repositories: Array<AttemptRepositorySelection>, };
+executor_profile_id: ExecutorProfileId, base_branch: string, };
 
-export type RebaseTaskAttemptRequest = { new_base_branch: string | null, };
+export type RebaseTaskAttemptRequest = { old_base_branch: string | null, new_base_branch: string | null, };
 
 export type GitOperationError = { "type": "merge_conflicts", message: string, op: ConflictOp, } | { "type": "rebase_in_progress" };
 
@@ -306,7 +258,7 @@ perform_git_reset: boolean | null, };
 
 export type CommitInfo = { sha: string, subject: string, };
 
-export type BranchStatus = { commits_behind: number | null, commits_ahead: number | null, has_uncommitted_changes: boolean | null, head_oid: string | null, uncommitted_count: number | null, untracked_count: number | null, base_branch_name: string, remote_commits_behind: number | null, remote_commits_ahead: number | null, merges: Array<Merge>, 
+export type BranchStatus = { commits_behind: number | null, commits_ahead: number | null, has_uncommitted_changes: boolean | null, head_oid: string | null, uncommitted_count: number | null, untracked_count: number | null, target_branch_name: string, remote_commits_behind: number | null, remote_commits_ahead: number | null, merges: Array<Merge>, 
 /**
  * True if a `git rebase` is currently in progress in this worktree
  */
@@ -322,9 +274,7 @@ conflicted_files: Array<string>, };
 
 export type ConflictOp = "rebase" | "merge" | "cherry_pick" | "revert";
 
-export type TaskAttempt = { id: string, task_id: string, container_ref: string | null, branch: string | null, base_branch: string, executor: string, worktree_deleted: boolean, setup_completed_at: string | null, created_at: string, updated_at: string, };
-
-export type TaskAttemptRepository = { id: string, task_attempt_id: string, project_repository_id: string, is_primary: boolean, container_ref: string | null, branch: string | null, created_at: Date, updated_at: Date, };
+export type TaskAttempt = { id: string, task_id: string, container_ref: string | null, branch: string, target_branch: string, executor: string, worktree_deleted: boolean, setup_completed_at: string | null, created_at: string, updated_at: string, };
 
 export type ExecutionProcess = { id: string, task_attempt_id: string, run_reason: ExecutionProcessRunReason, executor_action: ExecutorAction, 
 /**
@@ -356,7 +306,9 @@ export type MergeStatus = "open" | "merged" | "closed" | "unknown";
 
 export type PullRequestInfo = { number: bigint, url: string, status: MergeStatus, merged_at: string | null, merge_commit_sha: string | null, };
 
-export type FollowUpDraft = { id: string, task_attempt_id: string, prompt: string, queued: boolean, sending: boolean, variant: string | null, image_ids: Array<string> | null, created_at: string, updated_at: string, version: bigint, };
+export type Draft = { id: string, task_attempt_id: string, draft_type: DraftType, retry_process_id: string | null, prompt: string, queued: boolean, sending: boolean, variant: string | null, image_ids: Array<string> | null, created_at: string, updated_at: string, version: bigint, };
+
+export type DraftType = "follow_up" | "retry";
 
 export type CommandExitStatus = { "type": "exit_code", code: number, } | { "type": "success", success: boolean, };
 

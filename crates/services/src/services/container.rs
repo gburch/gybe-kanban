@@ -15,7 +15,6 @@ use db::{
         },
         execution_process_logs::ExecutionProcessLogs,
         executor_session::{CreateExecutorSession, ExecutorSession},
-        project_repository::ProjectRepository,
         task::{Task, TaskStatus},
         task_attempt::{TaskAttempt, TaskAttemptError},
     },
@@ -54,13 +53,6 @@ pub struct WorktreeCleanupData {
     pub attempt_id: Uuid,
     pub worktree_path: PathBuf,
     pub git_repo_path: Option<PathBuf>,
-}
-
-#[derive(Debug, Clone)]
-pub struct AttemptRepositoryContext {
-    pub project_repository: ProjectRepository,
-    pub worktree_path: PathBuf,
-    pub branch_name: String,
 }
 
 /// Cleanup worktrees without requiring database access
@@ -156,6 +148,19 @@ pub trait ContainerService {
         Ok(())
     }
 
+    fn cleanup_action(&self, cleanup_script: Option<String>) -> Option<Box<ExecutorAction>> {
+        cleanup_script.map(|script| {
+            Box::new(ExecutorAction::new(
+                ExecutorActionType::ScriptRequest(ScriptRequest {
+                    script,
+                    language: ScriptRequestLanguage::Bash,
+                    context: ScriptContext::CleanupScript,
+                }),
+                None,
+            ))
+        })
+    }
+
     async fn try_stop(&self, task_attempt: &TaskAttempt) {
         // stop all execution processes for this attempt
         if let Ok(processes) =
@@ -163,14 +168,16 @@ pub trait ContainerService {
         {
             for process in processes {
                 if process.status == ExecutionProcessStatus::Running {
-                    self.stop_execution(&process).await.unwrap_or_else(|e| {
-                        tracing::debug!(
-                            "Failed to stop execution process {} for task attempt {}: {}",
-                            process.id,
-                            task_attempt.id,
-                            e
-                        );
-                    });
+                    self.stop_execution(&process, ExecutionProcessStatus::Killed)
+                        .await
+                        .unwrap_or_else(|e| {
+                            tracing::debug!(
+                                "Failed to stop execution process {} for task attempt {}: {}",
+                                process.id,
+                                task_attempt.id,
+                                e
+                            );
+                        });
                 }
             }
         }
@@ -194,6 +201,7 @@ pub trait ContainerService {
     async fn stop_execution(
         &self,
         execution_process: &ExecutionProcess,
+        status: ExecutionProcessStatus,
     ) -> Result<(), ContainerError>;
 
     async fn try_commit_changes(&self, ctx: &ExecutionContext) -> Result<bool, ContainerError>;
@@ -209,14 +217,8 @@ pub trait ContainerService {
     async fn stream_diff(
         &self,
         task_attempt: &TaskAttempt,
-        project_repository_id: Option<Uuid>,
+        stats_only: bool,
     ) -> Result<futures::stream::BoxStream<'static, Result<LogMsg, std::io::Error>>, ContainerError>;
-
-    async fn resolve_attempt_repository(
-        &self,
-        task_attempt: &TaskAttempt,
-        project_repository_id: Option<Uuid>,
-    ) -> Result<AttemptRepositoryContext, ContainerError>;
 
     /// Fetch the MsgStore for a given execution ID, panicking if missing.
     async fn get_msg_store_by_id(&self, uuid: &Uuid) -> Option<Arc<MsgStore>> {
@@ -227,22 +229,6 @@ pub trait ContainerService {
     fn git_branch_from_task_attempt(&self, attempt_id: &Uuid, task_title: &str) -> String {
         let task_title_id = git_branch_id(task_title);
         format!("vk/{}-{}", short_uuid(attempt_id), task_title_id)
-    }
-
-    fn cleanup_action(
-        &self,
-        cleanup_script: Option<String>,
-    ) -> Option<Box<ExecutorAction>> {
-        cleanup_script.map(|script| {
-            Box::new(ExecutorAction::new(
-                ExecutorActionType::ScriptRequest(ScriptRequest {
-                    script,
-                    language: ScriptRequestLanguage::Bash,
-                    context: ScriptContext::CleanupScript,
-                }),
-                None,
-            ))
-        })
     }
 
     async fn stream_raw_logs(
@@ -529,16 +515,7 @@ pub trait ContainerService {
         );
         let prompt = ImageService::canonicalise_image_paths(&task.to_prompt(), &worktree_path);
 
-        let cleanup_action = project.cleanup_script.map(|script| {
-            Box::new(ExecutorAction::new(
-                ExecutorActionType::ScriptRequest(ScriptRequest {
-                    script,
-                    language: ScriptRequestLanguage::Bash,
-                    context: ScriptContext::CleanupScript,
-                }),
-                None,
-            ))
-        });
+        let cleanup_action = self.cleanup_action(project.cleanup_script);
 
         // Choose whether to execute the setup_script or coding agent first
         let execution_process = if let Some(setup_script) = project.setup_script {
@@ -734,28 +711,12 @@ pub trait ContainerService {
     async fn exit_plan_mode_tool(&self, ctx: ExecutionContext) -> Result<(), ContainerError> {
         let execution_id = ctx.execution_process.id;
 
-        if let Err(err) = self.stop_execution(&ctx.execution_process).await {
+        if let Err(err) = self
+            .stop_execution(&ctx.execution_process, ExecutionProcessStatus::Completed)
+            .await
+        {
             tracing::error!("Failed to stop execution process {}: {}", execution_id, err);
             return Err(err);
-        }
-        let _ = ExecutionProcess::update_completion(
-            &self.db().pool,
-            execution_id,
-            ExecutionProcessStatus::Completed,
-            Some(0),
-        )
-        .await;
-
-        // Update task status back to InProgress when plan is approved
-        if let Err(e) =
-            Task::update_status(&self.db().pool, ctx.task.id, TaskStatus::InProgress).await
-        {
-            tracing::error!(
-                "Failed to update task status back to InProgress after plan approval: {}",
-                e
-            );
-        } else {
-            tracing::info!("Updated task status back to InProgress after plan approval");
         }
 
         let action = ctx.execution_process.executor_action()?;
@@ -774,6 +735,7 @@ pub trait ContainerService {
             ExecutorSession::find_by_execution_process_id(&self.db().pool, execution_id)
                 .await?
                 .and_then(|s| s.session_id);
+
         if session_id.is_none() {
             tracing::warn!(
                 "No executor session found for execution process {}",

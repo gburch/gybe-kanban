@@ -9,7 +9,6 @@ use ts_rs::TS;
 use workspace_utils::{msg_store::MsgStore, shell::get_shell_command};
 
 use crate::{
-    actions::ExecutorSpawnContext,
     command::{CmdOverrides, CommandBuilder, apply_overrides},
     executors::{
         AppendPrompt, ExecutorError, SpawnedChild, StandardCodingAgentExecutor,
@@ -45,11 +44,7 @@ impl Amp {
 
 #[async_trait]
 impl StandardCodingAgentExecutor for Amp {
-    async fn spawn(
-        &self,
-        ctx: ExecutorSpawnContext<'_>,
-        prompt: &str,
-    ) -> Result<SpawnedChild, ExecutorError> {
+    async fn spawn(&self, current_dir: &Path, prompt: &str) -> Result<SpawnedChild, ExecutorError> {
         let (shell_cmd, shell_arg) = get_shell_command();
         let amp_command = self.build_command_builder().build_initial();
 
@@ -61,11 +56,9 @@ impl StandardCodingAgentExecutor for Amp {
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
-            .current_dir(ctx.current_dir)
+            .current_dir(current_dir)
             .arg(shell_arg)
             .arg(&amp_command);
-
-        ctx.apply_environment(&mut command);
 
         let mut child = command.group_spawn()?;
 
@@ -80,7 +73,7 @@ impl StandardCodingAgentExecutor for Amp {
 
     async fn spawn_follow_up(
         &self,
-        ctx: ExecutorSpawnContext<'_>,
+        current_dir: &Path,
         prompt: &str,
         session_id: &str,
     ) -> Result<SpawnedChild, ExecutorError> {
@@ -93,18 +86,15 @@ impl StandardCodingAgentExecutor for Amp {
             "fork".to_string(),
             session_id.to_string(),
         ]);
-        let mut fork_command = Command::new(shell_cmd);
-        fork_command
+        let fork_output = Command::new(shell_cmd)
             .kill_on_drop(true)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
-            .current_dir(ctx.current_dir)
+            .current_dir(current_dir)
             .arg(shell_arg)
-            .arg(&fork_cmd);
-
-        ctx.apply_environment(&mut fork_command);
-
-        let fork_output = fork_command.output().await?;
+            .arg(&fork_cmd)
+            .output()
+            .await?;
         let stdout_str = String::from_utf8_lossy(&fork_output.stdout);
         let new_thread_id = stdout_str
             .lines()
@@ -136,11 +126,9 @@ impl StandardCodingAgentExecutor for Amp {
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
-            .current_dir(ctx.current_dir)
+            .current_dir(current_dir)
             .arg(shell_arg)
             .arg(&continue_cmd);
-
-        ctx.apply_environment(&mut command);
 
         let mut child = command.group_spawn()?;
 
