@@ -59,6 +59,26 @@ export function streamJsonPatchEntries<E = unknown>(
     }
   };
 
+  // Batch patches to reduce structuredClone overhead
+  let pendingOps: Operation[] = [];
+  let batchTimer: ReturnType<typeof setTimeout> | null = null;
+  const BATCH_DELAY = 50; // ms
+
+  const flushPatches = () => {
+    if (pendingOps.length === 0) return;
+
+    const ops = dedupeOps(pendingOps);
+    pendingOps = [];
+    batchTimer = null;
+
+    // Apply to a working copy (applyPatch mutates)
+    const next = structuredClone(snapshot);
+    applyPatch(next as unknown as object, ops);
+
+    snapshot = next;
+    notify();
+  };
+
   const handleMessage = (event: MessageEvent) => {
     try {
       const msg = JSON.parse(event.data);
@@ -66,18 +86,22 @@ export function streamJsonPatchEntries<E = unknown>(
       // Handle JsonPatch messages (from LogMsg::to_ws_message)
       if (msg.JsonPatch) {
         const raw = msg.JsonPatch as Operation[];
-        const ops = dedupeOps(raw);
+        pendingOps.push(...raw);
 
-        // Apply to a working copy (applyPatch mutates)
-        const next = structuredClone(snapshot);
-        applyPatch(next as unknown as object, ops);
-
-        snapshot = next;
-        notify();
+        // Batch multiple rapid patches together
+        if (batchTimer !== null) {
+          clearTimeout(batchTimer);
+        }
+        batchTimer = setTimeout(flushPatches, BATCH_DELAY);
       }
 
       // Handle Finished messages
       if (msg.finished !== undefined) {
+        // Flush any pending patches before finishing
+        if (batchTimer !== null) {
+          clearTimeout(batchTimer);
+          flushPatches();
+        }
         opts.onFinished?.(snapshot.entries);
         ws.close();
       }
@@ -119,6 +143,10 @@ export function streamJsonPatchEntries<E = unknown>(
       return () => subscribers.delete(cb);
     },
     close(): void {
+      if (batchTimer !== null) {
+        clearTimeout(batchTimer);
+        batchTimer = null;
+      }
       ws.close();
       subscribers.clear();
       connected = false;
