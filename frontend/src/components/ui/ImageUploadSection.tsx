@@ -72,7 +72,9 @@ export const ImageUploadSection = forwardRef<
       defaultExpanded || images.length > 0
     );
     const [isDragging, setIsDragging] = useState(false);
-    const [uploadingFiles, setUploadingFiles] = useState<Set<string>>(new Set());
+    const [uploadingFiles, setUploadingFiles] = useState<Set<string>>(
+      new Set()
+    );
     const [errorMessage, setErrorMessage] = useState<string | null>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const latestImagesRef = useRef(images);
@@ -270,84 +272,84 @@ export const ImageUploadSection = forwardRef<
           </div>
         )}
 
-      {/* Image previews */}
-      {images.length > 0 && (
-        <div className="grid grid-cols-2 gap-2">
-          {images.map((image) => (
-            <div
-              key={image.id}
-              className="relative group border rounded-lg p-2 bg-background"
-            >
-              <div className="flex items-center gap-2">
-                <img
-                  src={imagesApi.getImageUrl(image.id)}
-                  alt={image.original_name}
-                  className="h-16 w-16 object-cover rounded"
-                />
-                <div className="flex-1 min-w-0">
-                  <p className="text-xs font-medium truncate">
-                    {image.original_name}
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    {formatFileSize(image.size_bytes)}
-                  </p>
+        {/* Image previews */}
+        {images.length > 0 && (
+          <div className="grid grid-cols-2 gap-2">
+            {images.map((image) => (
+              <div
+                key={image.id}
+                className="relative group border rounded-lg p-2 bg-background"
+              >
+                <div className="flex items-center gap-2">
+                  <img
+                    src={imagesApi.getImageUrl(image.id)}
+                    alt={image.original_name}
+                    className="h-16 w-16 object-cover rounded"
+                  />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-medium truncate">
+                      {image.original_name}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {formatFileSize(image.size_bytes)}
+                    </p>
+                  </div>
                 </div>
+                {!disabled && !readOnly && (
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="absolute top-1 right-1 h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
+                    onClick={() => handleRemoveImage(image.id)}
+                  >
+                    <X className="h-3 w-3" />
+                  </Button>
+                )}
               </div>
-              {!disabled && !readOnly && (
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="absolute top-1 right-1 h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
-                  onClick={() => handleRemoveImage(image.id)}
-                >
-                  <X className="h-3 w-3" />
-                </Button>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
+            ))}
+          </div>
+        )}
 
-      {/* Uploading indicators */}
-      {uploadingFiles.size > 0 && (
-        <div className="space-y-1">
-          {Array.from(uploadingFiles).map((tempId) => (
-            <div
-              key={tempId}
-              className="flex items-center gap-2 text-xs text-muted-foreground"
-            >
-              <div className="h-3 w-3 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-              <span>Uploading...</span>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
+        {/* Uploading indicators */}
+        {uploadingFiles.size > 0 && (
+          <div className="space-y-1">
+            {Array.from(uploadingFiles).map((tempId) => (
+              <div
+                key={tempId}
+                className="flex items-center gap-2 text-xs text-muted-foreground"
+              >
+                <div className="h-3 w-3 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                <span>Uploading...</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    );
 
-  if (!collapsible) {
-    return content;
-  }
+    if (!collapsible) {
+      return content;
+    }
 
-  return (
-    <div className="space-y-2">
-      <button
-        type="button"
-        onClick={() => setIsExpanded(!isExpanded)}
-        className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
-      >
-        <ChevronRight
-          className={cn(
-            'h-3 w-3 transition-transform',
-            isExpanded && 'rotate-90'
-          )}
-        />
-        <ImageIcon className="h-4 w-4" />
-        <span>Images {images.length > 0 && `(${images.length})`}</span>
-      </button>
-      {isExpanded && content}
-    </div>
-  );
+    return (
+      <div className="space-y-2">
+        <button
+          type="button"
+          onClick={() => setIsExpanded(!isExpanded)}
+          className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
+        >
+          <ChevronRight
+            className={cn(
+              'h-3 w-3 transition-transform',
+              isExpanded && 'rotate-90'
+            )}
+          />
+          <ImageIcon className="h-4 w-4" />
+          <span>Images {images.length > 0 && `(${images.length})`}</span>
+        </button>
+        {isExpanded && content}
+      </div>
+    );
   }
 );
 

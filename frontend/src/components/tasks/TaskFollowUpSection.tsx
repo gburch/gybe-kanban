@@ -294,10 +294,10 @@ export function TaskFollowUpSection({
                 onUpload={(file) => imagesApi.uploadForTask(task.id, file)}
                 onDelete={imagesApi.delete}
                 onImageUploaded={(image) => {
-                    handleImageUploaded(image);
-                    setFollowUpMessage((prev) =>
-                      appendImageMarkdown(prev, image)
-                    );
+                  handleImageUploaded(image);
+                  setFollowUpMessage((prev) =>
+                    appendImageMarkdown(prev, image)
+                  );
                 }}
                 disabled={!isEditable}
                 collapsible={false}

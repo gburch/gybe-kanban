@@ -294,13 +294,10 @@ export const TaskFormDialog = NiceModal.create<TaskFormDialogProps>(
       );
     }, []);
 
-    const handlePasteImages = useCallback(
-      (files: File[]) => {
-        if (files.length === 0) return;
-        void imageUploadRef.current?.addFiles(files);
-      },
-      []
-    );
+    const handlePasteImages = useCallback((files: File[]) => {
+      if (files.length === 0) return;
+      void imageUploadRef.current?.addFiles(files);
+    }, []);
 
     const handleSubmit = useCallback(async () => {
       if (!title.trim() || !projectId) return;
