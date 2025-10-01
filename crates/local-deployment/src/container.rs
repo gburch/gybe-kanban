@@ -1364,6 +1364,15 @@ impl ContainerService for LocalContainerService {
     fn task_attempt_to_current_dir(&self, task_attempt: &TaskAttempt) -> PathBuf {
         PathBuf::from(task_attempt.container_ref.clone().unwrap_or_default())
     }
+
+    fn git_branch_from_task_attempt(&self, attempt_id: &Uuid, task_title: &str) -> String {
+        let branch_prefix = {
+            let cfg = self.config.blocking_read();
+            cfg.github.resolved_branch_prefix()
+        };
+        LocalContainerService::git_branch_from_task_attempt(&branch_prefix, attempt_id, task_title)
+    }
+
     /// Create worktrees for all repositories linked to this task attempt and return the primary path
     async fn create(&self, task_attempt: &TaskAttempt) -> Result<ContainerRef, ContainerError> {
         let task = task_attempt
@@ -2090,13 +2099,18 @@ mod tests {
         .await
         .expect("failed to create task");
 
+        let attempt_id = Uuid::new_v4();
+        let expected_branch = self.git_branch_from_task_attempt(&attempt_id, &task.title);
+
         let attempt = TaskAttempt::create(
             &db.pool,
             &CreateTaskAttempt {
                 executor: BaseCodingAgent::ClaudeCode,
                 base_branch: "main".to_string(),
+                branch: expected_branch.clone(),
                 repositories: None,
             },
+            attempt_id,
             task.id,
         )
         .await
@@ -2117,12 +2131,6 @@ mod tests {
             .expect("attempt repositories should load");
         assert_eq!(attempt_repositories.len(), 2);
 
-        let branch_prefix = config.read().await.github.resolved_branch_prefix();
-        let expected_branch = LocalContainerService::git_branch_from_task_attempt(
-            &branch_prefix,
-            &attempt.id,
-            &task.title,
-        );
         assert_eq!(
             refreshed_attempt.branch.as_deref(),
             Some(expected_branch.as_str())

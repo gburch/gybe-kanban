@@ -203,13 +203,20 @@ pub async fn create_task_and_start(
         )
     };
 
+    let attempt_id = Uuid::new_v4();
+    let branch_name = deployment
+        .container()
+        .git_branch_from_task_attempt(&attempt_id, &task.title);
+
     let task_attempt = TaskAttempt::create(
         &deployment.db().pool,
         &CreateTaskAttempt {
             executor: payload.executor_profile_id.executor,
             base_branch: payload.base_branch,
+            branch: branch_name,
             repositories: repository_links,
         },
+        attempt_id,
         task.id,
     )
     .await?;

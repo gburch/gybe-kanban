@@ -643,8 +643,10 @@ mod tests {
             &CreateTaskAttempt {
                 executor: BaseCodingAgent::ClaudeCode,
                 base_branch: "main".to_string(),
+                branch: "feature/test".to_string(),
                 repositories: None,
             },
+            Uuid::new_v4(),
             task.id,
         )
         .await

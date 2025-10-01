@@ -407,7 +407,10 @@ mod tests {
         let events = aggregator.aggregate_with_now(None, vec![comment], now);
         assert_eq!(events.len(), 1);
 
-        let cta = events[0].cta.as_ref().expect("comment events should include CTA");
+        let cta = events[0]
+            .cta
+            .as_ref()
+            .expect("comment events should include CTA");
         assert_eq!(cta.label, "Open project");
         assert_eq!(cta.href, format!("/projects/{}", project_id));
     }

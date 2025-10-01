@@ -106,8 +106,10 @@ async fn repository_crud_flow_updates_attempt_metadata() -> TestResult<()> {
         &CreateTaskAttempt {
             executor: BaseCodingAgent::ClaudeCode,
             base_branch: "main".to_string(),
+            branch: "feature/test".to_string(),
             repositories: None,
         },
+        Uuid::new_v4(),
         task.id,
     )
     .await?;
@@ -188,6 +190,7 @@ async fn attempt_explicit_repository_selection_respected() -> TestResult<()> {
         &CreateTaskAttempt {
             executor: BaseCodingAgent::ClaudeCode,
             base_branch: "develop".to_string(),
+            branch: "feature/test".to_string(),
             repositories: Some(vec![
                 CreateTaskAttemptRepository {
                     project_repository_id: default_primary.id,
@@ -199,6 +202,7 @@ async fn attempt_explicit_repository_selection_respected() -> TestResult<()> {
                 },
             ]),
         },
+        Uuid::new_v4(),
         task.id,
     )
     .await?;

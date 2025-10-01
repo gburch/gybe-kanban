@@ -155,6 +155,10 @@ pub async fn create_task_attempt(
 ) -> Result<ResponseJson<ApiResponse<TaskAttempt>>, ApiError> {
     let executor_profile_id = payload.get_executor_profile_id();
 
+    let task = Task::find_by_id(&deployment.db().pool, payload.task_id)
+        .await?
+        .ok_or(SqlxError::RowNotFound)?;
+
     let repository_links = if payload.repositories.is_empty() {
         None
     } else {
@@ -170,13 +174,20 @@ pub async fn create_task_attempt(
         )
     };
 
+    let attempt_id = Uuid::new_v4();
+    let branch_name = deployment
+        .container()
+        .git_branch_from_task_attempt(&attempt_id, &task.title);
+
     let task_attempt = TaskAttempt::create(
         &deployment.db().pool,
         &CreateTaskAttempt {
             executor: executor_profile_id.executor,
             base_branch: payload.base_branch.clone(),
+            branch: branch_name,
             repositories: repository_links,
         },
+        attempt_id,
         payload.task_id,
     )
     .await?;
@@ -259,7 +270,8 @@ pub async fn follow_up(
         // No previous execution found - this shouldn't happen in normal flow,
         // but if it does, we'll need an executor profile from somewhere
         return Err(ApiError::TaskAttempt(TaskAttemptError::ValidationError(
-            "No previous coding agent execution found. Please start a new task attempt instead.".to_string(),
+            "No previous coding agent execution found. Please start a new task attempt instead."
+                .to_string(),
         )));
     };
 
@@ -791,7 +803,8 @@ async fn start_follow_up_from_draft(
         // No previous execution found - this shouldn't happen in normal flow,
         // but if it does, we'll need an executor profile from somewhere
         return Err(ApiError::TaskAttempt(TaskAttemptError::ValidationError(
-            "No previous coding agent execution found. Please start a new task attempt instead.".to_string(),
+            "No previous coding agent execution found. Please start a new task attempt instead."
+                .to_string(),
         )));
     };
 

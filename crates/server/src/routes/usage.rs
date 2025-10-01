@@ -581,7 +581,9 @@ pub async fn get_claude_code_usage()
     Ok(ResponseJson(ApiResponse::success(snapshot)))
 }
 
-fn collect_claude_code_usage(estimated_limit: u64) -> std::io::Result<Option<ClaudeCodeUsageSnapshot>> {
+fn collect_claude_code_usage(
+    estimated_limit: u64,
+) -> std::io::Result<Option<ClaudeCodeUsageSnapshot>> {
     let Some(home) = dirs::home_dir() else {
         return Ok(None);
     };
@@ -678,7 +680,10 @@ fn get_five_hour_block_start(timestamp: &DateTime<Utc>) -> DateTime<Utc> {
         .and_utc()
 }
 
-fn parse_claude_code_file(path: &Path, estimated_limit: u64) -> std::io::Result<Option<(DateTime<Utc>, ClaudeCodeUsageSnapshot)>> {
+fn parse_claude_code_file(
+    path: &Path,
+    estimated_limit: u64,
+) -> std::io::Result<Option<(DateTime<Utc>, ClaudeCodeUsageSnapshot)>> {
     let file = File::open(path)?;
     let reader = BufReader::new(file);
 
@@ -757,8 +762,7 @@ fn parse_claude_code_file(path: &Path, estimated_limit: u64) -> std::io::Result<
 
                     // Calculate total
                     accumulated_usage.total_tokens =
-                        accumulated_usage.input_tokens +
-                        accumulated_usage.output_tokens;
+                        accumulated_usage.input_tokens + accumulated_usage.output_tokens;
 
                     if let Some(ref info) = session_info {
                         let used_percent = if estimated_limit > 0 {
@@ -877,7 +881,7 @@ mod claude_code_tests {
                         "output_tokens": 60
                     }
                 }
-            })
+            }),
         ];
 
         let content = lines

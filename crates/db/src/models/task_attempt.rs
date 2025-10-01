@@ -96,6 +96,7 @@ pub struct CreateTaskAttemptRepository {
 pub struct CreateTaskAttempt {
     pub executor: BaseCodingAgent,
     pub base_branch: String,
+    pub branch: String,
     #[serde(default)]
     pub repositories: Option<Vec<CreateTaskAttemptRepository>>,
 }
@@ -117,7 +118,7 @@ impl TaskAttempt {
                               task_id AS "task_id!: Uuid",
                               container_ref,
                               branch,
-                              base_branch,
+                              target_branch AS "base_branch!: String",
                               executor AS "executor!",
                               worktree_deleted AS "worktree_deleted!: bool",
                               setup_completed_at AS "setup_completed_at: DateTime<Utc>",
@@ -137,7 +138,7 @@ impl TaskAttempt {
                               task_id AS "task_id!: Uuid",
                               container_ref,
                               branch,
-                              base_branch,
+                              target_branch AS "base_branch!: String",
                               executor AS "executor!",
                               worktree_deleted AS "worktree_deleted!: bool",
                               setup_completed_at AS "setup_completed_at: DateTime<Utc>",
@@ -168,7 +169,7 @@ impl TaskAttempt {
                        ta.task_id           AS "task_id!: Uuid",
                        ta.container_ref,
                        ta.branch,
-                       ta.base_branch,
+                       ta.target_branch     AS "base_branch!: String",
                        ta.executor AS "executor!",
                        ta.worktree_deleted  AS "worktree_deleted!: bool",
                        ta.setup_completed_at AS "setup_completed_at: DateTime<Utc>",
@@ -390,7 +391,7 @@ impl TaskAttempt {
                        task_id           AS "task_id!: Uuid",
                        container_ref,
                        branch,
-                       base_branch,
+                       target_branch     AS "base_branch!: String",
                        executor AS "executor!",
                        worktree_deleted  AS "worktree_deleted!: bool",
                        setup_completed_at AS "setup_completed_at: DateTime<Utc>",
@@ -411,7 +412,7 @@ impl TaskAttempt {
                        task_id           AS "task_id!: Uuid",
                        container_ref,
                        branch,
-                       base_branch,
+                       target_branch     AS "base_branch!: String",
                        executor AS "executor!",
                        worktree_deleted  AS "worktree_deleted!: bool",
                        setup_completed_at AS "setup_completed_at: DateTime<Utc>",
@@ -487,7 +488,7 @@ impl TaskAttempt {
                      ta.task_id            AS "task_id!: Uuid",
                      ta.container_ref,
                      ta.branch,
-                     ta.base_branch        AS "base_branch!",
+                     ta.target_branch      AS "base_branch!",
                      ta.executor           AS "executor!",
                      ta.worktree_deleted   AS "worktree_deleted!: bool",
                      ta.setup_completed_at AS "setup_completed_at: DateTime<Utc>",
@@ -517,7 +518,7 @@ impl TaskAttempt {
                      ta.task_id            AS "task_id!: Uuid",
                      ta.container_ref,
                      ta.branch,
-                     ta.base_branch        AS "base_branch!",
+                     ta.target_branch      AS "base_branch!",
                      ta.executor           AS "executor!",
                      ta.worktree_deleted   AS "worktree_deleted!: bool",
                      ta.setup_completed_at AS "setup_completed_at: DateTime<Utc>",
@@ -645,9 +646,9 @@ impl TaskAttempt {
     pub async fn create(
         pool: &SqlitePool,
         data: &CreateTaskAttempt,
+        attempt_id: Uuid,
         task_id: Uuid,
     ) -> Result<Self, TaskAttemptError> {
-        let attempt_id = Uuid::new_v4();
         let mut tx = pool.begin().await?;
         let task_row = sqlx::query!(
             r#"SELECT project_id as "project_id!: Uuid" FROM tasks WHERE id = $1"#,
@@ -657,16 +658,19 @@ impl TaskAttempt {
         .await?
         .ok_or(TaskAttemptError::TaskNotFound)?;
 
+        let branch_value = data.branch.clone();
+        let target_branch_value = data.base_branch.clone();
+
         let attempt = sqlx::query_as!(
             TaskAttempt,
-            r#"INSERT INTO task_attempts (id, task_id, container_ref, branch, base_branch, executor, worktree_deleted, setup_completed_at)
+            r#"INSERT INTO task_attempts (id, task_id, container_ref, branch, target_branch, executor, worktree_deleted, setup_completed_at)
                VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-               RETURNING id as "id!: Uuid", task_id as "task_id!: Uuid", container_ref, branch, base_branch, executor as "executor!",  worktree_deleted as "worktree_deleted!: bool", setup_completed_at as "setup_completed_at: DateTime<Utc>", created_at as "created_at!: DateTime<Utc>", updated_at as "updated_at!: DateTime<Utc>""#,
+               RETURNING id as "id!: Uuid", task_id as "task_id!: Uuid", container_ref, branch, target_branch as "base_branch!: String", executor as "executor!",  worktree_deleted as "worktree_deleted!: bool", setup_completed_at as "setup_completed_at: DateTime<Utc>", created_at as "created_at!: DateTime<Utc>", updated_at as "updated_at!: DateTime<Utc>""#,
             attempt_id,
             task_id,
             Option::<String>::None,
-            Option::<String>::None,
-            data.base_branch,
+            branch_value,
+            target_branch_value,
             data.executor,
             false,
             Option::<DateTime<Utc>>::None
@@ -841,7 +845,7 @@ impl TaskAttempt {
         new_base_branch: &str,
     ) -> Result<(), TaskAttemptError> {
         sqlx::query!(
-            "UPDATE task_attempts SET base_branch = $1, updated_at = datetime('now') WHERE id = $2",
+            "UPDATE task_attempts SET target_branch = $1, updated_at = datetime('now') WHERE id = $2",
             new_base_branch,
             attempt_id,
         )
@@ -945,13 +949,16 @@ mod tests {
         .await
         .unwrap();
 
+        let attempt_id = Uuid::new_v4();
         let attempt = TaskAttempt::create(
             pool,
             &CreateTaskAttempt {
                 executor: BaseCodingAgent::ClaudeCode,
                 base_branch: "main".to_string(),
+                branch: "feature/test".to_string(),
                 repositories: None,
             },
+            attempt_id,
             task.id,
         )
         .await
@@ -1187,13 +1194,16 @@ mod tests {
         .await
         .unwrap();
 
+        let attempt_id = Uuid::new_v4();
         let attempt = TaskAttempt::create(
             &pool,
             &CreateTaskAttempt {
                 executor: BaseCodingAgent::ClaudeCode,
                 base_branch: "main".to_string(),
+                branch: "feature/test".to_string(),
                 repositories: None,
             },
+            attempt_id,
             task.id,
         )
         .await

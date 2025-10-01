@@ -2,7 +2,10 @@ use anyhow::Error;
 use executors::{executors::BaseCodingAgent, profile::ExecutorProfileId};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
-pub use v8::{ActivityFeedConfig, EditorConfig, EditorType, GitHubConfig, NotificationConfig, SoundFile, ThemeMode, UiLanguage};
+pub use v8::{
+    ActivityFeedConfig, EditorConfig, EditorType, GitHubConfig, NotificationConfig, SoundFile,
+    ThemeMode, UiLanguage,
+};
 
 use crate::services::config::versions::v8;
 
