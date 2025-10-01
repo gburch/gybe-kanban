@@ -501,7 +501,10 @@ export const useConversationHistory = ({
       ) {
         if (cancelled) return;
         displayedExecutionProcesses.current = updatedEntries;
+        // Emit progress during batching to show incremental updates
+        emitEntries(updatedEntries, 'historic', false);
       }
+      // Final emit after all batches complete
       await new Promise((resolve) => setTimeout(resolve, 100));
       emitEntries(displayedExecutionProcesses.current, 'historic', false);
     })();
@@ -537,8 +540,19 @@ export const useConversationHistory = ({
     displayedExecutionProcesses.current = {};
     loadedInitialEntries.current = false;
     lastRunningProcessId.current = null;
-    // Emit blank entries
+    // Emit blank entries with loading state
     emitEntries(displayedExecutionProcesses.current, 'initial', true);
+
+    // Defensive: if no execution processes appear after 5 seconds, end loading
+    const timeoutId = setTimeout(() => {
+      if (!loadedInitialEntries.current && executionProcesses?.current.length === 0) {
+        console.warn('No execution processes loaded after 5s, ending loading state');
+        emitEntries(displayedExecutionProcesses.current, 'initial', false);
+        loadedInitialEntries.current = true;
+      }
+    }, 5000);
+
+    return () => clearTimeout(timeoutId);
   }, [attempt.id]);
 
   return {};

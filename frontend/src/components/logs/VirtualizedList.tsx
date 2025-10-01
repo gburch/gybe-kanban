@@ -85,6 +85,12 @@ const VirtualizedList = ({ attempt }: VirtualizedListProps) => {
     reset();
   }, [attempt.id, reset]);
 
+  const loadingRef = useRef(loading);
+
+  useEffect(() => {
+    loadingRef.current = loading;
+  }, [loading]);
+
   const onEntriesUpdated = useCallback((
     newEntries: PatchTypeWithKey[],
     addType: AddEntryType,
@@ -92,17 +98,16 @@ const VirtualizedList = ({ attempt }: VirtualizedListProps) => {
   ) => {
     let scrollModifier: ScrollModifier = InitialDataScrollModifier;
 
-    if (addType === 'running' && !loading) {
+    if (addType === 'running' && !loadingRef.current) {
       scrollModifier = AutoScrollToBottom;
     }
 
     setChannelData({ data: newEntries, scrollModifier });
     setEntries(newEntries);
 
-    if (loading) {
-      setLoading(newLoading);
-    }
-  }, [loading, setEntries]);
+    // Always update loading state, not just when it's true
+    setLoading(newLoading);
+  }, [setEntries]);
 
   useConversationHistory({ attempt, onEntriesUpdated });
 
@@ -146,7 +151,7 @@ const VirtualizedList = ({ attempt }: VirtualizedListProps) => {
   }, [channelData, fallbackData.length, useLicensedList]);
 
   return (
-    <>
+    <div className="relative flex-1 min-h-0">
       {useLicensedList ? (
         <VirtuosoMessageListLicense licenseKey={licenseKey}>
           <VirtuosoMessageList<PatchTypeWithKey, MessageListContext>
@@ -179,12 +184,12 @@ const VirtualizedList = ({ attempt }: VirtualizedListProps) => {
         />
       )}
       {loading && (
-        <div className="float-left top-0 left-0 w-full h-full bg-primary flex flex-col gap-2 justify-center items-center">
+        <div className="absolute inset-0 z-50 bg-background/95 backdrop-blur-sm flex flex-col gap-2 justify-center items-center">
           <Loader2 className="h-8 w-8 animate-spin" />
           <p>Loading History</p>
         </div>
       )}
-    </>
+    </div>
   );
 };
 
