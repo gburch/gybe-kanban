@@ -7,7 +7,7 @@ import {
   VirtuosoMessageListProps,
 } from '@virtuoso.dev/message-list';
 import { Virtuoso, VirtuosoHandle } from 'react-virtuoso';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import DisplayConversationEntry from '../NormalizedConversation/DisplayConversationEntry';
 import { useEntries } from '@/contexts/EntriesContext';
@@ -85,7 +85,7 @@ const VirtualizedList = ({ attempt }: VirtualizedListProps) => {
     reset();
   }, [attempt.id, reset]);
 
-  const onEntriesUpdated = (
+  const onEntriesUpdated = useCallback((
     newEntries: PatchTypeWithKey[],
     addType: AddEntryType,
     newLoading: boolean
@@ -102,7 +102,7 @@ const VirtualizedList = ({ attempt }: VirtualizedListProps) => {
     if (loading) {
       setLoading(newLoading);
     }
-  };
+  }, [loading, setEntries]);
 
   useConversationHistory({ attempt, onEntriesUpdated });
 
