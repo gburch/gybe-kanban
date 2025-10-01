@@ -653,14 +653,14 @@ function TaskFlowView({
                 'backdrop-blur-sm',
                 'rounded-lg shadow-sm hover:shadow-md',
                 'transition-all duration-200',
-                'hover:z-20',
+                'hover:z-[60]',
                 // Status-based colors matching legend
                 isDone && 'bg-green-500/10 border-green-500/30 hover:bg-green-500/15',
                 isActive && 'bg-blue-500/15 border-blue-500/40 hover:bg-blue-500/20',
                 isTodo && 'bg-zinc-700/20 border-zinc-600/40 hover:bg-zinc-700/30',
                 // Selected state
                 selectedTask?.id === node.task.id &&
-                  'ring-2 ring-primary ring-offset-2 ring-offset-background',
+                  'ring-2 ring-primary ring-offset-2 ring-offset-background z-[60]',
                 // Critical path highlighting (stronger border + glow)
                 node.isConvergencePoint &&
                   'ring-1 ring-amber-400/60 border-amber-400/70 shadow-amber-400/20'
@@ -669,7 +669,7 @@ function TaskFlowView({
                 left: `${node.x}px`,
                 top: `${node.y}px`,
                 width: `${CARD_WIDTH}px`,
-                zIndex: 10,
+                zIndex: selectedTask?.id === node.task.id ? 60 : 10,
               }}
               onClick={() => onViewTaskDetails(node.task)}
             >
