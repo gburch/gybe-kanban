@@ -1,5 +1,5 @@
 import { useDiffEntries } from '@/hooks/useDiffEntries';
-import { useMemo, useCallback, useState, useEffect } from 'react';
+import { useMemo, useCallback, useState, useEffect, memo } from 'react';
 import { Loader } from '@/components/ui/loader';
 import { Button } from '@/components/ui/button';
 import DiffViewSwitch from '@/components/diff-view-switch';
@@ -31,10 +31,6 @@ function DiffTab({ selectedAttempt }: DiffTabProps) {
   useEffect(() => {
     setLoading(true);
     setHasInitialized(false);
-  }, [selectedAttempt?.id, selectedRepositoryId]);
-
-  useEffect(() => {
-    setLoading(true);
   }, [selectedAttempt?.id, selectedRepositoryId]);
 
   useEffect(() => {
@@ -143,7 +139,7 @@ interface DiffTabContentProps {
   repositoryLabel: string;
 }
 
-function DiffTabContent({
+const DiffTabContent = memo(function DiffTabContent({
   diffs,
   fileCount,
   added,
@@ -208,6 +204,6 @@ function DiffTabContent({
       </div>
     </div>
   );
-}
+});
 
 export default DiffTab;
