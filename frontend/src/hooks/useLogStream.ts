@@ -39,11 +39,16 @@ export const useLogStream = (processId: string): UseLogStreamResult => {
       let flushTimerId: ReturnType<typeof setTimeout> | null = null;
       const BATCH_INTERVAL_MS = 100;
       const BATCH_SIZE_THRESHOLD = 50;
+      const MAX_LOGS = 1000; // Keep only last 1000 logs to prevent memory issues
 
       const flushLogs = () => {
         if (logBuffer.length > 0) {
           const toFlush = logBuffer.splice(0);
-          setLogs((prev) => [...prev, ...toFlush]);
+          setLogs((prev) => {
+            const combined = [...prev, ...toFlush];
+            // Keep only recent logs to prevent memory exhaustion
+            return combined.slice(-MAX_LOGS);
+          });
         }
         flushTimerId = null;
       };

@@ -79,4 +79,30 @@ describe('RawLogText', () => {
     const element = container.querySelector('div');
     expect(element?.className).toContain('custom-class');
   });
+
+  it('truncates very long content', () => {
+    const longContent = 'A'.repeat(15000); // 15KB of content
+    const { container } = render(
+      <RawLogText content={longContent} channel="stdout" />
+    );
+
+    // Should show truncated content (first 10KB)
+    const span = container.querySelector('span');
+    expect(span?.textContent?.length).toBe(10000);
+
+    // Should show "Show more" button
+    expect(container.textContent).toContain('Show more');
+    expect(container.textContent).toContain('KB truncated');
+  });
+
+  it('shows full content when not truncated', () => {
+    const shortContent = 'Short log entry';
+    const { container } = render(
+      <RawLogText content={shortContent} channel="stdout" />
+    );
+
+    // Should not show expand button
+    expect(container.textContent).not.toContain('Show more');
+    expect(container.querySelector('span')?.textContent).toBe(shortContent);
+  });
 });
