@@ -32,6 +32,7 @@ import {
 } from '@/lib/responsive-config';
 
 import TaskKanbanBoard from '@/components/tasks/TaskKanbanBoard';
+import TaskFlowView from '@/components/tasks/TaskFlowView';
 import { TaskDetailsPanel } from '@/components/tasks/TaskDetailsPanel';
 import type { TaskWithAttemptStatus, TaskAttempt } from 'shared/types';
 import type { DragEndEvent } from '@/components/ui/shadcn-io/kanban';
@@ -42,7 +43,11 @@ import { useHotkeysContext } from 'react-hotkeys-hook';
 
 type Task = TaskWithAttemptStatus;
 
-export function ProjectTasks() {
+interface ProjectTasksProps {
+  viewMode?: 'kanban' | 'flow';
+}
+
+export function ProjectTasks({ viewMode = 'kanban' }: ProjectTasksProps) {
   const { t } = useTranslation(['tasks', 'common']);
   const { taskId, attemptId } = useParams<{
     projectId: string;
@@ -137,6 +142,8 @@ export function ProjectTasks() {
     isLoading,
     error: streamError,
   } = useProjectTasks(projectId || '');
+
+  const isFlowView = viewMode === 'flow';
 
   // Sync selectedTask with URL params and live task updates
   useEffect(() => {
@@ -235,6 +242,7 @@ export function ProjectTasks() {
 
   useKeyNavUp(
     () => {
+      if (isFlowView) return;
       selectPreviousTask();
     },
     {
@@ -245,6 +253,7 @@ export function ProjectTasks() {
 
   useKeyNavDown(
     () => {
+      if (isFlowView) return;
       selectNextTask();
     },
     {
@@ -255,6 +264,7 @@ export function ProjectTasks() {
 
   useKeyNavLeft(
     () => {
+      if (isFlowView) return;
       selectPreviousColumn();
     },
     {
@@ -265,6 +275,7 @@ export function ProjectTasks() {
 
   useKeyNavRight(
     () => {
+      if (isFlowView) return;
       selectNextColumn();
     },
     {
@@ -472,6 +483,70 @@ export function ProjectTasks() {
   // Combine loading states for initial load
   const isInitialTasksLoad = isLoading && tasks.length === 0;
 
+  const renderTaskCollection = () => {
+    if (tasks.length === 0) {
+      return (
+        <div className="max-w-7xl mx-auto mt-8">
+          <Card>
+            <CardContent className="text-center py-8">
+              <p className="text-muted-foreground">{t('empty.noTasks')}</p>
+              <Button className="mt-4" onClick={handleCreateNewTask}>
+                <Plus className="h-4 w-4 mr-2" />
+                {t('empty.createFirst')}
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
+      );
+    }
+
+    if (filteredTasks.length === 0) {
+      return (
+        <div className="max-w-7xl mx-auto mt-8">
+          <Card>
+            <CardContent className="text-center py-8">
+              <p className="text-muted-foreground">
+                {t('empty.noSearchResults')}
+              </p>
+            </CardContent>
+          </Card>
+        </div>
+      );
+    }
+
+    if (isFlowView) {
+      return (
+        <div className="w-full h-full">
+          <TaskFlowView
+            tasks={filteredTasks}
+            tasksById={tasksById}
+            onViewTaskDetails={handleViewTaskDetails}
+            selectedTask={selectedTask || undefined}
+            parentTasksById={parentTasksById}
+          />
+        </div>
+      );
+    }
+
+    return (
+      <div className="w-full h-full">
+        <TaskKanbanBoard
+          groupedTasks={groupedFilteredTasks}
+          onDragEnd={handleDragEnd}
+          onEditTask={handleEditTaskCallback}
+          onDeleteTask={handleDeleteTask}
+          onDuplicateTask={handleDuplicateTaskCallback}
+          onViewTaskDetails={handleViewTaskDetails}
+          selectedTask={selectedTask || undefined}
+          onCreateTask={handleCreateNewTask}
+          parentTasksById={parentTasksById}
+          childTaskSummaryById={childTaskSummaryById}
+          onParentClick={handleParentNavigation}
+        />
+      </div>
+    );
+  };
+
   if (projectError) {
     return (
       <div className="p-4">
@@ -510,45 +585,7 @@ export function ProjectTasks() {
       <div className="flex-1 min-h-0 xl:flex">
         {/* Left Column - Kanban Section */}
         <div className={getKanbanSectionClasses(isPanelOpen, isFullscreen)}>
-          {tasks.length === 0 ? (
-            <div className="max-w-7xl mx-auto mt-8">
-              <Card>
-                <CardContent className="text-center py-8">
-                  <p className="text-muted-foreground">{t('empty.noTasks')}</p>
-                  <Button className="mt-4" onClick={handleCreateNewTask}>
-                    <Plus className="h-4 w-4 mr-2" />
-                    {t('empty.createFirst')}
-                  </Button>
-                </CardContent>
-              </Card>
-            </div>
-          ) : filteredTasks.length === 0 ? (
-            <div className="max-w-7xl mx-auto mt-8">
-              <Card>
-                <CardContent className="text-center py-8">
-                  <p className="text-muted-foreground">
-                    {t('empty.noSearchResults')}
-                  </p>
-                </CardContent>
-              </Card>
-            </div>
-          ) : (
-            <div className="w-full h-full">
-              <TaskKanbanBoard
-                groupedTasks={groupedFilteredTasks}
-                onDragEnd={handleDragEnd}
-                onEditTask={handleEditTaskCallback}
-                onDeleteTask={handleDeleteTask}
-                onDuplicateTask={handleDuplicateTaskCallback}
-                onViewTaskDetails={handleViewTaskDetails}
-                selectedTask={selectedTask || undefined}
-                onCreateTask={handleCreateNewTask}
-                parentTasksById={parentTasksById}
-                childTaskSummaryById={childTaskSummaryById}
-                onParentClick={handleParentNavigation}
-              />
-            </div>
-          )}
+          {renderTaskCollection()}
         </div>
 
         {/* Right Column - Task Details Panel */}
