@@ -158,17 +158,17 @@ function buildFlowLayout(
   const g = new dagre.graphlib.Graph();
   g.setGraph({
     rankdir: 'LR', // Left to right - we'll reverse edge direction to get children left of parents
-    nodesep: 60,   // Vertical spacing between nodes
-    ranksep: 400,  // Horizontal spacing between ranks (increased to force status grouping)
-    marginx: 40,
-    marginy: 40,
+    nodesep: 20,   // Vertical spacing between nodes (reduced from 60)
+    ranksep: 300,  // Horizontal spacing between ranks (reduced from 400)
+    marginx: 30,
+    marginy: 30,
     ranker: 'tight-tree', // Use tight-tree ranker to respect rank constraints
   });
   g.setDefaultEdgeLabel(() => ({}));
 
   // Constants
-  const CARD_WIDTH = 300;   // Reduced from 320
-  const CARD_HEIGHT = 130;  // Reduced from 140
+  const CARD_WIDTH = 280;   // Reduced from 320
+  const CARD_HEIGHT = 110;  // Reduced from 140
 
   // Add nodes to Dagre with rank constraints based on status
   // Rank determines horizontal position in LR layout: lower rank = further left
@@ -252,8 +252,8 @@ function buildFlowLayout(
 
   // Define horizontal zones with gaps between status groups
   // Order: Done (left) → Todo (middle) → Active (right)
-  const baseX = 60;
-  const statusGap = 100; // Gap between status zones
+  const baseX = 40;
+  const statusGap = 60; // Gap between status zones (reduced from 100)
 
   const doneZoneStart = baseX;
   const todoZoneStart = doneZoneStart + doneWidth + statusGap;
@@ -318,7 +318,7 @@ function TaskFlowView({
   const minimapRef = useRef<HTMLCanvasElement>(null);
   const [zoom, setZoom] = useState(1);
   const [isMinimapDragging, setIsMinimapDragging] = useState(false);
-  const CARD_WIDTH = 300;
+  const CARD_WIDTH = 280;
 
   // Zoom controls
   const handleZoomIn = useCallback(() => {
@@ -407,7 +407,7 @@ function TaskFlowView({
         const x = node.x * scale;
         const y = node.y * scale;
         const w = CARD_WIDTH * scale;
-        const h = 130 * scale; // CARD_HEIGHT
+        const h = 110 * scale; // CARD_HEIGHT
 
         const status = node.task.status.toLowerCase();
         if (status === 'done' || status === 'cancelled') {
@@ -538,7 +538,7 @@ function TaskFlowView({
         />
       </div>
 
-      <div className="p-8" style={{ width: totalWidth * zoom, height: totalHeight * zoom }}>
+      <div className="p-4" style={{ width: totalWidth * zoom, height: totalHeight * zoom }}>
         {/* Flow diagram container */}
         <div
           ref={flowContainerRef}
@@ -575,15 +575,15 @@ function TaskFlowView({
                 if (childIsLeft) {
                   // Child is on the left, parent on the right (normal flow)
                   x1 = childNode.x + CARD_WIDTH; // Child's right edge
-                  y1 = childNode.y + 65; // Middle of child
+                  y1 = childNode.y + 55; // Middle of child (110/2)
                   x2 = node.x; // Parent's left edge
-                  y2 = node.y + 65; // Middle of parent
+                  y2 = node.y + 55; // Middle of parent (110/2)
                 } else {
                   // Child is on the right, parent on the left (reversed due to status)
                   x1 = childNode.x; // Child's left edge
-                  y1 = childNode.y + 65; // Middle of child
+                  y1 = childNode.y + 55; // Middle of child (110/2)
                   x2 = node.x + CARD_WIDTH; // Parent's right edge
-                  y2 = node.y + 65; // Middle of parent
+                  y2 = node.y + 55; // Middle of parent (110/2)
                 }
 
                 // Curved path
@@ -673,10 +673,10 @@ function TaskFlowView({
               }}
               onClick={() => onViewTaskDetails(node.task)}
             >
-              <CardContent className="p-4">
+              <CardContent className="p-3">
                 {/* Convergence indicator */}
                 {node.isConvergencePoint && (
-                  <div className="flex items-center gap-1 mb-2 text-xs font-semibold text-amber-400">
+                  <div className="flex items-center gap-1 mb-1 text-xs font-semibold text-amber-400">
                     <GitMerge className="h-3 w-3" />
                     <span>Critical Path</span>
                   </div>
@@ -684,14 +684,14 @@ function TaskFlowView({
 
                 {/* Branch indicator */}
                 {node.isBranchPoint && (
-                  <div className="flex items-center gap-1 mb-2 text-xs font-semibold text-blue-400">
+                  <div className="flex items-center gap-1 mb-1 text-xs font-semibold text-blue-400">
                     <GitBranch className="h-3 w-3" />
                     <span>Branches</span>
                   </div>
                 )}
 
                 {/* Task content */}
-                <div className="flex items-start gap-2 mb-2">
+                <div className="flex items-start gap-2 mb-1.5">
                   {getStatusIcon(node.task)}
                   <div className="flex-1 min-w-0">
                     <h3 className="font-medium text-sm line-clamp-2 text-foreground">
@@ -701,7 +701,7 @@ function TaskFlowView({
                 </div>
 
                 {/* Task metadata */}
-                <div className="flex items-center justify-between mt-3">
+                <div className="flex items-center justify-between mt-2">
                   <Badge variant="outline" className="text-xs">
                     {getStatusLabel(node.task.status)}
                   </Badge>
