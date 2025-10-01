@@ -41,9 +41,9 @@ const CONFIRM_HOOK_SCRIPT: &str = include_str!("./hooks/confirm.py");
 
 fn base_command(claude_code_router: bool) -> &'static str {
     if claude_code_router {
-        "npx -y @musistudio/claude-code-router@1.0.49 code"
+        "npx -y @musistudio/claude-code-router@2.0.49 code"
     } else {
-        "npx -y @anthropic-ai/claude-code@1.0.120"
+        "npx -y @anthropic-ai/claude-code@2.0.1"
     }
 }
 
@@ -166,8 +166,11 @@ impl StandardCodingAgentExecutor for ClaudeCode {
         let (shell_cmd, shell_arg) = get_shell_command();
         let command_builder = self.build_command_builder().await;
         // Build follow-up command with --resume {session_id}
-        let mut base_command =
-            command_builder.build_follow_up(&["--resume".to_string(), session_id.to_string()]);
+        let mut base_command = command_builder.build_follow_up(&[
+            "--fork-session".to_string(),
+            "--resume".to_string(),
+            session_id.to_string(),
+        ]);
 
         if self.plan.unwrap_or(false) {
             base_command = create_watchkill_script(&base_command);

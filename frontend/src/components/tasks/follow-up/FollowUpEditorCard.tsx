@@ -14,17 +14,20 @@ type Props = {
   onCommandEnter?: (e: React.KeyboardEvent<HTMLTextAreaElement>) => void;
   onCommandShiftEnter?: (e: React.KeyboardEvent<HTMLTextAreaElement>) => void;
   onPasteFiles?: (files: File[]) => void;
+  textareaClassName?: string;
 };
 
 export function FollowUpEditorCard({
   placeholder,
   value,
   onChange,
+  onKeyDown,
   disabled,
   showLoadingOverlay,
   onCommandEnter,
   onCommandShiftEnter,
   onPasteFiles,
+  textareaClassName,
 }: Props) {
   const { projectId } = useProject();
   return (
@@ -33,7 +36,8 @@ export function FollowUpEditorCard({
         placeholder={placeholder}
         value={value}
         onChange={onChange}
-        className={cn('flex-1 min-h-[40px] resize-none')}
+        onKeyDown={onKeyDown}
+        className={cn('flex-1 min-h-[40px] resize-none', textareaClassName)}
         disabled={disabled}
         projectId={projectId}
         rows={1}

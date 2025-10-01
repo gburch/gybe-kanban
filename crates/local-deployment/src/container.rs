@@ -16,11 +16,11 @@ use command_group::AsyncGroupChild;
 use db::{
     DBService,
     models::{
+        draft::{Draft, DraftType},
         execution_process::{
             ExecutionContext, ExecutionProcess, ExecutionProcessRunReason, ExecutionProcessStatus,
         },
         executor_session::ExecutorSession,
-        follow_up_draft::FollowUpDraft,
         image::TaskImage,
         merge::Merge,
         project::Project,
@@ -55,7 +55,6 @@ use services::services::{
 use tokio::{sync::RwLock, task::JoinHandle};
 use tokio_util::io::ReaderStream;
 use utils::{
-    diff::create_unified_diff_hunk,
     log_msg::LogMsg,
     msg_store::MsgStore,
     text::{git_branch_id, short_uuid},
@@ -82,10 +81,15 @@ impl LocalContainerService {
     // Apply stream-level omit policy based on cumulative bytes.
     // If adding this diff's contents exceeds the cap, strip contents and set stats.
     fn apply_stream_omit_policy(
-        &self,
         diff: &mut utils::diff::Diff,
         sent_bytes: &Arc<AtomicUsize>,
+        stats_only: bool,
     ) {
+        if stats_only {
+            Self::omit_diff_contents(diff);
+            return;
+        }
+
         // Compute size of current diff payload
         let mut size = 0usize;
         if let Some(ref s) = diff.old_content {
@@ -101,34 +105,28 @@ impl LocalContainerService {
 
         let current = sent_bytes.load(Ordering::Relaxed);
         if current.saturating_add(size) > Self::MAX_CUMULATIVE_DIFF_BYTES {
-            // We will omit content for this diff. If we still have both sides loaded
-            // (i.e., not already omitted by file-size guards), compute stats for UI.
-            if diff.additions.is_none() && diff.deletions.is_none() {
-                let old = diff.old_content.as_deref().unwrap_or("");
-                let new = diff.new_content.as_deref().unwrap_or("");
-                let hunk = create_unified_diff_hunk(old, new);
-                let mut add = 0usize;
-                let mut del = 0usize;
-                for line in hunk.lines() {
-                    if let Some(first) = line.chars().next() {
-                        if first == '+' {
-                            add += 1;
-                        } else if first == '-' {
-                            del += 1;
-                        }
-                    }
-                }
-                diff.additions = Some(add);
-                diff.deletions = Some(del);
-            }
-
-            diff.old_content = None;
-            diff.new_content = None;
-            diff.content_omitted = true;
+            Self::omit_diff_contents(diff);
         } else {
             // safe to include; account for it
             let _ = sent_bytes.fetch_add(size, Ordering::Relaxed);
         }
+    }
+
+    fn omit_diff_contents(diff: &mut utils::diff::Diff) {
+        if diff.additions.is_none()
+            && diff.deletions.is_none()
+            && (diff.old_content.is_some() || diff.new_content.is_some())
+        {
+            let old = diff.old_content.as_deref().unwrap_or("");
+            let new = diff.new_content.as_deref().unwrap_or("");
+            let (add, del) = utils::diff::compute_line_change_counts(old, new);
+            diff.additions = Some(add);
+            diff.deletions = Some(del);
+        }
+
+        diff.old_content = None;
+        diff.new_content = None;
+        diff.content_omitted = true;
     }
     pub fn new(
         db: DBService,
@@ -558,11 +556,6 @@ impl LocalContainerService {
         format!("{}-{}", short_uuid(attempt_id), task_title_id)
     }
 
-    pub fn git_branch_from_task_attempt(attempt_id: &Uuid, task_title: &str) -> String {
-        let task_title_id = git_branch_id(task_title);
-        format!("vk/{}-{}", short_uuid(attempt_id), task_title_id)
-    }
-
     async fn track_child_msgs_in_store(&self, id: Uuid, child: &mut AsyncGroupChild) {
         let store = Arc::new(MsgStore::new());
 
@@ -627,6 +620,7 @@ impl LocalContainerService {
         &self,
         project_repo_path: &Path,
         merge_commit_id: &str,
+        stats_only: bool,
     ) -> Result<futures::stream::BoxStream<'static, Result<LogMsg, std::io::Error>>, ContainerError>
     {
         let diffs = self.git().get_diffs(
@@ -641,7 +635,7 @@ impl LocalContainerService {
         let diffs: Vec<_> = diffs
             .into_iter()
             .map(|mut d| {
-                self.apply_stream_omit_policy(&mut d, &cum);
+                Self::apply_stream_omit_policy(&mut d, &cum, stats_only);
                 d
             })
             .collect();
@@ -665,6 +659,7 @@ impl LocalContainerService {
         &self,
         worktree_path: &Path,
         base_commit: &Commit,
+        stats_only: bool,
     ) -> Result<futures::stream::BoxStream<'static, Result<LogMsg, std::io::Error>>, ContainerError>
     {
         // Get initial snapshot
@@ -682,7 +677,7 @@ impl LocalContainerService {
         let initial_diffs: Vec<_> = initial_diffs
             .into_iter()
             .map(|mut d| {
-                self.apply_stream_omit_policy(&mut d, &cumulative);
+                Self::apply_stream_omit_policy(&mut d, &cumulative, stats_only);
                 d
             })
             .collect();
@@ -738,6 +733,7 @@ impl LocalContainerService {
                                     &changed_paths,
                                     &cumulative,
                                     &full_sent,
+                                    stats_only,
                                 ).map_err(|e| {
                                     tracing::error!("Error processing file changes: {}", e);
                                     io::Error::other(e.to_string())
@@ -790,6 +786,7 @@ impl LocalContainerService {
         changed_paths: &[String],
         cumulative_bytes: &Arc<AtomicUsize>,
         full_sent_paths: &Arc<std::sync::RwLock<HashSet<String>>>,
+        stats_only: bool,
     ) -> Result<Vec<LogMsg>, ContainerError> {
         let path_filter: Vec<&str> = changed_paths.iter().map(|s| s.as_str()).collect();
 
@@ -809,47 +806,7 @@ impl LocalContainerService {
             let file_path = GitService::diff_path(&diff);
             files_with_diffs.insert(file_path.clone());
             // Apply stream-level omit policy (affects contents and stats)
-            // Note: we can't call self methods from static fn; implement inline
-            {
-                // Compute size
-                let mut size = 0usize;
-                if let Some(ref s) = diff.old_content {
-                    size += s.len();
-                }
-                if let Some(ref s) = diff.new_content {
-                    size += s.len();
-                }
-                if size > 0 {
-                    let current = cumulative_bytes.load(Ordering::Relaxed);
-                    if current.saturating_add(size)
-                        > LocalContainerService::MAX_CUMULATIVE_DIFF_BYTES
-                    {
-                        if diff.additions.is_none() && diff.deletions.is_none() {
-                            let old = diff.old_content.as_deref().unwrap_or("");
-                            let new = diff.new_content.as_deref().unwrap_or("");
-                            let hunk = create_unified_diff_hunk(old, new);
-                            let mut add = 0usize;
-                            let mut del = 0usize;
-                            for line in hunk.lines() {
-                                if let Some(first) = line.chars().next() {
-                                    if first == '+' {
-                                        add += 1;
-                                    } else if first == '-' {
-                                        del += 1;
-                                    }
-                                }
-                            }
-                            diff.additions = Some(add);
-                            diff.deletions = Some(del);
-                        }
-                        diff.old_content = None;
-                        diff.new_content = None;
-                        diff.content_omitted = true;
-                    } else {
-                        let _ = cumulative_bytes.fetch_add(size, Ordering::Relaxed);
-                    }
-                }
-            }
+            Self::apply_stream_omit_policy(&mut diff, cumulative_bytes, stats_only);
 
             if diff.content_omitted {
                 if full_sent_paths.read().unwrap().contains(&file_path) {
@@ -918,9 +875,6 @@ impl ContainerService for LocalContainerService {
             LocalContainerService::dir_name_from_task_attempt(&task_attempt.id, &task.title);
         let worktree_path = WorktreeManager::get_worktree_base_dir().join(&worktree_dir_name);
 
-        let git_branch_name =
-            LocalContainerService::git_branch_from_task_attempt(&task_attempt.id, &task.title);
-
         let project = task
             .parent_project(&self.db.pool)
             .await?
@@ -928,9 +882,9 @@ impl ContainerService for LocalContainerService {
 
         WorktreeManager::create_worktree(
             &project.git_repo_path,
-            &git_branch_name,
+            &task_attempt.branch,
             &worktree_path,
-            &task_attempt.base_branch,
+            &task_attempt.target_branch,
             true, // create new branch
         )
         .await?;
@@ -962,8 +916,6 @@ impl ContainerService for LocalContainerService {
             &worktree_path.to_string_lossy(),
         )
         .await?;
-
-        TaskAttempt::update_branch(&self.db.pool, task_attempt.id, &git_branch_name).await?;
 
         Ok(worktree_path.to_string_lossy().to_string())
     }
@@ -1017,14 +969,9 @@ impl ContainerService for LocalContainerService {
         })?;
         let worktree_path = PathBuf::from(container_ref);
 
-        let branch_name = task_attempt
-            .branch
-            .as_ref()
-            .ok_or_else(|| ContainerError::Other(anyhow!("Branch not found for task attempt")))?;
-
         WorktreeManager::ensure_worktree_exists(
             &project.git_repo_path,
-            branch_name,
+            &task_attempt.branch,
             &worktree_path,
         )
         .await?;
@@ -1149,23 +1096,17 @@ impl ContainerService for LocalContainerService {
     async fn stream_diff(
         &self,
         task_attempt: &TaskAttempt,
+        stats_only: bool,
     ) -> Result<futures::stream::BoxStream<'static, Result<LogMsg, std::io::Error>>, ContainerError>
     {
         let project_repo_path = self.get_project_repo_path(task_attempt).await?;
         let latest_merge =
             Merge::find_latest_by_task_attempt_id(&self.db.pool, task_attempt.id).await?;
-        let task_branch = task_attempt
-            .branch
-            .clone()
-            .ok_or(ContainerError::Other(anyhow!(
-                "Task attempt {} does not have a branch",
-                task_attempt.id
-            )))?;
 
         let is_ahead = if let Ok((ahead, _)) = self.git().get_branch_status(
             &project_repo_path,
-            &task_branch,
-            &task_attempt.base_branch,
+            &task_attempt.branch,
+            &task_attempt.target_branch,
         ) {
             ahead > 0
         } else {
@@ -1177,18 +1118,18 @@ impl ContainerService for LocalContainerService {
             && self.is_container_clean(task_attempt).await?
             && !is_ahead
         {
-            return self.create_merged_diff_stream(&project_repo_path, &commit);
+            return self.create_merged_diff_stream(&project_repo_path, &commit, stats_only);
         }
 
         let container_ref = self.ensure_container_exists(task_attempt).await?;
         let worktree_path = PathBuf::from(container_ref);
         let base_commit = self.git().get_base_commit(
             &project_repo_path,
-            &task_branch,
-            &task_attempt.base_branch,
+            &task_attempt.branch,
+            &task_attempt.target_branch,
         )?;
 
-        self.create_live_diff_stream(&worktree_path, &base_commit)
+        self.create_live_diff_stream(&worktree_path, &base_commit, stats_only)
             .await
     }
 
@@ -1382,8 +1323,12 @@ impl LocalContainerService {
         }
 
         // Load draft and ensure it's eligible
-        let Some(draft) =
-            FollowUpDraft::find_by_task_attempt_id(&self.db.pool, ctx.task_attempt.id).await?
+        let Some(draft) = Draft::find_by_task_attempt_and_type(
+            &self.db.pool,
+            ctx.task_attempt.id,
+            DraftType::FollowUp,
+        )
+        .await?
         else {
             return Ok(());
         };
@@ -1393,7 +1338,7 @@ impl LocalContainerService {
         }
 
         // Atomically acquire sending lock; if not acquired, someone else is sending.
-        if !FollowUpDraft::try_mark_sending(&self.db.pool, ctx.task_attempt.id)
+        if !Draft::try_mark_sending(&self.db.pool, ctx.task_attempt.id, DraftType::FollowUp)
             .await
             .unwrap_or(false)
         {
@@ -1455,19 +1400,7 @@ impl LocalContainerService {
             .task
             .parent_project(&self.db.pool)
             .await?
-            .and_then(|p| p.cleanup_script)
-            .map(|script| {
-                Box::new(executors::actions::ExecutorAction::new(
-                    executors::actions::ExecutorActionType::ScriptRequest(
-                        executors::actions::script::ScriptRequest {
-                            script,
-                            language: executors::actions::script::ScriptRequestLanguage::Bash,
-                            context: executors::actions::script::ScriptContext::CleanupScript,
-                        },
-                    ),
-                    None,
-                ))
-            });
+            .and_then(|project| self.cleanup_action(project.cleanup_script));
 
         // Handle images: associate, copy to worktree, canonicalize prompt
         let mut prompt = draft.prompt.clone();
@@ -1510,7 +1443,8 @@ impl LocalContainerService {
             .await?;
 
         // Clear the draft to reflect that it has been consumed
-        let _ = FollowUpDraft::clear_after_send(&self.db.pool, ctx.task_attempt.id).await;
+        let _ =
+            Draft::clear_after_send(&self.db.pool, ctx.task_attempt.id, DraftType::FollowUp).await;
 
         Ok(())
     }

@@ -33,7 +33,11 @@ use futures::{StreamExt, future};
 use sqlx::Error as SqlxError;
 use thiserror::Error;
 use tokio::{sync::RwLock, task::JoinHandle};
-use utils::{log_msg::LogMsg, msg_store::MsgStore};
+use utils::{
+    log_msg::LogMsg,
+    msg_store::MsgStore,
+    text::{git_branch_id, short_uuid},
+};
 use uuid::Uuid;
 
 use crate::services::{
@@ -144,6 +148,19 @@ pub trait ContainerService {
         Ok(())
     }
 
+    fn cleanup_action(&self, cleanup_script: Option<String>) -> Option<Box<ExecutorAction>> {
+        cleanup_script.map(|script| {
+            Box::new(ExecutorAction::new(
+                ExecutorActionType::ScriptRequest(ScriptRequest {
+                    script,
+                    language: ScriptRequestLanguage::Bash,
+                    context: ScriptContext::CleanupScript,
+                }),
+                None,
+            ))
+        })
+    }
+
     async fn try_stop(&self, task_attempt: &TaskAttempt) {
         // stop all execution processes for this attempt
         if let Ok(processes) =
@@ -197,12 +214,18 @@ pub trait ContainerService {
     async fn stream_diff(
         &self,
         task_attempt: &TaskAttempt,
+        stats_only: bool,
     ) -> Result<futures::stream::BoxStream<'static, Result<LogMsg, std::io::Error>>, ContainerError>;
 
     /// Fetch the MsgStore for a given execution ID, panicking if missing.
     async fn get_msg_store_by_id(&self, uuid: &Uuid) -> Option<Arc<MsgStore>> {
         let map = self.msg_stores().read().await;
         map.get(uuid).cloned()
+    }
+
+    fn git_branch_from_task_attempt(&self, attempt_id: &Uuid, task_title: &str) -> String {
+        let task_title_id = git_branch_id(task_title);
+        format!("vk/{}-{}", short_uuid(attempt_id), task_title_id)
     }
 
     async fn stream_raw_logs(
@@ -489,16 +512,7 @@ pub trait ContainerService {
         );
         let prompt = ImageService::canonicalise_image_paths(&task.to_prompt(), &worktree_path);
 
-        let cleanup_action = project.cleanup_script.map(|script| {
-            Box::new(ExecutorAction::new(
-                ExecutorActionType::ScriptRequest(ScriptRequest {
-                    script,
-                    language: ScriptRequestLanguage::Bash,
-                    context: ScriptContext::CleanupScript,
-                }),
-                None,
-            ))
-        });
+        let cleanup_action = self.cleanup_action(project.cleanup_script);
 
         // Choose whether to execute the setup_script or coding agent first
         let execution_process = if let Some(setup_script) = project.setup_script {

@@ -89,6 +89,36 @@ impl std::fmt::Display for Commit {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct WorktreeResetOptions {
+    pub perform_reset: bool,
+    pub force_when_dirty: bool,
+    pub is_dirty: bool,
+    pub log_skip_when_dirty: bool,
+}
+
+impl WorktreeResetOptions {
+    pub fn new(
+        perform_reset: bool,
+        force_when_dirty: bool,
+        is_dirty: bool,
+        log_skip_when_dirty: bool,
+    ) -> Self {
+        Self {
+            perform_reset,
+            force_when_dirty,
+            is_dirty,
+            log_skip_when_dirty,
+        }
+    }
+}
+
+#[derive(Debug, Default, Clone, Copy)]
+pub struct WorktreeResetOutcome {
+    pub needed: bool,
+    pub applied: bool,
+}
+
 /// Target for diff generation
 pub enum DiffTarget<'p> {
     /// Work-in-progress branch checked out in this worktree
@@ -1074,6 +1104,47 @@ impl GitService {
             .map_err(|e| GitServiceError::InvalidRepository(format!("git status failed: {e}")))
     }
 
+    /// Evaluate whether any action is needed to reset to `target_commit_oid` and
+    /// optionally perform the actions.
+    pub fn reconcile_worktree_to_commit(
+        &self,
+        worktree_path: &Path,
+        target_commit_oid: &str,
+        options: WorktreeResetOptions,
+    ) -> WorktreeResetOutcome {
+        let WorktreeResetOptions {
+            perform_reset,
+            force_when_dirty,
+            is_dirty,
+            log_skip_when_dirty,
+        } = options;
+
+        let head_oid = self.get_head_info(worktree_path).ok().map(|h| h.oid);
+        let mut outcome = WorktreeResetOutcome::default();
+
+        if head_oid.as_deref() != Some(target_commit_oid) || is_dirty {
+            outcome.needed = true;
+
+            if perform_reset {
+                if is_dirty && !force_when_dirty {
+                    if log_skip_when_dirty {
+                        tracing::warn!("Worktree dirty; skipping reset as not forced");
+                    }
+                } else if let Err(e) = self.reset_worktree_to_commit(
+                    worktree_path,
+                    target_commit_oid,
+                    force_when_dirty,
+                ) {
+                    tracing::error!("Failed to reset worktree: {}", e);
+                } else {
+                    outcome.applied = true;
+                }
+            }
+        }
+
+        outcome
+    }
+
     /// Reset the given worktree to the specified commit SHA.
     /// If `force` is false and the worktree is dirty, returns WorktreeDirty error.
     pub fn reset_worktree_to_commit(
@@ -1311,8 +1382,9 @@ impl GitService {
         &self,
         repo_path: &Path,
         worktree_path: &Path,
-        new_base_branch: Option<&str>,
+        new_base_branch: &str,
         old_base_branch: &str,
+        task_branch: &str,
         github_token: Option<String>,
     ) -> Result<String, GitServiceError> {
         let worktree_repo = Repository::open(worktree_path)?;
@@ -1331,32 +1403,19 @@ impl GitService {
         }
 
         // Get the target base branch reference
-        let new_base_branch_name = match new_base_branch {
-            Some(branch) => branch.to_string(),
-            None => main_repo
-                .head()
-                .ok()
-                .and_then(|head| head.shorthand().map(|s| s.to_string()))
-                .unwrap_or_else(|| "main".to_string()),
-        };
-        let nbr = Self::find_branch(&main_repo, &new_base_branch_name)?.into_reference();
+        let nbr = Self::find_branch(&main_repo, new_base_branch)?.into_reference();
         // If the target base is remote, update it first so CLI sees latest
         if nbr.is_remote() {
             let github_token = github_token.ok_or(GitServiceError::TokenUnavailable)?;
             let remote = self.get_remote_from_branch_ref(&main_repo, &nbr)?;
             // First, fetch the latest changes from remote
-            self.fetch_branch_from_remote(
-                &main_repo,
-                &github_token,
-                &remote,
-                &new_base_branch_name,
-            )?;
+            self.fetch_branch_from_remote(&main_repo, &github_token, &remote, new_base_branch)?;
         }
 
         // Ensure identity for any commits produced by rebase
         self.ensure_cli_commit_identity(worktree_path)?;
         // Use git CLI rebase to carry out the operation safely
-        match git.rebase_onto(worktree_path, &new_base_branch_name, old_base_branch) {
+        match git.rebase_onto(worktree_path, new_base_branch, old_base_branch, task_branch) {
             Ok(()) => {}
             Err(GitCliError::RebaseInProgress) => {
                 return Err(GitServiceError::RebaseInProgress);
@@ -1394,7 +1453,7 @@ impl GitService {
                         }
                     };
                     let msg = format!(
-                        "Rebase encountered merge conflicts while rebasing '{attempt_branch}' onto '{new_base_branch_name}'.{files_part} Resolve conflicts and then continue or abort."
+                        "Rebase encountered merge conflicts while rebasing '{attempt_branch}' onto '{new_base_branch}'.{files_part} Resolve conflicts and then continue or abort."
                     );
                     return Err(GitServiceError::MergeConflicts(msg));
                 }
@@ -1431,6 +1490,21 @@ impl GitService {
                     Err(_) => Err(GitServiceError::BranchNotFound(branch_name.to_string())),
                 }
             }
+        }
+    }
+
+    pub fn check_branch_exists(
+        &self,
+        repo_path: &Path,
+        branch_name: &str,
+    ) -> Result<bool, GitServiceError> {
+        let repo = self.open_repo(repo_path)?;
+        match repo.find_branch(branch_name, BranchType::Local) {
+            Ok(_) => Ok(true),
+            Err(_) => match repo.find_branch(branch_name, BranchType::Remote) {
+                Ok(_) => Ok(true),
+                Err(_) => Ok(false),
+            },
         }
     }
 
