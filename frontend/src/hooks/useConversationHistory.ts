@@ -62,12 +62,17 @@ export const useConversationHistory = ({
   const lastRunningProcessId = useRef<string | null>(null);
   const onEntriesUpdatedRef = useRef<OnEntriesUpdated | null>(null);
 
-  const mergeIntoDisplayed = (
-    mutator: (state: ExecutionProcessStateStore) => void
-  ) => {
-    const state = displayedExecutionProcesses.current;
-    mutator(state);
-  };
+  // Cache for memoizing expensive flatten operations
+  const flattenCache = useRef<{
+    stateVersion: string;
+    flattenedEntries: PatchTypeWithKey[];
+    flattenedForEmit: PatchTypeWithKey[];
+  }>({
+    stateVersion: '',
+    flattenedEntries: [],
+    flattenedForEmit: [],
+  });
+
   useEffect(() => {
     onEntriesUpdatedRef.current = onEntriesUpdated;
   }, [onEntriesUpdated]);
@@ -124,25 +129,57 @@ export const useConversationHistory = ({
       } else {
         url = `/api/execution-processes/${executionProcess.id}/normalized-logs/ws`;
       }
+
+      // Batch updates to avoid excessive re-renders during streaming
+      let batchTimer: ReturnType<typeof setTimeout> | null = null;
+      let hasPendingUpdate = false;
+      const BATCH_INTERVAL_MS = 100;
+
+      const scheduledEmit = () => {
+        if (batchTimer !== null) {
+          clearTimeout(batchTimer);
+        }
+        hasPendingUpdate = true;
+        batchTimer = setTimeout(() => {
+          if (hasPendingUpdate) {
+            emitEntries(displayedExecutionProcesses.current, 'running', false);
+            hasPendingUpdate = false;
+          }
+          batchTimer = null;
+        }, BATCH_INTERVAL_MS);
+      };
+
+      const flushPending = () => {
+        if (batchTimer !== null) {
+          clearTimeout(batchTimer);
+          batchTimer = null;
+        }
+        if (hasPendingUpdate) {
+          emitEntries(displayedExecutionProcesses.current, 'running', false);
+          hasPendingUpdate = false;
+        }
+      };
+
       const controller = streamJsonPatchEntries<PatchType>(url, {
         onEntries(entries) {
           const patchesWithKey = entries.map((entry, index) =>
             patchWithKey(entry, executionProcess.id, index)
           );
-          mergeIntoDisplayed((state) => {
-            state[executionProcess.id] = {
-              executionProcess,
-              entries: patchesWithKey,
-            };
-          });
-          emitEntries(displayedExecutionProcesses.current, 'running', false);
+          const localEntries = displayedExecutionProcesses.current;
+          localEntries[executionProcess.id] = {
+            executionProcess,
+            entries: patchesWithKey,
+          };
+          displayedExecutionProcesses.current = localEntries;
+          scheduledEmit();
         },
         onFinished: () => {
-          emitEntries(displayedExecutionProcesses.current, 'running', false);
+          flushPending();
           controller.close();
           resolve();
         },
         onError: () => {
+          flushPending();
           controller.close();
           reject();
         },
@@ -379,13 +416,13 @@ export const useConversationHistory = ({
 
   const loadRemainingEntriesInBatches = async (
     batchSize: number
-  ): Promise<boolean> => {
-    if (!executionProcesses?.current) return false;
+  ): Promise<ExecutionProcessStateStore | null> => {
+    const local = displayedExecutionProcesses.current; // keep ref if intentional
+    if (!executionProcesses?.current) return null;
 
     let anyUpdated = false;
     for (const executionProcess of [...executionProcesses.current].reverse()) {
-      const current = displayedExecutionProcesses.current;
-      if (current[executionProcess.id] || executionProcess.status === 'running')
+      if (local[executionProcess.id] || executionProcess.status === 'running')
         continue;
 
       const entries =
@@ -394,22 +431,17 @@ export const useConversationHistory = ({
         patchWithKey(e, executionProcess.id, idx)
       );
 
-      mergeIntoDisplayed((state) => {
-        state[executionProcess.id] = {
-          executionProcess,
-          entries: entriesWithKey,
-        };
-      });
-
-      if (
-        flattenEntries(displayedExecutionProcesses.current).length > batchSize
-      ) {
+      local[executionProcess.id] = {
+        executionProcess,
+        entries: entriesWithKey,
+      };
+      if (flattenEntries(local).length > batchSize) {
         anyUpdated = true;
         break;
       }
       anyUpdated = true;
     }
-    return anyUpdated;
+    return anyUpdated ? local : null;
   };
 
   const emitEntries = (
@@ -417,9 +449,23 @@ export const useConversationHistory = ({
     addEntryType: AddEntryType,
     loading: boolean
   ) => {
-    // Flatten entries in chronological order of process start
-    const entries = flattenEntriesForEmit(executionProcessState);
-    onEntriesUpdatedRef.current?.(entries, addEntryType, loading);
+    // Create a version key based on process IDs and entry counts
+    const stateVersion = Object.entries(executionProcessState)
+      .map(([id, state]) => `${id}:${state.entries.length}`)
+      .join('|');
+
+    // Check cache before doing expensive flatten
+    if (flattenCache.current.stateVersion !== stateVersion) {
+      flattenCache.current.stateVersion = stateVersion;
+      flattenCache.current.flattenedForEmit =
+        flattenEntriesForEmit(executionProcessState);
+    }
+
+    onEntriesUpdatedRef.current?.(
+      flattenCache.current.flattenedForEmit,
+      addEntryType,
+      loading
+    );
   };
 
   // Stable key for dependency arrays when process list changes
@@ -442,18 +488,19 @@ export const useConversationHistory = ({
       // Initial entries
       const allInitialEntries = await loadInitialEntries();
       if (cancelled) return;
-      mergeIntoDisplayed((state) => {
-        Object.assign(state, allInitialEntries);
-      });
-      emitEntries(displayedExecutionProcesses.current, 'initial', false);
+      displayedExecutionProcesses.current = allInitialEntries;
+      emitEntries(allInitialEntries, 'initial', false);
       loadedInitialEntries.current = true;
 
       // Then load the remaining in batches
+      let updatedEntries;
       while (
         !cancelled &&
-        (await loadRemainingEntriesInBatches(REMAINING_BATCH_SIZE))
+        (updatedEntries =
+          await loadRemainingEntriesInBatches(REMAINING_BATCH_SIZE))
       ) {
         if (cancelled) return;
+        displayedExecutionProcesses.current = updatedEntries;
       }
       await new Promise((resolve) => setTimeout(resolve, 100));
       emitEntries(displayedExecutionProcesses.current, 'historic', false);
@@ -480,13 +527,9 @@ export const useConversationHistory = ({
       displayedExecutionProcesses.current
     ).filter((id) => !executionProcessesRaw.some((p) => p.id === id));
 
-    if (removedProcessIds.length > 0) {
-      mergeIntoDisplayed((state) => {
-        removedProcessIds.forEach((id) => {
-          delete state[id];
-        });
-      });
-    }
+    removedProcessIds.forEach((id) => {
+      delete displayedExecutionProcesses.current[id];
+    });
   }, [attempt.id, idListKey]);
 
   // Reset state when attempt changes

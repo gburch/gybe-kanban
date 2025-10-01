@@ -1,4 +1,4 @@
-import { memo } from 'react';
+import { memo, useMemo } from 'react';
 import { AnsiHtml } from 'fancy-ansi/react';
 import { hasAnsi } from 'fancy-ansi';
 import { clsx } from 'clsx';
@@ -17,8 +17,8 @@ const RawLogText = memo(
     as: Component = 'div',
     className,
   }: RawLogTextProps) => {
-    // Only apply stderr fallback color when no ANSI codes are present
-    const hasAnsiCodes = hasAnsi(content);
+    // Memoize ANSI detection to avoid re-parsing on every render
+    const hasAnsiCodes = useMemo(() => hasAnsi(content), [content]);
     const shouldApplyStderrFallback = channel === 'stderr' && !hasAnsiCodes;
 
     return (
@@ -32,7 +32,13 @@ const RawLogText = memo(
         <AnsiHtml text={content} />
       </Component>
     );
-  }
+  },
+  // Custom comparison to prevent unnecessary re-renders
+  (prevProps, nextProps) =>
+    prevProps.content === nextProps.content &&
+    prevProps.channel === nextProps.channel &&
+    prevProps.className === nextProps.className &&
+    prevProps.as === nextProps.as
 );
 
 RawLogText.displayName = 'RawLogText';

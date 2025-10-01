@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Virtuoso, VirtuosoHandle } from 'react-virtuoso';
 import { AlertCircle } from 'lucide-react';
 import { useLogStream } from '@/hooks/useLogStream';
@@ -6,6 +6,9 @@ import RawLogText from '@/components/common/RawLogText';
 import type { PatchType } from 'shared/types';
 
 type LogEntry = Extract<PatchType, { type: 'STDOUT' } | { type: 'STDERR' }>;
+
+// Add unique ID to log entries for stable React keys
+type LogEntryWithId = LogEntry & { _id: string };
 
 interface ProcessLogsViewerProps {
   processId: string;
@@ -18,55 +21,82 @@ export default function ProcessLogsViewer({
   const didInitScroll = useRef(false);
   const prevLenRef = useRef(0);
   const [atBottom, setAtBottom] = useState(true);
+  const logIdCounterRef = useRef(0);
 
   const { logs, error } = useLogStream(processId);
 
+  // Add stable IDs to logs for React keys (prevents index-based issues)
+  const logsWithIds = useMemo<LogEntryWithId[]>(() => {
+    const currentCount = logIdCounterRef.current;
+    const newLogs = logs.slice(currentCount).map((log, idx) => ({
+      ...log,
+      _id: `${processId}:${currentCount + idx}`,
+    }));
+
+    logIdCounterRef.current = logs.length;
+
+    // Merge with existing logs
+    if (currentCount === 0) {
+      return newLogs;
+    }
+    return [...logs.slice(0, currentCount).map((log, idx) => ({
+      ...log,
+      _id: `${processId}:${idx}`,
+    } as LogEntryWithId)), ...newLogs];
+  }, [logs, processId]);
+
+  // Reset counter when process changes
+  useEffect(() => {
+    logIdCounterRef.current = 0;
+    didInitScroll.current = false;
+  }, [processId]);
+
   // 1) Initial jump to bottom once data appears.
   useEffect(() => {
-    if (!didInitScroll.current && logs.length > 0) {
+    if (!didInitScroll.current && logsWithIds.length > 0) {
       didInitScroll.current = true;
       requestAnimationFrame(() => {
         virtuosoRef.current?.scrollToIndex({
-          index: logs.length - 1,
+          index: logsWithIds.length - 1,
           align: 'end',
         });
       });
     }
-  }, [logs.length]);
+  }, [logsWithIds.length]);
 
   // 2) If there's a large append and we're at bottom, force-stick to the last item.
   useEffect(() => {
     const prev = prevLenRef.current;
-    const grewBy = logs.length - prev;
-    prevLenRef.current = logs.length;
+    const grewBy = logsWithIds.length - prev;
+    prevLenRef.current = logsWithIds.length;
 
     // tweak threshold as you like; this handles "big bursts"
     const LARGE_BURST = 10;
-    if (grewBy >= LARGE_BURST && atBottom && logs.length > 0) {
+    if (grewBy >= LARGE_BURST && atBottom && logsWithIds.length > 0) {
       // defer so Virtuoso can re-measure before jumping
       requestAnimationFrame(() => {
         virtuosoRef.current?.scrollToIndex({
-          index: logs.length - 1,
+          index: logsWithIds.length - 1,
           align: 'end',
         });
       });
     }
-  }, [logs.length, atBottom, logs]);
+  }, [logsWithIds.length, atBottom]);
 
-  const formatLogLine = (entry: LogEntry, index: number) => {
+  const formatLogLine = useCallback((_index: number, entry: LogEntryWithId) => {
     return (
       <RawLogText
-        key={index}
+        key={entry._id}
         content={entry.content}
         channel={entry.type === 'STDERR' ? 'stderr' : 'stdout'}
         className="text-sm px-4 py-1"
       />
     );
-  };
+  }, []);
 
   return (
     <div className="h-full">
-      {logs.length === 0 && !error ? (
+      {logsWithIds.length === 0 && !error ? (
         <div className="p-4 text-center text-muted-foreground text-sm">
           No logs available
         </div>
@@ -76,13 +106,12 @@ export default function ProcessLogsViewer({
           {error}
         </div>
       ) : (
-        <Virtuoso<LogEntry>
+        <Virtuoso<LogEntryWithId>
           ref={virtuosoRef}
           className="flex-1 rounded-lg"
-          data={logs}
-          itemContent={(index, entry) =>
-            formatLogLine(entry as LogEntry, index)
-          }
+          data={logsWithIds}
+          itemContent={formatLogLine}
+          computeItemKey={(_index, entry) => entry._id}
           // Keep pinned while user is at bottom; release when they scroll up
           atBottomStateChange={setAtBottom}
           followOutput={atBottom ? 'smooth' : false}

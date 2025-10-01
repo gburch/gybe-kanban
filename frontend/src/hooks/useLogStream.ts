@@ -34,15 +34,41 @@ export const useLogStream = (processId: string): UseLogStreamResult => {
       wsRef.current = ws;
       isIntentionallyClosed.current = false;
 
+      // Batch log entries to avoid excessive re-renders
+      const logBuffer: LogEntry[] = [];
+      let flushTimerId: ReturnType<typeof setTimeout> | null = null;
+      const BATCH_INTERVAL_MS = 100;
+      const BATCH_SIZE_THRESHOLD = 50;
+
+      const flushLogs = () => {
+        if (logBuffer.length > 0) {
+          const toFlush = logBuffer.splice(0);
+          setLogs((prev) => [...prev, ...toFlush]);
+        }
+        flushTimerId = null;
+      };
+
+      const addLogEntry = (entry: LogEntry) => {
+        logBuffer.push(entry);
+
+        // Flush immediately if buffer is large
+        if (logBuffer.length >= BATCH_SIZE_THRESHOLD) {
+          if (flushTimerId !== null) {
+            clearTimeout(flushTimerId);
+            flushTimerId = null;
+          }
+          flushLogs();
+        } else if (flushTimerId === null) {
+          // Otherwise, schedule a batched flush
+          flushTimerId = setTimeout(flushLogs, BATCH_INTERVAL_MS);
+        }
+      };
+
       ws.onopen = () => {
         setError(null);
         // Reset logs on new connection since server replays history
         setLogs([]);
         retryCountRef.current = 0;
-      };
-
-      const addLogEntry = (entry: LogEntry) => {
-        setLogs((prev) => [...prev, entry]);
       };
 
       // Handle WebSocket messages
@@ -68,6 +94,12 @@ export const useLogStream = (processId: string): UseLogStreamResult => {
               }
             });
           } else if (data.finished === true) {
+            // Flush any remaining logs before closing
+            if (flushTimerId !== null) {
+              clearTimeout(flushTimerId);
+              flushTimerId = null;
+            }
+            flushLogs();
             isIntentionallyClosed.current = true;
             ws.close();
           }
