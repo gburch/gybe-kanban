@@ -100,6 +100,7 @@ function CurrentAttempt({
   } = useDevServer(selectedAttempt?.id);
 
   const [copied, setCopied] = useState(false);
+  const worktreePath = selectedAttempt.container_ref ?? '';
 
   const attemptWorktreeDeleted = selectedAttempt?.worktree_deleted ?? false;
   const isAttemptStatusKnown =
@@ -166,13 +167,13 @@ function CurrentAttempt({
 
   const handleCopyWorktreePath = useCallback(async () => {
     try {
-      await writeClipboardViaBridge(selectedAttempt.container_ref || '');
+      await writeClipboardViaBridge(worktreePath);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch (err) {
       console.error('Failed to copy worktree path:', err);
     }
-  }, [selectedAttempt.container_ref]);
+  }, [worktreePath]);
 
   return (
     <div className="space-y-2 @container">
@@ -202,19 +203,21 @@ function CurrentAttempt({
           </Button>
         </div>
         <div
-          className={`text-xs font-mono px-2 py-1 break-all cursor-pointer transition-all duration-300 flex items-center gap-2 ${
+          className={`text-xs font-mono px-2 py-1 cursor-pointer transition-all duration-300 flex items-center gap-2 w-full ${
             copied
               ? 'bg-green-100 text-green-800 border border-green-300'
               : 'text-muted-foreground bg-muted hover:bg-muted/80'
           }`}
           onClick={handleCopyWorktreePath}
-          title={copied ? 'Copied!' : 'Click to copy worktree path'}
+          title={copied ? 'Copied!' : worktreePath || 'Click to copy worktree path'}
         >
           <span
-            className={`truncate ${copied ? 'text-green-800' : ''}`}
+            className={`truncate block flex-1 min-w-0 ${
+              copied ? 'text-green-800' : ''
+            }`}
             dir="rtl"
           >
-            {selectedAttempt.container_ref}
+            {worktreePath}
           </span>
           {copied && (
             <span className="text-green-700 font-medium whitespace-nowrap">
