@@ -285,21 +285,6 @@ function TaskDetailsToolbar({
                 )}
               </div>
 
-              {selectedAttempt && branchStatus && (
-                <div className="space-y-3 border-t pt-3">
-                  <GitOperations
-                    selectedAttempt={selectedAttempt}
-                    task={task}
-                    projectId={projectId}
-                    branchStatus={branchStatus}
-                    branches={branches}
-                    isAttemptRunning={isAttemptRunning}
-                    setError={setError}
-                    selectedBranch={selectedAttempt.target_branch ?? null}
-                  />
-                </div>
-              )}
-
               {/* Special Actions: show only in sidebar (non-fullscreen) */}
               {!selectedAttempt && !isAttemptRunning && !isStopping && (
                 <div className="space-y-2 pt-3 border-t">
@@ -314,6 +299,22 @@ function TaskDetailsToolbar({
                 </div>
               )}
             </div>
+          </div>
+        )}
+
+        {/* Git operations remain visible even if branch status fails */}
+        {selectedAttempt && (
+          <div className="mt-3">
+            <GitOperations
+              selectedAttempt={selectedAttempt}
+              task={task}
+              projectId={projectId}
+              branchStatus={branchStatus ?? null}
+              branches={branches}
+              isAttemptRunning={isAttemptRunning}
+              setError={setError}
+              selectedBranch={selectedBranch ?? selectedAttempt.target_branch ?? null}
+            />
           </div>
         )}
       </div>
