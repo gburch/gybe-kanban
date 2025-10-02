@@ -230,6 +230,10 @@ fn parse_rollout_file(path: &Path) -> std::io::Result<Option<(DateTime<Utc>, Cod
             token_usage: token_event.info.map(CodexTokenUsageInfo::from),
         };
 
+        if snapshot.rate_limits.primary.is_none() && snapshot.rate_limits.secondary.is_none() {
+            continue;
+        }
+
         if best
             .as_ref()
             .map(|(current, _)| timestamp > *current)
@@ -572,6 +576,51 @@ mod tests {
         assert_eq!(secondary.used_percent, 2.5);
         assert_eq!(secondary.window_minutes, Some(10080));
         assert_eq!(secondary.resets_in_seconds, Some(7200));
+    }
+
+    #[test]
+    fn skips_entries_without_rate_limits() {
+        let dir = tempdir().unwrap();
+        let sessions_dir = dir.path().join("sessions/2025/10/02");
+        fs::create_dir_all(&sessions_dir).unwrap();
+        let file_path = sessions_dir.join("rollout-2025-10-02T08-00-00-session.jsonl");
+
+        let lines = [
+            serde_json::json!({
+                "timestamp": "2025-10-02T08:00:01.000000Z",
+                "type": "event_msg",
+                "payload": {
+                    "type": "token_count",
+                    "info": serde_json::Value::Null,
+                    "rate_limits": serde_json::Value::Null
+                }
+            }),
+            serde_json::json!({
+                "timestamp": "2025-10-02T08:00:02.000000Z",
+                "type": "event_msg",
+                "payload": {
+                    "type": "token_count",
+                    "info": serde_json::Value::Null,
+                    "rate_limits": {
+                        "primary_used_percent": 10.0,
+                        "primary_window_minutes": 5,
+                        "primary_resets_in_seconds": 30
+                    }
+                }
+            }),
+        ];
+
+        let body = lines
+            .iter()
+            .map(|line| serde_json::to_string(line).unwrap())
+            .collect::<Vec<_>>()
+            .join("\n");
+        std::fs::write(&file_path, format!("{}\n", body)).unwrap();
+
+        let result = parse_rollout_file(&file_path).unwrap();
+        let (_, snapshot) = result.expect("second entry should produce snapshot");
+        assert!(snapshot.rate_limits.primary.is_some());
+        assert!(snapshot.rate_limits.secondary.is_none());
     }
 
     #[test]
