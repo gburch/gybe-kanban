@@ -17,6 +17,9 @@ import {
 } from 'lucide-react';
 import dagre from 'dagre';
 
+const CARD_WIDTH = 280;
+const CARD_HEIGHT = 110;
+
 type Task = TaskWithAttemptStatus;
 
 interface ParentTaskSummary {
@@ -26,7 +29,6 @@ interface ParentTaskSummary {
 
 interface TaskFlowViewProps {
   tasks: Task[];
-  tasksById: Record<string, Task>;
   onViewTaskDetails: (task: Task) => void;
   selectedTask?: Task;
   parentTasksById?: Record<string, ParentTaskSummary | null>;
@@ -41,6 +43,25 @@ interface FlowNode {
   parents: string[];
   isConvergencePoint: boolean;
   isBranchPoint: boolean;
+}
+
+interface ZoneBounds {
+  start: number;
+  width: number;
+}
+
+interface LayoutZones {
+  done: ZoneBounds;
+  todo: ZoneBounds;
+  active: ZoneBounds;
+}
+
+interface FlowLayout {
+  nodes: Record<string, FlowNode>;
+  totalWidth: number;
+  totalHeight: number;
+  focusX: number;
+  zones: LayoutZones;
 }
 
 // Detect cycles in the graph using DFS
@@ -77,7 +98,7 @@ function detectCycles(
 function buildFlowLayout(
   tasks: Task[],
   parentTasksById?: Record<string, ParentTaskSummary | null>
-) {
+): FlowLayout {
   const nodes: Record<string, FlowNode> = {};
 
   // Build initial graph structure
@@ -165,10 +186,6 @@ function buildFlowLayout(
   });
   g.setDefaultEdgeLabel(() => ({}));
 
-  // Constants
-  const CARD_WIDTH = 280;   // Reduced from 320
-  const CARD_HEIGHT = 110;  // Reduced from 140
-
   // Add nodes to Dagre with rank constraints based on status
   // Rank determines horizontal position in LR layout: lower rank = further left
   // Layout: DONE (left/past) → IN PROGRESS (middle) → TODO (right/future)
@@ -222,7 +239,7 @@ function buildFlowLayout(
   // Children come before parents, so completed children and pending todos are on the left
 
   // Find the min/max X for each status group from Dagre layout
-  const statusGroups: Record<string, { nodes: FlowNode[], minX: number, maxX: number }> = {
+  const statusGroups: Record<string, { nodes: FlowNode[]; minX: number; maxX: number }> = {
     done: { nodes: [], minX: Infinity, maxX: -Infinity },
     active: { nodes: [], minX: Infinity, maxX: -Infinity },
     todo: { nodes: [], minX: Infinity, maxX: -Infinity },
@@ -246,8 +263,16 @@ function buildFlowLayout(
   });
 
   // Calculate the width of each status group
-  const doneWidth = statusGroups.done.maxX - statusGroups.done.minX;
-  const todoWidth = statusGroups.todo.maxX - statusGroups.todo.minX;
+  const getZoneWidth = (group: { nodes: FlowNode[]; minX: number; maxX: number }) => {
+    if (group.nodes.length === 0) {
+      return CARD_WIDTH;
+    }
+    return Math.max(group.maxX - group.minX, CARD_WIDTH);
+  };
+
+  const doneWidth = getZoneWidth(statusGroups.done);
+  const todoWidth = getZoneWidth(statusGroups.todo);
+  const activeWidth = getZoneWidth(statusGroups.active);
 
   // Define horizontal zones with gaps between status groups
   // Order: Done (left) → Todo (middle) → Active (right)
@@ -271,10 +296,36 @@ function buildFlowLayout(
     node.x = activeZoneStart + (node.x - statusGroups.active.minX);
   });
 
+  const computeZoneBounds = (
+    group: { nodes: FlowNode[] },
+    fallbackStart: number,
+    fallbackWidth: number
+  ): ZoneBounds => {
+    if (group.nodes.length === 0) {
+      return {
+        start: fallbackStart,
+        width: fallbackWidth,
+      };
+    }
+
+    const min = Math.min(...group.nodes.map((n) => n.x));
+    const max = Math.max(...group.nodes.map((n) => n.x + CARD_WIDTH));
+    return {
+      start: min,
+      width: Math.max(max - min, fallbackWidth),
+    };
+  };
+
+  const zones: LayoutZones = {
+    done: computeZoneBounds(statusGroups.done, doneZoneStart, doneWidth),
+    todo: computeZoneBounds(statusGroups.todo, todoZoneStart, todoWidth),
+    active: computeZoneBounds(statusGroups.active, activeZoneStart, activeWidth),
+  };
+
   // Calculate bounds
   const allNodes = Object.values(nodes);
-  const maxX = Math.max(...allNodes.map(n => n.x + CARD_WIDTH), 1200);
-  const maxY = Math.max(...allNodes.map(n => n.y + CARD_HEIGHT), 800);
+  const maxX = Math.max(...allNodes.map((n) => n.x + CARD_WIDTH), activeZoneStart + activeWidth + 120);
+  const maxY = Math.max(...allNodes.map((n) => n.y + CARD_HEIGHT), 800);
 
   // Find active tasks for initial scroll position
   // Active work is on the right (parents), scroll to show them
@@ -291,6 +342,7 @@ function buildFlowLayout(
     totalWidth: maxX + 80,
     totalHeight: maxY + 80,
     focusX, // X position to scroll to
+    zones,
   };
 }
 
@@ -307,7 +359,7 @@ function TaskFlowView({
   selectedTask,
   parentTasksById,
 }: TaskFlowViewProps) {
-  const { nodes, totalWidth, totalHeight, focusX } = useMemo(
+  const { nodes, totalWidth, totalHeight, focusX, zones } = useMemo(
     () => buildFlowLayout(tasks, parentTasksById),
     [tasks, parentTasksById]
   );
@@ -317,7 +369,6 @@ function TaskFlowView({
   const minimapRef = useRef<HTMLCanvasElement>(null);
   const [zoom, setZoom] = useState(1);
   const [isMinimapDragging, setIsMinimapDragging] = useState(false);
-  const CARD_WIDTH = 280;
 
   // Zoom controls
   const handleZoomIn = useCallback(() => {
@@ -381,6 +432,23 @@ function TaskFlowView({
     }
   }, [focusX, CARD_WIDTH, zoom]);
 
+  // Scroll the selected task into view when changed
+  useEffect(() => {
+    if (!selectedTask || !scrollContainerRef.current) return;
+    const node = nodes[selectedTask.id];
+    if (!node) return;
+
+    const container = scrollContainerRef.current;
+    const targetX = node.x * zoom + (CARD_WIDTH * zoom) / 2 - container.clientWidth / 2;
+    const targetY = node.y * zoom + (CARD_HEIGHT * zoom) / 2 - container.clientHeight / 2;
+
+    container.scrollTo({
+      left: Math.max(0, targetX),
+      top: Math.max(0, targetY),
+      behavior: 'smooth',
+    });
+  }, [selectedTask?.id, nodes, zoom]);
+
   // Draw minimap
   useEffect(() => {
     if (!minimapRef.current || !scrollContainerRef.current) return;
@@ -402,11 +470,11 @@ function TaskFlowView({
       ctx.fillRect(0, 0, minimapWidth, minimapHeight);
 
       // Draw nodes
-      Object.values(nodes).forEach(node => {
+      Object.values(nodes).forEach((node) => {
         const x = node.x * scale;
         const y = node.y * scale;
         const w = CARD_WIDTH * scale;
-        const h = 110 * scale; // CARD_HEIGHT
+        const h = CARD_HEIGHT * scale;
 
         const status = node.task.status.toLowerCase();
         if (status === 'done' || status === 'cancelled') {
@@ -442,6 +510,68 @@ function TaskFlowView({
       return () => container.removeEventListener('scroll', drawMinimap);
     }
   }, [nodes, totalWidth, totalHeight, zoom, CARD_WIDTH]);
+
+  const { highlightedNodes, highlightedEdges } = useMemo(() => {
+    if (!selectedTask?.id) {
+      return {
+        highlightedNodes: new Set<string>(),
+        highlightedEdges: new Set<string>(),
+      };
+    }
+
+    const resultNodes = new Set<string>();
+    const resultEdges = new Set<string>();
+    const queue: string[] = [selectedTask.id];
+    let index = 0;
+
+    while (index < queue.length) {
+      const currentId = queue[index++];
+      if (resultNodes.has(currentId)) continue;
+      resultNodes.add(currentId);
+
+      const current = nodes[currentId];
+      if (!current) continue;
+
+      current.parents.forEach((parentId) => {
+        resultEdges.add(`${currentId}->${parentId}`);
+        if (!resultNodes.has(parentId)) {
+          queue.push(parentId);
+        }
+      });
+
+      current.children.forEach((childId) => {
+        resultEdges.add(`${childId}->${currentId}`);
+        if (!resultNodes.has(childId)) {
+          queue.push(childId);
+        }
+      });
+    }
+
+    return {
+      highlightedNodes: resultNodes,
+      highlightedEdges: resultEdges,
+    };
+  }, [nodes, selectedTask?.id]);
+
+  const hasHighlights = highlightedNodes.size > 0;
+
+  const statusBandMeta: Record<keyof LayoutZones, { label: string; className: string; textClass: string }> = {
+    done: {
+      label: 'Completed',
+      className: 'bg-emerald-500/5 border-r border-emerald-500/10',
+      textClass: 'text-emerald-300/80',
+    },
+    todo: {
+      label: 'Queued',
+      className: 'bg-amber-500/5 border-r border-amber-500/10',
+      textClass: 'text-amber-300/80',
+    },
+    active: {
+      label: 'Active',
+      className: 'bg-sky-500/5',
+      textClass: 'text-sky-300/80',
+    },
+  };
 
   return (
     <div ref={scrollContainerRef} className="w-full h-full bg-background overflow-auto relative">
@@ -551,6 +681,36 @@ function TaskFlowView({
           }}
         >
 
+          {/* Status zones */}
+          <div className="absolute inset-0 pointer-events-none" style={{ zIndex: 0 }}>
+            {(Object.keys(zones) as Array<keyof LayoutZones>).map((zoneKey) => {
+              const zone = zones[zoneKey];
+              const meta = statusBandMeta[zoneKey];
+              return (
+                <div
+                  key={zoneKey}
+                  className={cn(
+                    'absolute top-0 bottom-0 px-4 py-3 flex items-start',
+                    meta.className
+                  )}
+                  style={{
+                    left: `${zone.start}px`,
+                    width: `${Math.max(zone.width, CARD_WIDTH)}px`,
+                  }}
+                >
+                  <span
+                    className={cn(
+                      'text-xs font-medium uppercase tracking-wider text-muted-foreground',
+                      meta.textClass
+                    )}
+                  >
+                    {meta.label}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+
           {/* SVG for connection lines */}
           <svg
             width={totalWidth}
@@ -574,15 +734,15 @@ function TaskFlowView({
                 if (childIsLeft) {
                   // Child is on the left, parent on the right (normal flow)
                   x1 = childNode.x + CARD_WIDTH; // Child's right edge
-                  y1 = childNode.y + 55; // Middle of child (110/2)
+                  y1 = childNode.y + CARD_HEIGHT / 2;
                   x2 = node.x; // Parent's left edge
-                  y2 = node.y + 55; // Middle of parent (110/2)
+                  y2 = node.y + CARD_HEIGHT / 2;
                 } else {
                   // Child is on the right, parent on the left (reversed due to status)
                   x1 = childNode.x; // Child's left edge
-                  y1 = childNode.y + 55; // Middle of child (110/2)
+                  y1 = childNode.y + CARD_HEIGHT / 2;
                   x2 = node.x + CARD_WIDTH; // Parent's right edge
-                  y2 = node.y + 55; // Middle of parent (110/2)
+                  y2 = node.y + CARD_HEIGHT / 2;
                 }
 
                 // Curved path
@@ -591,20 +751,43 @@ function TaskFlowView({
 
                 // Check if this connection is on the critical path
                 const isCriticalConnection = node.isConvergencePoint || childNode.isConvergencePoint;
+                const edgeKey = `${childId}->${node.task.id}`;
+                const isHighlightedEdge = highlightedEdges.has(edgeKey);
+
+                let stroke = '#71717a';
+                let strokeWidth = 2;
+                let dashArray: string | undefined = '6,4';
+                let opacity = hasHighlights ? 0.2 : 0.7;
+
+                if (isCriticalConnection) {
+                  stroke = '#fbbf24';
+                  strokeWidth = 3;
+                  dashArray = undefined;
+                  opacity = hasHighlights ? 0.3 : 0.9;
+                }
+
+                if (isHighlightedEdge) {
+                  stroke = '#38bdf8';
+                  strokeWidth = isCriticalConnection ? 4 : 3;
+                  dashArray = undefined;
+                  opacity = 0.95;
+                }
 
                 return (
                   <g key={`${node.task.id}-${childId}`}>
                     <path
                       d={path}
                       fill="none"
-                      stroke={isCriticalConnection ? '#fbbf24' : '#71717a'}
-                      strokeWidth={isCriticalConnection ? 3 : 2}
-                      strokeDasharray={isCriticalConnection ? 'none' : '6,4'}
-                      opacity={isCriticalConnection ? 0.9 : 0.7}
+                      stroke={stroke}
+                      strokeWidth={strokeWidth}
+                      strokeDasharray={dashArray}
+                      opacity={opacity}
                       markerEnd={
-                        isCriticalConnection
-                          ? 'url(#arrowhead-critical)'
-                          : 'url(#arrowhead)'
+                        isHighlightedEdge
+                          ? 'url(#arrowhead-highlight)'
+                          : isCriticalConnection
+                            ? 'url(#arrowhead-critical)'
+                            : 'url(#arrowhead)'
                       }
                     />
                   </g>
@@ -634,6 +817,16 @@ function TaskFlowView({
               >
                 <polygon points="0 0, 12 3, 0 6" fill="#fbbf24" opacity="0.9" />
               </marker>
+              <marker
+                id="arrowhead-highlight"
+                markerWidth="12"
+                markerHeight="12"
+                refX="10"
+                refY="3"
+                orient="auto"
+              >
+                <polygon points="0 0, 12 3, 0 6" fill="#38bdf8" opacity="0.95" />
+              </marker>
             </defs>
           </svg>
 
@@ -643,6 +836,9 @@ function TaskFlowView({
             const isDone = status === 'done' || status === 'cancelled';
             const isActive = status === 'inprogress' || status === 'inreview';
             const isTodo = status === 'todo';
+            const isSelected = selectedTask?.id === node.task.id;
+            const isHighlighted = highlightedNodes.has(node.task.id);
+            const isDimmed = hasHighlights && !isHighlighted && !isSelected;
 
             return (
             <Card
@@ -658,17 +854,18 @@ function TaskFlowView({
                 isActive && 'bg-blue-500/15 border-blue-500/40 hover:bg-blue-500/20',
                 isTodo && 'bg-zinc-700/20 border-zinc-600/40 hover:bg-zinc-700/30',
                 // Selected state
-                selectedTask?.id === node.task.id &&
-                  'ring-2 ring-primary ring-offset-2 ring-offset-background z-[60]',
+                isSelected && 'ring-2 ring-primary ring-offset-2 ring-offset-background z-[60]',
                 // Critical path highlighting (stronger border + glow)
                 node.isConvergencePoint &&
-                  'ring-1 ring-amber-400/60 border-amber-400/70 shadow-amber-400/20'
+                  'ring-1 ring-amber-400/60 border-amber-400/70 shadow-amber-400/20',
+                isHighlighted && !isSelected && 'border-sky-500/40 ring-1 ring-sky-400/30',
+                isDimmed && 'opacity-45 hover:opacity-80'
               )}
               style={{
                 left: `${node.x}px`,
                 top: `${node.y}px`,
                 width: `${CARD_WIDTH}px`,
-                zIndex: selectedTask?.id === node.task.id ? 60 : 10,
+                zIndex: isSelected ? 60 : 10,
               }}
               onClick={() => onViewTaskDetails(node.task)}
             >

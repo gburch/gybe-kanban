@@ -519,7 +519,6 @@ export function ProjectTasks({ viewMode = 'kanban' }: ProjectTasksProps) {
         <div className="w-full h-full">
           <TaskFlowView
             tasks={filteredTasks}
-            tasksById={tasksById}
             onViewTaskDetails={handleViewTaskDetails}
             selectedTask={selectedTask || undefined}
             parentTasksById={parentTasksById}
