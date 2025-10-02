@@ -337,34 +337,84 @@ struct RateLimitSnapshot {
     #[serde(default)]
     secondary_resets_in_seconds: Option<u64>,
     #[serde(flatten, default)]
-    _extra: std::collections::HashMap<String, serde_json::Value>,
+    extra: std::collections::HashMap<String, serde_json::Value>,
 }
 
 impl RateLimitSnapshot {
     fn into_usage_rate_limits(self) -> Option<CodexUsageRateLimits> {
-        let primary = self.primary.map(CodexUsageWindow::from).or_else(|| {
-            self.primary_used_percent
-                .map(|used_percent| CodexUsageWindow {
-                    used_percent,
-                    window_minutes: self.primary_window_minutes,
-                    resets_in_seconds: self.primary_resets_in_seconds,
-                })
-        });
+        let RateLimitSnapshot {
+            primary,
+            secondary,
+            primary_used_percent,
+            secondary_used_percent,
+            primary_window_minutes,
+            secondary_window_minutes,
+            primary_resets_in_seconds,
+            secondary_resets_in_seconds,
+            extra,
+        } = self;
 
-        let secondary = self.secondary.map(CodexUsageWindow::from).or_else(|| {
-            self.secondary_used_percent
-                .map(|used_percent| CodexUsageWindow {
+        let primary = primary
+            .map(CodexUsageWindow::from)
+            .or_else(|| {
+                primary_used_percent.map(|used_percent| CodexUsageWindow {
                     used_percent,
-                    window_minutes: self.secondary_window_minutes,
-                    resets_in_seconds: self.secondary_resets_in_seconds,
+                    window_minutes: primary_window_minutes,
+                    resets_in_seconds: primary_resets_in_seconds,
                 })
-        });
+            })
+            .or_else(|| extract_header_window(&extra, "primary"));
+
+        let secondary = secondary
+            .map(CodexUsageWindow::from)
+            .or_else(|| {
+                secondary_used_percent.map(|used_percent| CodexUsageWindow {
+                    used_percent,
+                    window_minutes: secondary_window_minutes,
+                    resets_in_seconds: secondary_resets_in_seconds,
+                })
+            })
+            .or_else(|| extract_header_window(&extra, "secondary"));
 
         if primary.is_none() && secondary.is_none() {
             None
         } else {
             Some(CodexUsageRateLimits { primary, secondary })
         }
+    }
+}
+
+fn extract_header_window(
+    extra: &std::collections::HashMap<String, serde_json::Value>,
+    prefix: &str,
+) -> Option<CodexUsageWindow> {
+    let used_percent = extract_f64(extra.get(&format!("x-codex-{}-used-percent", prefix)))?;
+    let window_minutes = extract_u64(extra.get(&format!("x-codex-{}-window-minutes", prefix)));
+    let resets_in_seconds =
+        extract_u64(extra.get(&format!("x-codex-{}-reset-after-seconds", prefix)))
+            .or_else(|| extract_u64(extra.get(&format!("x-codex-{}-resets-in-seconds", prefix))));
+
+    Some(CodexUsageWindow {
+        used_percent,
+        window_minutes,
+        resets_in_seconds,
+    })
+}
+
+fn extract_f64(value: Option<&serde_json::Value>) -> Option<f64> {
+    match value? {
+        serde_json::Value::Number(n) => n.as_f64(),
+        serde_json::Value::String(s) => s.parse().ok(),
+        serde_json::Value::Bool(b) => Some(if *b { 1.0 } else { 0.0 }),
+        _ => None,
+    }
+}
+
+fn extract_u64(value: Option<&serde_json::Value>) -> Option<u64> {
+    match value? {
+        serde_json::Value::Number(n) => n.as_u64().or_else(|| n.as_f64().map(|f| f as u64)),
+        serde_json::Value::String(s) => s.parse().ok(),
+        _ => None,
     }
 }
 
@@ -522,6 +572,52 @@ mod tests {
         assert_eq!(secondary.used_percent, 2.5);
         assert_eq!(secondary.window_minutes, Some(10080));
         assert_eq!(secondary.resets_in_seconds, Some(7200));
+    }
+
+    #[test]
+    fn parses_header_style_rate_limit_snapshot() {
+        let dir = tempdir().unwrap();
+        let sessions_dir = dir.path().join("sessions/2025/09/30");
+        fs::create_dir_all(&sessions_dir).unwrap();
+        let file_path = sessions_dir.join("rollout-2025-09-30T12-00-00-session.jsonl");
+
+        let json_line = serde_json::json!({
+            "timestamp": "2025-09-30T12:00:05.000000Z",
+            "type": "event_msg",
+            "payload": {
+                "type": "token_count",
+                "info": serde_json::Value::Null,
+                "rate_limits": {
+                    "x-codex-primary-used-percent": "87.5",
+                    "x-codex-primary-window-minutes": "15",
+                    "x-codex-primary-reset-after-seconds": "120",
+                    "x-codex-secondary-used-percent": 5.25,
+                    "x-codex-secondary-window-minutes": 60,
+                    "x-codex-secondary-reset-after-seconds": 3600
+                }
+            }
+        });
+
+        fs::write(&file_path, format!("{}\n", json_line)).unwrap();
+
+        let result = parse_rollout_file(&file_path).unwrap();
+        let (_, snapshot) = result.expect("header style snapshot should parse");
+
+        let primary = snapshot
+            .rate_limits
+            .primary
+            .expect("primary window should exist");
+        assert_eq!(primary.used_percent, 87.5);
+        assert_eq!(primary.window_minutes, Some(15));
+        assert_eq!(primary.resets_in_seconds, Some(120));
+
+        let secondary = snapshot
+            .rate_limits
+            .secondary
+            .expect("secondary window should exist");
+        assert!((secondary.used_percent - 5.25).abs() < f64::EPSILON);
+        assert_eq!(secondary.window_minutes, Some(60));
+        assert_eq!(secondary.resets_in_seconds, Some(3600));
     }
 }
 
