@@ -731,6 +731,17 @@ impl LocalContainerService {
         format!("{}-{}", short_uuid(attempt_id), task_title_id)
     }
 
+    fn repo_worktree_suffix(repo: &ProjectRepository) -> String {
+        let slug = git_branch_id(&repo.name);
+        let suffix = short_uuid(&repo.id);
+
+        if slug.is_empty() {
+            format!("repo-{suffix}")
+        } else {
+            format!("{slug}-{suffix}")
+        }
+    }
+
     async fn track_child_msgs_in_store(&self, id: Uuid, child: &mut AsyncGroupChild) {
         let store = Arc::new(MsgStore::new());
 
@@ -1389,7 +1400,8 @@ impl ContainerService for LocalContainerService {
 
         let worktree_dir_name =
             LocalContainerService::dir_name_from_task_attempt(&task_attempt.id, &task.title);
-        let worktree_path = WorktreeManager::get_worktree_base_dir().join(&worktree_dir_name);
+        let base_worktree_dir = WorktreeManager::get_worktree_base_dir();
+        let worktree_path = base_worktree_dir.join(&worktree_dir_name);
 
         let project = task
             .parent_project(&self.db.pool)
@@ -1432,6 +1444,68 @@ impl ContainerService for LocalContainerService {
             &worktree_path.to_string_lossy(),
         )
         .await?;
+
+        let project_repositories =
+            ProjectRepository::list_for_project(&self.db.pool, project.id).await?;
+        let attempt_repositories =
+            TaskAttemptRepository::list_for_attempt(&self.db.pool, task_attempt.id).await?;
+        let attempt_repo_map: HashMap<Uuid, TaskAttemptRepository> = attempt_repositories
+            .into_iter()
+            .map(|entry| (entry.project_repository_id, entry))
+            .collect();
+
+        for repo in project_repositories {
+            let attempt_repo = attempt_repo_map.get(&repo.id);
+
+            let branch_to_use = attempt_repo
+                .and_then(|entry| entry.branch.clone())
+                .map(|b| b.trim().to_string())
+                .filter(|b| !b.is_empty())
+                .unwrap_or_else(|| task_attempt.branch.clone());
+
+            let repo_worktree_path = if repo.is_primary {
+                worktree_path.clone()
+            } else {
+                attempt_repo
+                    .and_then(|entry| entry.container_ref.clone())
+                    .map(PathBuf::from)
+                    .unwrap_or_else(|| {
+                        let suffix = Self::repo_worktree_suffix(&repo);
+                        base_worktree_dir.join(format!("{worktree_dir_name}--{suffix}"))
+                    })
+            };
+
+            if !repo.is_primary {
+                WorktreeManager::create_worktree(
+                    &repo.git_repo_path,
+                    &branch_to_use,
+                    &repo_worktree_path,
+                    &task_attempt.target_branch,
+                    true,
+                )
+                .await?;
+            }
+
+            let path_string = repo_worktree_path.to_string_lossy().to_string();
+
+            TaskAttemptRepository::upsert_container_ref(
+                &self.db.pool,
+                task_attempt.id,
+                repo.id,
+                repo.is_primary,
+                Some(path_string.as_str()),
+            )
+            .await?;
+
+            TaskAttemptRepository::upsert_branch(
+                &self.db.pool,
+                task_attempt.id,
+                repo.id,
+                repo.is_primary,
+                Some(branch_to_use.as_str()),
+            )
+            .await?;
+        }
 
         Ok(worktree_path.to_string_lossy().to_string())
     }
