@@ -94,6 +94,49 @@ export function TaskDetailsPanel({
     }
   }, [task?.id]);
 
+  const renderAttemptTabs = () => {
+    if (!task || !selectedAttempt) return null;
+
+    const tabContent = (
+      <div className="flex-1 flex flex-col min-h-0">
+        <TabNavigation
+          activeTab={activeTab}
+          setActiveTab={setActiveTab}
+          selectedAttempt={selectedAttempt}
+        />
+
+        <div className="flex-1 flex flex-col min-h-0">
+          {activeTab === 'diffs' ? (
+            <DiffTab selectedAttempt={selectedAttempt} />
+          ) : activeTab === 'processes' ? (
+            <ProcessesTab attemptId={selectedAttempt?.id} />
+          ) : activeTab === 'preview' ? (
+            <PreviewTab
+              selectedAttempt={selectedAttempt}
+              projectId={projectId}
+              projectHasDevScript={projectHasDevScript}
+            />
+          ) : (
+            <LogsTab selectedAttempt={selectedAttempt} />
+          )}
+        </div>
+      </div>
+    );
+
+    return (
+      <RetryUiProvider attemptId={selectedAttempt.id}>
+        <>
+          {tabContent}
+          <TaskFollowUpSection
+            task={task}
+            selectedAttemptId={selectedAttempt?.id}
+            jumpToLogsTab={jumpToLogsTab}
+          />
+        </>
+      </RetryUiProvider>
+    );
+  };
+
   return (
     <>
       {!task ? null : (
@@ -168,47 +211,7 @@ export function TaskDetailsPanel({
 
                           {/* Main content */}
                           <main className="flex-1 min-h-0 min-w-0 flex flex-col">
-                            {selectedAttempt && (
-                              <RetryUiProvider attemptId={selectedAttempt.id}>
-                                <>
-                                  <TabNavigation
-                                    activeTab={activeTab}
-                                    setActiveTab={setActiveTab}
-                                    selectedAttempt={selectedAttempt}
-                                  />
-
-                                  <div className="flex-1 flex flex-col min-h-0">
-                                    {activeTab === 'diffs' ? (
-                                      <DiffTab
-                                        selectedAttempt={selectedAttempt}
-                                      />
-                                    ) : activeTab === 'processes' ? (
-                                      <ProcessesTab
-                                        attemptId={selectedAttempt?.id}
-                                      />
-                                    ) : activeTab === 'preview' ? (
-                                      <PreviewTab
-                                        selectedAttempt={selectedAttempt}
-                                        projectId={projectId}
-                                        projectHasDevScript={
-                                          projectHasDevScript
-                                        }
-                                      />
-                                    ) : (
-                                      <LogsTab
-                                        selectedAttempt={selectedAttempt}
-                                      />
-                                    )}
-                                  </div>
-
-                                  <TaskFollowUpSection
-                                    task={task}
-                                    selectedAttemptId={selectedAttempt?.id}
-                                    jumpToLogsTab={jumpToLogsTab}
-                                  />
-                                </>
-                              </RetryUiProvider>
-                            )}
+                            {renderAttemptTabs()}
                           </main>
                         </div>
                       ) : (
@@ -238,16 +241,7 @@ export function TaskDetailsPanel({
                                 onJumpToDiffFullScreen={jumpToDiffFullScreen}
                               />
 
-                              {selectedAttempt && (
-                                <RetryUiProvider attemptId={selectedAttempt.id}>
-                                  <LogsTab selectedAttempt={selectedAttempt} />
-                                  <TaskFollowUpSection
-                                    task={task}
-                                    selectedAttemptId={selectedAttempt?.id}
-                                    jumpToLogsTab={jumpToLogsTab}
-                                  />
-                                </RetryUiProvider>
-                              )}
+                              {renderAttemptTabs()}
                             </>
                           )}
                         </>

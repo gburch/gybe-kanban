@@ -47,13 +47,35 @@ export function useDevserverPreview(
     []
   );
 
+  const getAccessibleHostname = useCallback((hostname: string) => {
+    const loopbackHosts = new Set([
+      'localhost',
+      '127.0.0.1',
+      '0.0.0.0',
+      '::',
+      '::1',
+      '[::]',
+      '[::1]',
+    ]);
+
+    if (!loopbackHosts.has(hostname)) {
+      return hostname;
+    }
+
+    if (typeof window === 'undefined') {
+      return 'localhost';
+    }
+
+    return window.location.hostname || 'localhost';
+  }, []);
+
   // URL detection patterns (in order of priority)
   const urlPatterns = useMemo(
     () => [
       // Full URLs with protocol (localhost and IP addresses only)
       /(https?:\/\/(?:\[[0-9a-f:]+\]|localhost|127\.0\.0\.1|0\.0\.0\.0|\d{1,3}(?:\.\d{1,3}){3})(?::\d{2,5})?(?:\/\S*)?)/i,
       // Host:port patterns
-      /(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[[0-9a-f:]+\]|(?:\d{1,3}\.){3}\d{1,3}):(\d{2,5})/i,
+      /(localhost|127\.0\.0\.1|0\.0\.0\.0|\[[0-9a-f:]+\]|(?:\d{1,3}\.){3}\d{1,3}):(\d{2,5})/i,
       // Port mentions
       // /port[^0-9]{0,5}(\d{2,5})/i,
     ],
@@ -67,14 +89,7 @@ export function useDevserverPreview(
       if (fullUrlMatch) {
         try {
           const url = new URL(fullUrlMatch[1]);
-          // Normalize 0.0.0.0 and :: to localhost for preview
-          if (
-            url.hostname === '0.0.0.0' ||
-            url.hostname === '::' ||
-            url.hostname === '[::]'
-          ) {
-            url.hostname = 'localhost';
-          }
+          url.hostname = getAccessibleHostname(url.hostname);
           return {
             url: url.toString(),
             port: parseInt(url.port) || (url.protocol === 'https:' ? 443 : 80),
@@ -89,12 +104,14 @@ export function useDevserverPreview(
       }
 
       // Try host:port pattern
-      const hostPortMatch = urlPatterns[1].exec(line);
+      const hostPortMatch = urlPatterns[1].exec(stripAnsi(line));
       if (hostPortMatch) {
-        const port = parseInt(hostPortMatch[1]);
+        const host = hostPortMatch[1];
+        const port = parseInt(hostPortMatch[2]);
         const scheme = /https/i.test(line) ? 'https' : 'http';
+        const hostname = getAccessibleHostname(stripAnsi(host));
         return {
-          url: `${scheme}://localhost:${port}`,
+          url: `${scheme}://${hostname}:${port}`,
           port,
           scheme: scheme as 'http' | 'https',
         };
@@ -102,7 +119,7 @@ export function useDevserverPreview(
 
       return null;
     },
-    [urlPatterns]
+    [getAccessibleHostname, urlPatterns]
   );
 
   const processPendingEntries = useCallback(
