@@ -9,12 +9,13 @@ import type {
 } from 'shared/types';
 import type { ExecutorProfileId } from 'shared/types';
 
-import { useAttemptExecution } from '@/hooks';
+import { useAttemptExecution, useBranchStatus } from '@/hooks';
 import { useTaskStopping } from '@/stores/useTaskDetailsUiStore';
 import { useProject } from '@/contexts/project-context';
 
 import CreateAttempt from '@/components/tasks/Toolbar/CreateAttempt.tsx';
 import CurrentAttempt from '@/components/tasks/Toolbar/CurrentAttempt.tsx';
+import GitOperations from '@/components/tasks/Toolbar/GitOperations.tsx';
 import { useUserSystem } from '@/components/config-provider';
 import { Card } from '../ui/card';
 
@@ -25,18 +26,21 @@ type UiAction =
   | { type: 'CREATE_PR_START' }
   | { type: 'CREATE_PR_DONE' }
   | { type: 'ENTER_CREATE_MODE' }
-  | { type: 'LEAVE_CREATE_MODE' };
+  | { type: 'LEAVE_CREATE_MODE' }
+  | { type: 'SET_ERROR'; payload: string | null };
 
 interface UiState {
   showCreatePRDialog: boolean;
   creatingPR: boolean;
   userForcedCreateMode: boolean;
+  error: string | null;
 }
 
 const initialUi: UiState = {
   showCreatePRDialog: false,
   creatingPR: false,
   userForcedCreateMode: false,
+  error: null,
 };
 
 function uiReducer(state: UiState, action: UiAction): UiState {
@@ -53,6 +57,8 @@ function uiReducer(state: UiState, action: UiAction): UiState {
       return { ...state, userForcedCreateMode: true };
     case 'LEAVE_CREATE_MODE':
       return { ...state, userForcedCreateMode: false };
+    case 'SET_ERROR':
+      return { ...state, error: action.payload };
     default:
       return state;
   }
@@ -83,6 +89,10 @@ function TaskDetailsToolbar({
   const { isStopping } = useTaskStopping(task.id);
   const { isAttemptRunning } = useAttemptExecution(selectedAttempt?.id);
   const { selectedRepositoryId } = useProject();
+  const {
+    data: branchStatus,
+    refetch: refetchBranchStatus,
+  } = useBranchStatus(selectedAttempt?.id);
 
   // UI state using reducer
   const [ui, dispatch] = useReducer(uiReducer, initialUi);
@@ -212,10 +222,23 @@ function TaskDetailsToolbar({
     [isInCreateAttemptMode, onLeaveForceCreateAttempt]
   );
 
+  const setError = useCallback((value: string | null) => {
+    dispatch({ type: 'SET_ERROR', payload: value });
+  }, []);
+
+  useEffect(() => {
+    dispatch({ type: 'SET_ERROR', payload: null });
+  }, [selectedAttempt?.id]);
+
   // Wrapper functions for UI state dispatch
   return (
     <>
       <div>
+        {ui.error && (
+          <div className="mb-4 rounded border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive">
+            {ui.error}
+          </div>
+        )}
         {isInCreateAttemptMode ? (
           <CreateAttempt
             task={task}
@@ -245,6 +268,8 @@ function TaskDetailsToolbar({
                     projectHasDevScript={projectHasDevScript ?? false}
                     selectedAttempt={selectedAttempt}
                     taskAttempts={taskAttempts}
+                    branchStatus={branchStatus ?? null}
+                    refetchBranchStatus={refetchBranchStatus}
                     handleEnterCreateAttemptMode={handleEnterCreateAttemptMode}
                     setSelectedAttempt={setSelectedAttempt}
                   />
@@ -259,6 +284,21 @@ function TaskDetailsToolbar({
                   </div>
                 )}
               </div>
+
+              {selectedAttempt && branchStatus && (
+                <div className="space-y-3 border-t pt-3">
+                  <GitOperations
+                    selectedAttempt={selectedAttempt}
+                    task={task}
+                    projectId={projectId}
+                    branchStatus={branchStatus}
+                    branches={branches}
+                    isAttemptRunning={isAttemptRunning}
+                    setError={setError}
+                    selectedBranch={selectedAttempt.target_branch ?? null}
+                  />
+                </div>
+              )}
 
               {/* Special Actions: show only in sidebar (non-fullscreen) */}
               {!selectedAttempt && !isAttemptRunning && !isStopping && (

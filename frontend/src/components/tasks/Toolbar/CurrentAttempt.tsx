@@ -21,8 +21,8 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu.tsx';
 import { useCallback, useMemo, useRef, useState, useEffect } from 'react';
-import type { TaskAttempt, TaskWithAttemptStatus } from 'shared/types';
-import { useBranchStatus, useOpenInEditor } from '@/hooks';
+import type { BranchStatus, TaskAttempt, TaskWithAttemptStatus } from 'shared/types';
+import { useOpenInEditor } from '@/hooks';
 import { useAttemptExecution } from '@/hooks/useAttemptExecution';
 import { useDevServer } from '@/hooks/useDevServer';
 import { useUserSystem } from '@/components/config-provider.tsx';
@@ -61,6 +61,8 @@ type Props = {
   taskAttempts: TaskAttempt[];
   handleEnterCreateAttemptMode: () => void;
   setSelectedAttempt: (attempt: TaskAttempt | null) => void;
+  branchStatus: BranchStatus | null;
+  refetchBranchStatus: () => Promise<unknown>;
 };
 
 function CurrentAttempt({
@@ -71,6 +73,8 @@ function CurrentAttempt({
   taskAttempts,
   handleEnterCreateAttemptMode,
   setSelectedAttempt,
+  branchStatus,
+  refetchBranchStatus,
 }: Props) {
   const { config } = useUserSystem();
   const {
@@ -80,9 +84,6 @@ function CurrentAttempt({
     isLoading: isAttemptExecutionLoading,
     isFetching: isAttemptExecutionFetching,
   } = useAttemptExecution(selectedAttempt?.id, task.id);
-  const { data: branchStatus, refetch: refetchBranchStatus } = useBranchStatus(
-    selectedAttempt?.id
-  );
   const hasConflicts = useMemo(
     () => Boolean((branchStatus?.conflicted_files?.length ?? 0) > 0),
     [branchStatus?.conflicted_files]
