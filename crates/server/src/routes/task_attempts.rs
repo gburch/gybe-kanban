@@ -108,6 +108,8 @@ pub struct TaskAttemptQuery {
 pub struct DiffStreamQuery {
     #[serde(default)]
     pub stats_only: bool,
+    #[serde(default)]
+    pub repo_id: Option<Uuid>,
 }
 
 pub async fn get_task_attempts(
@@ -483,10 +485,13 @@ pub async fn stream_task_attempt_diff_ws(
     Extension(task_attempt): Extension<TaskAttempt>,
     State(deployment): State<DeploymentImpl>,
 ) -> impl IntoResponse {
-    let stats_only = params.stats_only;
+    let DiffStreamQuery {
+        stats_only,
+        repo_id,
+    } = params;
     ws.on_upgrade(move |socket| async move {
         if let Err(e) =
-            handle_task_attempt_diff_ws(socket, deployment, task_attempt, stats_only).await
+            handle_task_attempt_diff_ws(socket, deployment, task_attempt, stats_only, repo_id).await
         {
             tracing::warn!("diff WS closed: {}", e);
         }
@@ -498,13 +503,14 @@ async fn handle_task_attempt_diff_ws(
     deployment: DeploymentImpl,
     task_attempt: TaskAttempt,
     stats_only: bool,
+    repo_id: Option<Uuid>,
 ) -> anyhow::Result<()> {
     use futures_util::{SinkExt, StreamExt, TryStreamExt};
     use utils::log_msg::LogMsg;
 
     let mut stream = deployment
         .container()
-        .stream_diff(&task_attempt, stats_only)
+        .stream_diff(&task_attempt, stats_only, repo_id)
         .await?
         .map_ok(|msg: LogMsg| msg.to_ws_message_unchecked());
 

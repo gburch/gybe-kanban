@@ -1463,8 +1463,10 @@ impl ContainerService for LocalContainerService {
         &self,
         task_attempt: &TaskAttempt,
         stats_only: bool,
+        repository_filter: Option<Uuid>,
     ) -> Result<futures::stream::BoxStream<'static, Result<LogMsg, std::io::Error>>, ContainerError>
     {
+        let _ = repository_filter;
         let project_repo_path = self.get_project_repo_path(task_attempt).await?;
         let latest_merge =
             Merge::find_latest_by_task_attempt_id(&self.db.pool, task_attempt.id).await?;

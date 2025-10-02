@@ -218,6 +218,7 @@ pub trait ContainerService {
         &self,
         task_attempt: &TaskAttempt,
         stats_only: bool,
+        repository_filter: Option<Uuid>,
     ) -> Result<futures::stream::BoxStream<'static, Result<LogMsg, std::io::Error>>, ContainerError>;
 
     /// Fetch the MsgStore for a given execution ID, panicking if missing.
