@@ -57,6 +57,7 @@ use services::services::{
 use tokio::{sync::RwLock, task::JoinHandle};
 use tokio_util::io::ReaderStream;
 use utils::{
+    diff::Diff,
     log_msg::LogMsg,
     msg_store::MsgStore,
     text::{git_branch_id, short_uuid},
@@ -74,6 +75,148 @@ pub struct LocalContainerService {
     git: GitService,
     image_service: ImageService,
     analytics: Option<AnalyticsContext>,
+}
+
+#[derive(Clone, Debug)]
+struct RepositoryInfo {
+    id: Uuid,
+    name: String,
+    root: String,
+    root_prefix: Option<String>,
+    is_primary: bool,
+}
+
+#[derive(Clone, Debug)]
+struct RepositoryLookup {
+    repos: Vec<RepositoryInfo>,
+    primary_index: Option<usize>,
+}
+
+impl RepositoryLookup {
+    fn from_project_and_attempt(
+        project_repositories: &[ProjectRepository],
+        attempt_repositories: &[TaskAttemptRepository],
+    ) -> Self {
+        let attempt_map = attempt_repositories
+            .iter()
+            .map(|entry| (entry.project_repository_id, entry))
+            .collect::<HashMap<_, _>>();
+
+        let mut repos = Vec::new();
+        for repo in project_repositories {
+            if !attempt_map.is_empty() && !attempt_map.contains_key(&repo.id) {
+                continue;
+            }
+
+            let is_primary = attempt_map
+                .get(&repo.id)
+                .map(|entry| entry.is_primary)
+                .unwrap_or(repo.is_primary);
+
+            repos.push(RepositoryInfo::new(repo, is_primary));
+        }
+
+        if repos.is_empty()
+            && let Some(repo) = project_repositories.first()
+        {
+            repos.push(RepositoryInfo::new(repo, true));
+        }
+
+        repos.sort_by(|a, b| b.root.len().cmp(&a.root.len()));
+        let primary_index = repos
+            .iter()
+            .position(|info| info.is_primary)
+            .or_else(|| (!repos.is_empty()).then_some(0));
+
+        RepositoryLookup {
+            repos,
+            primary_index,
+        }
+    }
+
+    fn annotate_diff(&self, diff: &mut Diff) -> Option<Uuid> {
+        let path = diff
+            .new_path
+            .as_deref()
+            .or(diff.old_path.as_deref())
+            .map(normalize_diff_path)
+            .unwrap_or_default();
+
+        let repo_info = self.match_path(path).or_else(|| self.primary());
+
+        let repo_info = match repo_info {
+            Some(info) => info,
+            None => {
+                diff.repository_id = None;
+                diff.repository_name = None;
+                diff.repository_root = None;
+                return None;
+            }
+        };
+
+        diff.repository_id = Some(repo_info.id);
+        diff.repository_name = Some(repo_info.name.clone());
+        diff.repository_root = if repo_info.root.is_empty() {
+            None
+        } else {
+            Some(repo_info.root.clone())
+        };
+
+        Some(repo_info.id)
+    }
+
+    fn match_path(&self, raw_path: &str) -> Option<&RepositoryInfo> {
+        let path = normalize_diff_path(raw_path);
+        self.repos.iter().find(|info| info.matches(path))
+    }
+
+    fn primary(&self) -> Option<&RepositoryInfo> {
+        self.primary_index
+            .and_then(|index| self.repos.get(index))
+            .or_else(|| self.repos.first())
+    }
+}
+
+impl RepositoryInfo {
+    fn new(repo: &ProjectRepository, is_primary: bool) -> Self {
+        let root = normalize_repo_root(&repo.root_path);
+        let root_prefix = if root.is_empty() {
+            None
+        } else {
+            Some(format!("{}/", root))
+        };
+
+        RepositoryInfo {
+            id: repo.id,
+            name: repo.name.clone(),
+            root,
+            root_prefix,
+            is_primary,
+        }
+    }
+
+    fn matches(&self, path: &str) -> bool {
+        if self.root.is_empty() {
+            true
+        } else if path == self.root {
+            true
+        } else {
+            self.root_prefix
+                .as_ref()
+                .map(|prefix| path.starts_with(prefix))
+                .unwrap_or(false)
+        }
+    }
+}
+
+fn normalize_repo_root(raw: &str) -> String {
+    let replaced = raw.replace('\\', "/");
+    replaced.trim_matches('/').to_string()
+}
+
+fn normalize_diff_path(path: &str) -> &str {
+    let path = path.strip_prefix("./").unwrap_or(path);
+    path.trim_start_matches('/')
 }
 
 impl LocalContainerService {
@@ -631,28 +774,14 @@ impl LocalContainerService {
         Ok(worktree_dir)
     }
     /// Get the project repository path for a task attempt
-    async fn get_project_repo_path(
-        &self,
-        task_attempt: &TaskAttempt,
-    ) -> Result<PathBuf, ContainerError> {
-        let project_repo_path = task_attempt
-            .parent_task(&self.db().pool)
-            .await?
-            .ok_or(ContainerError::Other(anyhow!("Parent task not found")))?
-            .parent_project(&self.db().pool)
-            .await?
-            .ok_or(ContainerError::Other(anyhow!("Parent project not found")))?
-            .git_repo_path;
-
-        Ok(project_repo_path)
-    }
-
     /// Create a diff log stream for merged attempts (never changes) for WebSocket
     fn create_merged_diff_stream(
         &self,
         project_repo_path: &Path,
         merge_commit_id: &str,
         stats_only: bool,
+        repository_filter: Option<Uuid>,
+        repo_lookup: Arc<RepositoryLookup>,
     ) -> Result<futures::stream::BoxStream<'static, Result<LogMsg, std::io::Error>>, ContainerError>
     {
         let diffs = self.git().get_diffs(
@@ -664,15 +793,20 @@ impl LocalContainerService {
         )?;
 
         let cum = Arc::new(AtomicUsize::new(0));
-        let diffs: Vec<_> = diffs
-            .into_iter()
-            .map(|mut d| {
-                Self::apply_stream_omit_policy(&mut d, &cum, stats_only);
-                d
-            })
-            .collect();
+        let mut filtered_diffs = Vec::new();
+        for mut diff in diffs {
+            let repo_match = repo_lookup.annotate_diff(&mut diff);
+            if let Some(filter) = repository_filter {
+                if repo_match != Some(filter) {
+                    continue;
+                }
+            }
 
-        let stream = futures::stream::iter(diffs.into_iter().map(|diff| {
+            Self::apply_stream_omit_policy(&mut diff, &cum, stats_only);
+            filtered_diffs.push(diff);
+        }
+
+        let stream = futures::stream::iter(filtered_diffs.into_iter().map(|diff| {
             let entry_index = GitService::diff_path(&diff);
             let patch =
                 ConversationPatch::add_diff(escape_json_pointer_segment(&entry_index), diff);
@@ -692,6 +826,8 @@ impl LocalContainerService {
         worktree_path: &Path,
         base_commit: &Commit,
         stats_only: bool,
+        repository_filter: Option<Uuid>,
+        repo_lookup: Arc<RepositoryLookup>,
     ) -> Result<futures::stream::BoxStream<'static, Result<LogMsg, std::io::Error>>, ContainerError>
     {
         // Get initial snapshot
@@ -706,18 +842,23 @@ impl LocalContainerService {
 
         let cumulative = Arc::new(AtomicUsize::new(0));
         let full_sent = Arc::new(std::sync::RwLock::new(HashSet::<String>::new()));
-        let initial_diffs: Vec<_> = initial_diffs
-            .into_iter()
-            .map(|mut d| {
-                Self::apply_stream_omit_policy(&mut d, &cumulative, stats_only);
-                d
-            })
-            .collect();
+        let mut initial_diffs_vec = Vec::new();
+        for mut diff in initial_diffs {
+            let repo_match = repo_lookup.annotate_diff(&mut diff);
+            if let Some(filter) = repository_filter {
+                if repo_match != Some(filter) {
+                    continue;
+                }
+            }
+
+            Self::apply_stream_omit_policy(&mut diff, &cumulative, stats_only);
+            initial_diffs_vec.push(diff);
+        }
 
         // Record which paths were sent with full content
         {
             let mut guard = full_sent.write().unwrap();
-            for d in &initial_diffs {
+            for d in &initial_diffs_vec {
                 if !d.content_omitted {
                     let p = GitService::diff_path(d);
                     guard.insert(p);
@@ -725,7 +866,7 @@ impl LocalContainerService {
             }
         }
 
-        let initial_stream = futures::stream::iter(initial_diffs.into_iter().map(|diff| {
+        let initial_stream = futures::stream::iter(initial_diffs_vec.into_iter().map(|diff| {
             let entry_index = GitService::diff_path(&diff);
             let patch =
                 ConversationPatch::add_diff(escape_json_pointer_segment(&entry_index), diff);
@@ -742,6 +883,7 @@ impl LocalContainerService {
             let worktree_path_for_spawn = worktree_path.clone();
             let cumulative = Arc::clone(&cumulative);
             let full_sent = Arc::clone(&full_sent);
+            let repo_lookup = Arc::clone(&repo_lookup);
             try_stream! {
                 let watcher_result = tokio::task::spawn_blocking(move || {
                     filesystem_watcher::async_watcher(worktree_path_for_spawn)
@@ -766,6 +908,8 @@ impl LocalContainerService {
                                     &cumulative,
                                     &full_sent,
                                     stats_only,
+                                    repo_lookup.as_ref(),
+                                    repository_filter,
                                 ).map_err(|e| {
                                     tracing::error!("Error processing file changes: {}", e);
                                     io::Error::other(e.to_string())
@@ -819,6 +963,8 @@ impl LocalContainerService {
         cumulative_bytes: &Arc<AtomicUsize>,
         full_sent_paths: &Arc<std::sync::RwLock<HashSet<String>>>,
         stats_only: bool,
+        repo_lookup: &RepositoryLookup,
+        repository_filter: Option<Uuid>,
     ) -> Result<Vec<LogMsg>, ContainerError> {
         let path_filter: Vec<&str> = changed_paths.iter().map(|s| s.as_str()).collect();
 
@@ -835,6 +981,13 @@ impl LocalContainerService {
 
         // Add/update files that have diffs
         for mut diff in current_diffs {
+            let repo_match = repo_lookup.annotate_diff(&mut diff);
+            if let Some(filter) = repository_filter {
+                if repo_match != Some(filter) {
+                    continue;
+                }
+            }
+
             let file_path = GitService::diff_path(&diff);
             files_with_diffs.insert(file_path.clone());
             // Apply stream-level omit policy (affects contents and stats)
@@ -855,6 +1008,13 @@ impl LocalContainerService {
 
         // Remove files that changed but no longer have diffs
         for changed_path in changed_paths {
+            if let Some(filter) = repository_filter {
+                let repo_match = repo_lookup.match_path(changed_path).map(|info| info.id);
+                if repo_match != Some(filter) {
+                    continue;
+                }
+            }
+
             if !files_with_diffs.contains(changed_path) {
                 let patch =
                     ConversationPatch::remove_diff(escape_json_pointer_segment(changed_path));
@@ -1466,8 +1626,25 @@ impl ContainerService for LocalContainerService {
         repository_filter: Option<Uuid>,
     ) -> Result<futures::stream::BoxStream<'static, Result<LogMsg, std::io::Error>>, ContainerError>
     {
-        let _ = repository_filter;
-        let project_repo_path = self.get_project_repo_path(task_attempt).await?;
+        let task = task_attempt
+            .parent_task(&self.db.pool)
+            .await?
+            .ok_or(ContainerError::Other(anyhow!("Parent task not found")))?;
+        let project = task
+            .parent_project(&self.db.pool)
+            .await?
+            .ok_or(ContainerError::Other(anyhow!("Parent project not found")))?;
+        let project_repo_path = project.git_repo_path.clone();
+
+        let project_repositories =
+            ProjectRepository::list_for_project(&self.db.pool, project.id).await?;
+        let attempt_repositories =
+            TaskAttemptRepository::list_for_attempt(&self.db.pool, task_attempt.id).await?;
+        let repo_lookup = Arc::new(RepositoryLookup::from_project_and_attempt(
+            &project_repositories,
+            &attempt_repositories,
+        ));
+
         let latest_merge =
             Merge::find_latest_by_task_attempt_id(&self.db.pool, task_attempt.id).await?;
 
@@ -1486,7 +1663,13 @@ impl ContainerService for LocalContainerService {
             && self.is_container_clean(task_attempt).await?
             && !is_ahead
         {
-            return self.create_merged_diff_stream(&project_repo_path, &commit, stats_only);
+            return self.create_merged_diff_stream(
+                &project_repo_path,
+                &commit,
+                stats_only,
+                repository_filter,
+                Arc::clone(&repo_lookup),
+            );
         }
 
         let container_ref = self.ensure_container_exists(task_attempt).await?;
@@ -1497,8 +1680,14 @@ impl ContainerService for LocalContainerService {
             &task_attempt.target_branch,
         )?;
 
-        self.create_live_diff_stream(&worktree_path, &base_commit, stats_only)
-            .await
+        self.create_live_diff_stream(
+            &worktree_path,
+            &base_commit,
+            stats_only,
+            repository_filter,
+            repo_lookup,
+        )
+        .await
     }
 
     async fn try_commit_changes(&self, ctx: &ExecutionContext) -> Result<bool, ContainerError> {
