@@ -66,12 +66,12 @@ export function useDevserverPreview(
   // URL detection patterns (in order of priority)
   const urlPatterns = useMemo(
     () => [
+      // Explicit "Server:" or "Preview:" lines take priority
+      /(?:Server|Preview)\s*:\s*(https?:\/\/(?:\[[0-9a-f:]+\]|localhost|127\.0\.0\.1|0\.0\.0\.0|\d{1,3}(?:\.\d{1,3}){3})(?::\d{2,5})?(?:\/\S*)?)/i,
       // Full URLs with protocol (localhost and IP addresses only)
       /(https?:\/\/(?:\[[0-9a-f:]+\]|localhost|127\.0\.0\.1|0\.0\.0\.0|\d{1,3}(?:\.\d{1,3}){3})(?::\d{2,5})?(?:\/\S*)?)/i,
       // Host:port patterns
       /(localhost|127\.0\.0\.1|0\.0\.0\.0|\[[0-9a-f:]+\]|(?:\d{1,3}\.){3}\d{1,3}):(\d{2,5})/i,
-      // Port mentions
-      // /port[^0-9]{0,5}(\d{2,5})/i,
     ],
     []
   );
@@ -79,7 +79,27 @@ export function useDevserverPreview(
   const extractUrlFromLine = useCallback(
     (line: string) => {
       // Try full URL pattern first
-      const fullUrlMatch = urlPatterns[0].exec(stripAnsi(line));
+      // Pattern 0: explicit tag (Server:/Preview:)
+      const taggedMatch = urlPatterns[0].exec(stripAnsi(line));
+      if (taggedMatch) {
+        try {
+          const url = new URL(taggedMatch[1]);
+          url.hostname = getAccessibleHostname(url.hostname);
+          return {
+            url: url.toString(),
+            port: parseInt(url.port) || (url.protocol === 'https:' ? 443 : 80),
+            scheme:
+              url.protocol === 'https:'
+                ? ('https' as const)
+                : ('http' as const),
+          };
+        } catch {
+          // fallthrough to other patterns if malformed
+        }
+      }
+
+      // Pattern 1: generic full URL
+      const fullUrlMatch = urlPatterns[1].exec(stripAnsi(line));
       if (fullUrlMatch) {
         try {
           const url = new URL(fullUrlMatch[1]);
@@ -98,7 +118,7 @@ export function useDevserverPreview(
       }
 
       // Try host:port pattern
-      const hostPortMatch = urlPatterns[1].exec(stripAnsi(line));
+      const hostPortMatch = urlPatterns[2].exec(stripAnsi(line));
       if (hostPortMatch) {
         const host = hostPortMatch[1];
         const port = parseInt(hostPortMatch[2]);
