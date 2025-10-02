@@ -1,4 +1,4 @@
-use std::{path::Path, sync::Arc};
+use std::{collections::HashMap, path::Path, sync::Arc};
 
 use async_trait::async_trait;
 use schemars::JsonSchema;
@@ -62,12 +62,17 @@ impl Gemini {
 
 #[async_trait]
 impl StandardCodingAgentExecutor for Gemini {
-    async fn spawn(&self, current_dir: &Path, prompt: &str) -> Result<SpawnedChild, ExecutorError> {
+    async fn spawn(
+        &self,
+        current_dir: &Path,
+        prompt: &str,
+        env: Option<&HashMap<String, String>>,
+    ) -> Result<SpawnedChild, ExecutorError> {
         let harness = AcpAgentHarness::new();
         let combined_prompt = self.append_prompt.combine_prompt(prompt);
         let gemini_command = self.build_command_builder().build_initial();
         harness
-            .spawn_with_command(current_dir, combined_prompt, gemini_command)
+            .spawn_with_command(current_dir, combined_prompt, gemini_command, env)
             .await
     }
 
@@ -76,12 +81,19 @@ impl StandardCodingAgentExecutor for Gemini {
         current_dir: &Path,
         prompt: &str,
         session_id: &str,
+        env: Option<&HashMap<String, String>>,
     ) -> Result<SpawnedChild, ExecutorError> {
         let harness = AcpAgentHarness::new();
         let combined_prompt = self.append_prompt.combine_prompt(prompt);
         let gemini_command = self.build_command_builder().build_follow_up(&[]);
         harness
-            .spawn_follow_up_with_command(current_dir, combined_prompt, session_id, gemini_command)
+            .spawn_follow_up_with_command(
+                current_dir,
+                combined_prompt,
+                session_id,
+                gemini_command,
+                env,
+            )
             .await
     }
 

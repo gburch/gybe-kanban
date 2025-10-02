@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::{collections::HashMap, path::Path};
 
 use async_trait::async_trait;
 use enum_dispatch::enum_dispatch;
@@ -15,6 +15,11 @@ use crate::{
 pub mod coding_agent_follow_up;
 pub mod coding_agent_initial;
 pub mod script;
+
+pub struct ExecutorSpawnContext<'a> {
+    pub current_dir: &'a Path,
+    pub env: Option<&'a HashMap<String, String>>,
+}
 
 #[enum_dispatch]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
@@ -48,12 +53,12 @@ impl ExecutorAction {
 #[async_trait]
 #[enum_dispatch(ExecutorActionType)]
 pub trait Executable {
-    async fn spawn(&self, current_dir: &Path) -> Result<SpawnedChild, ExecutorError>;
+    async fn spawn(&self, ctx: &ExecutorSpawnContext<'_>) -> Result<SpawnedChild, ExecutorError>;
 }
 
 #[async_trait]
 impl Executable for ExecutorAction {
-    async fn spawn(&self, current_dir: &Path) -> Result<SpawnedChild, ExecutorError> {
-        self.typ.spawn(current_dir).await
+    async fn spawn(&self, ctx: &ExecutorSpawnContext<'_>) -> Result<SpawnedChild, ExecutorError> {
+        self.typ.spawn(ctx).await
     }
 }

@@ -1,6 +1,7 @@
 mod session;
 
 use std::{
+    collections::HashMap,
     path::{Path, PathBuf},
     process::Stdio,
     sync::Arc,
@@ -23,6 +24,7 @@ use workspace_utils::{
 
 use crate::{
     command::{CmdOverrides, CommandBuilder, apply_overrides},
+    env::apply_env,
     executors::{
         AppendPrompt, ExecutorError, SpawnedChild, StandardCodingAgentExecutor,
         codex::session::SessionHandler,
@@ -147,7 +149,12 @@ impl Codex {
 
 #[async_trait]
 impl StandardCodingAgentExecutor for Codex {
-    async fn spawn(&self, current_dir: &Path, prompt: &str) -> Result<SpawnedChild, ExecutorError> {
+    async fn spawn(
+        &self,
+        current_dir: &Path,
+        prompt: &str,
+        env: Option<&HashMap<String, String>>,
+    ) -> Result<SpawnedChild, ExecutorError> {
         let (shell_cmd, shell_arg) = get_shell_command();
         let codex_command = self.build_command_builder().build_initial();
 
@@ -165,6 +172,8 @@ impl StandardCodingAgentExecutor for Codex {
             .env("NODE_NO_WARNINGS", "1")
             .env("RUST_LOG", "info");
 
+        apply_env(&mut command, env);
+
         let mut child = command.group_spawn()?;
 
         // Feed the prompt in, then close the pipe so codex sees EOF
@@ -181,6 +190,7 @@ impl StandardCodingAgentExecutor for Codex {
         current_dir: &Path,
         prompt: &str,
         session_id: &str,
+        env: Option<&HashMap<String, String>>,
     ) -> Result<SpawnedChild, ExecutorError> {
         // Fork rollout: copy and assign a new session id so each execution has a unique session
         let (_rollout_file_path, new_session_id) = SessionHandler::fork_rollout_file(session_id)
@@ -204,6 +214,8 @@ impl StandardCodingAgentExecutor for Codex {
             .arg(&codex_command)
             .env("NODE_NO_WARNINGS", "1")
             .env("RUST_LOG", "info");
+
+        apply_env(&mut command, env);
 
         let mut child = command.group_spawn()?;
 

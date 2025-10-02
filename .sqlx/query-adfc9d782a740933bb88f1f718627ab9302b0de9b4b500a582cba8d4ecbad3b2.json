@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT ta.id                  AS \"id!: Uuid\",\n                     ta.task_id            AS \"task_id!: Uuid\",\n                     ta.container_ref,\n                     ta.branch,\n                     ta.base_branch        AS \"base_branch!\",\n                     ta.executor           AS \"executor!\",\n                     ta.worktree_deleted   AS \"worktree_deleted!: bool\",\n                     ta.setup_completed_at AS \"setup_completed_at: DateTime<Utc>\",\n                     ta.created_at         AS \"created_at!: DateTime<Utc>\",\n                     ta.updated_at         AS \"updated_at!: DateTime<Utc>\"\n              FROM task_attempts ta\n              JOIN execution_processes ep ON ep.task_attempt_id = ta.id\n             WHERE ta.task_id = $1\n               AND ep.run_reason = 'codingagent'\n               AND ep.status = 'running'\n             ORDER BY ep.created_at DESC\n             LIMIT 1",
+  "query": "INSERT INTO task_attempts (id, task_id, container_ref, branch, target_branch, executor, worktree_deleted, setup_completed_at)\n               VALUES ($1, $2, $3, $4, $5, $6, $7, $8)\n               RETURNING id as \"id!: Uuid\", task_id as \"task_id!: Uuid\", container_ref, branch, target_branch, executor as \"executor!\",  worktree_deleted as \"worktree_deleted!: bool\", setup_completed_at as \"setup_completed_at: DateTime<Utc>\", created_at as \"created_at!: DateTime<Utc>\", updated_at as \"updated_at!: DateTime<Utc>\"",
   "describe": {
     "columns": [
       {
@@ -24,7 +24,7 @@
         "type_info": "Text"
       },
       {
-        "name": "base_branch!",
+        "name": "target_branch",
         "ordinal": 4,
         "type_info": "Text"
       },
@@ -55,13 +55,13 @@
       }
     ],
     "parameters": {
-      "Right": 1
+      "Right": 8
     },
     "nullable": [
       true,
       false,
       true,
-      true,
+      false,
       false,
       true,
       false,
@@ -70,5 +70,5 @@
       false
     ]
   },
-  "hash": "5fe4dcf5c16f21ef8928584723182d91a3c2cbb12d96abc21d4873f988aad5ce"
+  "hash": "adfc9d782a740933bb88f1f718627ab9302b0de9b4b500a582cba8d4ecbad3b2"
 }

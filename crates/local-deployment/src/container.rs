@@ -24,13 +24,15 @@ use db::{
         image::TaskImage,
         merge::Merge,
         project::Project,
+        project_repository::ProjectRepository,
         task::{Task, TaskStatus},
         task_attempt::TaskAttempt,
+        task_attempt_repository::TaskAttemptRepository,
     },
 };
 use deployment::DeploymentError;
 use executors::{
-    actions::{Executable, ExecutorAction},
+    actions::{Executable, ExecutorAction, ExecutorSpawnContext},
     logs::{
         NormalizedEntryType,
         utils::{
@@ -128,6 +130,36 @@ impl LocalContainerService {
         diff.new_content = None;
         diff.content_omitted = true;
     }
+
+    async fn build_executor_env(
+        &self,
+        task_attempt: &TaskAttempt,
+    ) -> Result<HashMap<String, String>, ContainerError> {
+        let task = Task::find_by_id(&self.db.pool, task_attempt.task_id)
+            .await?
+            .ok_or(sqlx::Error::RowNotFound)?;
+
+        let project = Project::find_by_id(&self.db.pool, task.project_id)
+            .await?
+            .ok_or(sqlx::Error::RowNotFound)?;
+
+        let repositories = ProjectRepository::list_for_project(&self.db.pool, project.id).await?;
+        let attempt_repositories =
+            TaskAttemptRepository::list_for_attempt(&self.db.pool, task_attempt.id).await?;
+
+        let attempt_map = attempt_repositories
+            .into_iter()
+            .map(|entry| (entry.project_repository_id, entry))
+            .collect::<HashMap<_, _>>();
+
+        Ok(compute_repository_env_map(
+            task_attempt,
+            &project,
+            &repositories,
+            &attempt_map,
+        ))
+    }
+
     pub fn new(
         db: DBService,
         msg_stores: Arc<RwLock<HashMap<Uuid, Arc<MsgStore>>>>,
@@ -834,6 +866,330 @@ impl LocalContainerService {
     }
 }
 
+fn repo_env_prefix(repo: &ProjectRepository) -> String {
+    let base = git_branch_id(&repo.name);
+    let suffix = short_uuid(&repo.id);
+    let slug = if base.is_empty() {
+        format!("repo-{}", suffix)
+    } else {
+        format!("{base}-{suffix}")
+    };
+
+    slug.replace('-', "_").to_uppercase()
+}
+
+fn compute_repository_env_map(
+    task_attempt: &TaskAttempt,
+    project: &Project,
+    repositories: &[ProjectRepository],
+    attempt_map: &HashMap<Uuid, TaskAttemptRepository>,
+) -> HashMap<String, String> {
+    let mut env = HashMap::new();
+
+    if repositories.is_empty() {
+        let prefix = "PRIMARY".to_string();
+        let path = task_attempt
+            .container_ref
+            .clone()
+            .unwrap_or_else(|| project.git_repo_path.to_string_lossy().to_string());
+
+        env.insert("VIBE_REPOSITORY_COUNT".into(), "1".into());
+        env.insert("VIBE_REPOSITORIES".into(), prefix.clone());
+        env.insert(format!("VIBE_REPO_{}_PATH", prefix), path.clone());
+        env.insert(format!("VIBE_REPO_{}_ROOT", prefix), String::new());
+        env.insert(
+            format!("VIBE_REPO_{}_BRANCH", prefix),
+            task_attempt.branch.clone(),
+        );
+        env.insert(format!("VIBE_REPO_{}_NAME", prefix), project.name.clone());
+        env.insert(format!("VIBE_REPO_{}_IS_PRIMARY", prefix), "1".into());
+        env.insert("VIBE_PRIMARY_REPO_PREFIX".into(), prefix.clone());
+        env.insert("VIBE_PRIMARY_REPO_PATH".into(), path);
+        env.insert("VIBE_PRIMARY_REPO_ROOT".into(), String::new());
+        env.insert("VIBE_PRIMARY_REPO_NAME".into(), project.name.clone());
+        env.insert(
+            "VIBE_PRIMARY_REPO_BRANCH".into(),
+            task_attempt.branch.clone(),
+        );
+
+        return env;
+    }
+
+    let mut prefixes = Vec::with_capacity(repositories.len());
+    let mut primary_prefix: Option<String> = None;
+
+    for repo in repositories {
+        let prefix = repo_env_prefix(repo);
+        let attempt_entry = attempt_map.get(&repo.id);
+
+        let repo_path = if repo.is_primary {
+            task_attempt
+                .container_ref
+                .clone()
+                .or_else(|| attempt_entry.and_then(|entry| entry.container_ref.clone()))
+                .unwrap_or_else(|| repo.git_repo_path.to_string_lossy().to_string())
+        } else {
+            attempt_entry
+                .and_then(|entry| entry.container_ref.clone())
+                .unwrap_or_else(|| repo.git_repo_path.to_string_lossy().to_string())
+        };
+
+        let branch = attempt_entry
+            .and_then(|entry| entry.branch.clone())
+            .or_else(|| {
+                if repo.is_primary {
+                    Some(task_attempt.branch.clone())
+                } else {
+                    None
+                }
+            })
+            .unwrap_or_default();
+
+        env.insert(format!("VIBE_REPO_{}_PATH", prefix), repo_path.clone());
+        env.insert(format!("VIBE_REPO_{}_ROOT", prefix), repo.root_path.clone());
+        env.insert(format!("VIBE_REPO_{}_BRANCH", prefix), branch);
+        env.insert(format!("VIBE_REPO_{}_NAME", prefix), repo.name.clone());
+        env.insert(
+            format!("VIBE_REPO_{}_IS_PRIMARY", prefix),
+            if repo.is_primary {
+                "1".to_string()
+            } else {
+                "0".to_string()
+            },
+        );
+
+        if repo.is_primary {
+            primary_prefix = Some(prefix.clone());
+            env.insert("VIBE_PRIMARY_REPO_PATH".into(), repo_path);
+            env.insert("VIBE_PRIMARY_REPO_ROOT".into(), repo.root_path.clone());
+            env.insert("VIBE_PRIMARY_REPO_PREFIX".into(), prefix.clone());
+            env.insert("VIBE_PRIMARY_REPO_NAME".into(), repo.name.clone());
+            let primary_branch = attempt_entry
+                .and_then(|entry| entry.branch.clone())
+                .unwrap_or_else(|| task_attempt.branch.clone());
+            env.insert("VIBE_PRIMARY_REPO_BRANCH".into(), primary_branch);
+        }
+
+        prefixes.push(prefix);
+    }
+
+    env.insert(
+        "VIBE_REPOSITORY_COUNT".into(),
+        repositories.len().to_string(),
+    );
+    env.insert("VIBE_REPOSITORIES".into(), prefixes.join(","));
+
+    if let Some(primary_prefix) = primary_prefix.clone() {
+        env.entry("VIBE_PRIMARY_REPO_PREFIX".into())
+            .or_insert(primary_prefix);
+    } else if let Some(first) = prefixes.first() {
+        env.entry("VIBE_PRIMARY_REPO_PREFIX".into())
+            .or_insert(first.clone());
+    }
+
+    if !env.contains_key("VIBE_PRIMARY_REPO_PATH") {
+        let fallback_path = task_attempt
+            .container_ref
+            .clone()
+            .unwrap_or_else(|| project.git_repo_path.to_string_lossy().to_string());
+        env.insert("VIBE_PRIMARY_REPO_PATH".into(), fallback_path);
+    }
+
+    if !env.contains_key("VIBE_PRIMARY_REPO_ROOT") {
+        env.insert("VIBE_PRIMARY_REPO_ROOT".into(), String::new());
+    }
+
+    if !env.contains_key("VIBE_PRIMARY_REPO_NAME") && !repositories.is_empty() {
+        env.insert(
+            "VIBE_PRIMARY_REPO_NAME".into(),
+            repositories[0].name.clone(),
+        );
+    }
+
+    if !env.contains_key("VIBE_PRIMARY_REPO_BRANCH") {
+        env.insert(
+            "VIBE_PRIMARY_REPO_BRANCH".into(),
+            task_attempt.branch.clone(),
+        );
+    }
+
+    env
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::Utc;
+    use std::{collections::HashMap, path::PathBuf};
+
+    fn make_project(name: &str, path: &str) -> Project {
+        let now = Utc::now();
+        Project {
+            id: Uuid::new_v4(),
+            name: name.to_string(),
+            git_repo_path: PathBuf::from(path),
+            setup_script: None,
+            dev_script: None,
+            cleanup_script: None,
+            copy_files: None,
+            created_at: now,
+            updated_at: now,
+        }
+    }
+
+    fn make_task_attempt(
+        project_task_id: Uuid,
+        container: Option<&str>,
+        branch: &str,
+    ) -> TaskAttempt {
+        let now = Utc::now();
+        TaskAttempt {
+            id: Uuid::new_v4(),
+            task_id: project_task_id,
+            container_ref: container.map(|p| p.to_string()),
+            branch: branch.to_string(),
+            target_branch: "main".to_string(),
+            executor: "CLAUDE_CODE".to_string(),
+            worktree_deleted: false,
+            setup_completed_at: None,
+            created_at: now,
+            updated_at: now,
+        }
+    }
+
+    fn make_repository(
+        project_id: Uuid,
+        name: &str,
+        path: &str,
+        root: &str,
+        is_primary: bool,
+    ) -> ProjectRepository {
+        let now = Utc::now();
+        ProjectRepository {
+            id: Uuid::new_v4(),
+            project_id,
+            name: name.to_string(),
+            git_repo_path: PathBuf::from(path),
+            root_path: root.to_string(),
+            is_primary,
+            created_at: now,
+            updated_at: now,
+        }
+    }
+
+    fn make_attempt_repo(
+        task_attempt_id: Uuid,
+        project_repository_id: Uuid,
+        container: Option<&str>,
+        branch: Option<&str>,
+        is_primary: bool,
+    ) -> TaskAttemptRepository {
+        let now = Utc::now();
+        TaskAttemptRepository {
+            id: Uuid::new_v4(),
+            task_attempt_id,
+            project_repository_id,
+            is_primary,
+            container_ref: container.map(|p| p.to_string()),
+            branch: branch.map(|b| b.to_string()),
+            created_at: now,
+            updated_at: now,
+        }
+    }
+
+    #[test]
+    fn compute_env_single_repository() {
+        let project = make_project("App", "/tmp/app");
+        let task_attempt =
+            make_task_attempt(Uuid::new_v4(), Some("/tmp/worktrees/app"), "feature/app");
+        let repo = make_repository(project.id, "App", "/tmp/app", "", true);
+
+        let env =
+            compute_repository_env_map(&task_attempt, &project, &[repo.clone()], &HashMap::new());
+
+        let prefix = repo_env_prefix(&repo);
+        assert_eq!(env.get("VIBE_REPOSITORY_COUNT"), Some(&"1".to_string()));
+        assert_eq!(env.get("VIBE_REPOSITORIES"), Some(&prefix));
+        assert_eq!(
+            env.get(&format!("VIBE_REPO_{}_PATH", prefix)),
+            Some(&"/tmp/worktrees/app".to_string())
+        );
+        assert_eq!(
+            env.get(&format!("VIBE_REPO_{}_IS_PRIMARY", prefix)),
+            Some(&"1".to_string())
+        );
+        assert_eq!(
+            env.get("VIBE_PRIMARY_REPO_PATH"),
+            Some(&"/tmp/worktrees/app".to_string())
+        );
+        assert_eq!(env.get("VIBE_PRIMARY_REPO_ROOT"), Some(&String::new()));
+        assert_eq!(
+            env.get("VIBE_PRIMARY_REPO_BRANCH"),
+            Some(&"feature/app".to_string())
+        );
+    }
+
+    #[test]
+    fn compute_env_multiple_repositories() {
+        let project = make_project("Suite", "/tmp/suite");
+        let task_attempt =
+            make_task_attempt(Uuid::new_v4(), Some("/tmp/worktrees/suite"), "feature/main");
+
+        let primary_repo = make_repository(project.id, "Suite", "/tmp/suite", "", true);
+        let secondary_repo = make_repository(project.id, "Docs", "/tmp/suite", "docs", false);
+
+        let mut attempt_map = HashMap::new();
+        attempt_map.insert(
+            primary_repo.id,
+            make_attempt_repo(
+                task_attempt.id,
+                primary_repo.id,
+                Some("/tmp/worktrees/suite"),
+                Some("feature/main"),
+                true,
+            ),
+        );
+        attempt_map.insert(
+            secondary_repo.id,
+            make_attempt_repo(
+                task_attempt.id,
+                secondary_repo.id,
+                Some("/tmp/worktrees/docs"),
+                Some("docs-update"),
+                false,
+            ),
+        );
+
+        let env = compute_repository_env_map(
+            &task_attempt,
+            &project,
+            &[primary_repo.clone(), secondary_repo.clone()],
+            &attempt_map,
+        );
+
+        let primary_prefix = repo_env_prefix(&primary_repo);
+        let secondary_prefix = repo_env_prefix(&secondary_repo);
+        assert_eq!(env.get("VIBE_REPOSITORY_COUNT"), Some(&"2".to_string()));
+        assert_eq!(
+            env.get("VIBE_REPOSITORIES"),
+            Some(&format!("{},{}", primary_prefix, secondary_prefix))
+        );
+        assert_eq!(
+            env.get(&format!("VIBE_REPO_{}_PATH", secondary_prefix)),
+            Some(&"/tmp/worktrees/docs".to_string())
+        );
+        assert_eq!(env.get("VIBE_PRIMARY_REPO_PREFIX"), Some(&primary_prefix));
+        assert_eq!(
+            env.get("VIBE_PRIMARY_REPO_PATH"),
+            Some(&"/tmp/worktrees/suite".to_string())
+        );
+        assert_eq!(
+            env.get(&format!("VIBE_REPO_{}_BRANCH", secondary_prefix)),
+            Some(&"docs-update".to_string())
+        );
+    }
+}
+
 fn success_exit_status() -> std::process::ExitStatus {
     #[cfg(unix)]
     {
@@ -1008,8 +1364,16 @@ impl ContainerService for LocalContainerService {
             )))?;
         let current_dir = PathBuf::from(container_ref);
 
+        // Compute environment for executor processes
+        let repo_env = self.build_executor_env(task_attempt).await?;
+
+        let spawn_ctx = ExecutorSpawnContext {
+            current_dir: &current_dir,
+            env: Some(&repo_env),
+        };
+
         // Create the child and stream, add to execution tracker
-        let mut spawned = executor_action.spawn(&current_dir).await?;
+        let mut spawned = executor_action.spawn(&spawn_ctx).await?;
 
         self.track_child_msgs_in_store(execution_process.id, &mut spawned.child)
             .await;

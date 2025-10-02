@@ -1,6 +1,6 @@
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
-use std::{path::Path, process::Stdio, sync::Arc};
+use std::{collections::HashMap, path::Path, process::Stdio, sync::Arc};
 
 use async_trait::async_trait;
 use command_group::AsyncCommandGroup;
@@ -21,6 +21,7 @@ use workspace_utils::{
 
 use crate::{
     command::{CmdOverrides, CommandBuilder, apply_overrides},
+    env::apply_env,
     executors::{AppendPrompt, ExecutorError, SpawnedChild, StandardCodingAgentExecutor},
     logs::{
         ActionType, FileChange, NormalizedEntry, NormalizedEntryType, TodoItem, ToolStatus,
@@ -121,7 +122,12 @@ impl ClaudeCode {
 
 #[async_trait]
 impl StandardCodingAgentExecutor for ClaudeCode {
-    async fn spawn(&self, current_dir: &Path, prompt: &str) -> Result<SpawnedChild, ExecutorError> {
+    async fn spawn(
+        &self,
+        current_dir: &Path,
+        prompt: &str,
+        env: Option<&HashMap<String, String>>,
+    ) -> Result<SpawnedChild, ExecutorError> {
         let (shell_cmd, shell_arg) = get_shell_command();
         let command_builder = self.build_command_builder().await;
         let mut base_command = command_builder.build_initial();
@@ -146,6 +152,8 @@ impl StandardCodingAgentExecutor for ClaudeCode {
             .arg(shell_arg)
             .arg(&base_command);
 
+        apply_env(&mut command, env);
+
         let mut child = command.group_spawn()?;
 
         // Feed the prompt in, then close the pipe so Claude sees EOF
@@ -162,6 +170,7 @@ impl StandardCodingAgentExecutor for ClaudeCode {
         current_dir: &Path,
         prompt: &str,
         session_id: &str,
+        env: Option<&HashMap<String, String>>,
     ) -> Result<SpawnedChild, ExecutorError> {
         let (shell_cmd, shell_arg) = get_shell_command();
         let command_builder = self.build_command_builder().await;
@@ -191,6 +200,8 @@ impl StandardCodingAgentExecutor for ClaudeCode {
             .current_dir(current_dir)
             .arg(shell_arg)
             .arg(&base_command);
+
+        apply_env(&mut command, env);
 
         let mut child = command.group_spawn()?;
 

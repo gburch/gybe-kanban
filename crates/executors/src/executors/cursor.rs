@@ -1,5 +1,5 @@
 use core::str;
-use std::{path::Path, process::Stdio, sync::Arc, time::Duration};
+use std::{collections::HashMap, path::Path, process::Stdio, sync::Arc, time::Duration};
 
 use async_trait::async_trait;
 use command_group::AsyncCommandGroup;
@@ -20,6 +20,7 @@ use workspace_utils::{
 
 use crate::{
     command::{CmdOverrides, CommandBuilder, apply_overrides},
+    env::apply_env,
     executors::{AppendPrompt, ExecutorError, SpawnedChild, StandardCodingAgentExecutor},
     logs::{
         ActionType, FileChange, NormalizedEntry, NormalizedEntryType, TodoItem, ToolStatus,
@@ -61,7 +62,12 @@ impl Cursor {
 
 #[async_trait]
 impl StandardCodingAgentExecutor for Cursor {
-    async fn spawn(&self, current_dir: &Path, prompt: &str) -> Result<SpawnedChild, ExecutorError> {
+    async fn spawn(
+        &self,
+        current_dir: &Path,
+        prompt: &str,
+        env: Option<&HashMap<String, String>>,
+    ) -> Result<SpawnedChild, ExecutorError> {
         let (shell_cmd, shell_arg) = get_shell_command();
         let agent_cmd = self.build_command_builder().build_initial();
 
@@ -76,6 +82,8 @@ impl StandardCodingAgentExecutor for Cursor {
             .current_dir(current_dir)
             .arg(shell_arg)
             .arg(&agent_cmd);
+
+        apply_env(&mut command, env);
 
         let mut child = command.group_spawn()?;
 
@@ -92,6 +100,7 @@ impl StandardCodingAgentExecutor for Cursor {
         current_dir: &Path,
         prompt: &str,
         session_id: &str,
+        env: Option<&HashMap<String, String>>,
     ) -> Result<SpawnedChild, ExecutorError> {
         let (shell_cmd, shell_arg) = get_shell_command();
         let agent_cmd = self
@@ -109,6 +118,8 @@ impl StandardCodingAgentExecutor for Cursor {
             .current_dir(current_dir)
             .arg(shell_arg)
             .arg(&agent_cmd);
+
+        apply_env(&mut command, env);
 
         let mut child = command.group_spawn()?;
 

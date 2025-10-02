@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT  id                AS \"id!: Uuid\",\n                       task_id           AS \"task_id!: Uuid\",\n                       container_ref,\n                       branch,\n                       base_branch,\n                       executor AS \"executor!\",\n                       worktree_deleted  AS \"worktree_deleted!: bool\",\n                       setup_completed_at AS \"setup_completed_at: DateTime<Utc>\",\n                       created_at        AS \"created_at!: DateTime<Utc>\",\n                       updated_at        AS \"updated_at!: DateTime<Utc>\"\n               FROM    task_attempts\n               WHERE   rowid = $1",
+  "query": "SELECT id AS \"id!: Uuid\",\n                              task_id AS \"task_id!: Uuid\",\n                              container_ref,\n                              branch,\n                              target_branch,\n                              executor AS \"executor!\",\n                              worktree_deleted AS \"worktree_deleted!: bool\",\n                              setup_completed_at AS \"setup_completed_at: DateTime<Utc>\",\n                              created_at AS \"created_at!: DateTime<Utc>\",\n                              updated_at AS \"updated_at!: DateTime<Utc>\"\n                       FROM task_attempts\n                       ORDER BY created_at DESC",
   "describe": {
     "columns": [
       {
@@ -24,7 +24,7 @@
         "type_info": "Text"
       },
       {
-        "name": "base_branch",
+        "name": "target_branch",
         "ordinal": 4,
         "type_info": "Text"
       },
@@ -55,13 +55,13 @@
       }
     ],
     "parameters": {
-      "Right": 1
+      "Right": 0
     },
     "nullable": [
       true,
       false,
       true,
-      true,
+      false,
       false,
       true,
       false,
@@ -70,5 +70,5 @@
       false
     ]
   },
-  "hash": "a2a728b99b3bd2dfd2e7d9ce57c10e0b37f187025c1e5ac567ca4fbd43b9d9be"
+  "hash": "f8ace3ce8e2f0170a0e1646656c308e89a2ff964beda07a785d2be4cd95d173b"
 }

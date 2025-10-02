@@ -1,4 +1,4 @@
-use std::{path::Path, sync::Arc};
+use std::{collections::HashMap, path::Path, sync::Arc};
 
 use async_trait::async_trait;
 use schemars::JsonSchema;
@@ -38,12 +38,17 @@ impl QwenCode {
 
 #[async_trait]
 impl StandardCodingAgentExecutor for QwenCode {
-    async fn spawn(&self, current_dir: &Path, prompt: &str) -> Result<SpawnedChild, ExecutorError> {
+    async fn spawn(
+        &self,
+        current_dir: &Path,
+        prompt: &str,
+        env: Option<&HashMap<String, String>>,
+    ) -> Result<SpawnedChild, ExecutorError> {
         let qwen_command = self.build_command_builder().build_initial();
         let combined_prompt = self.append_prompt.combine_prompt(prompt);
         let harness = AcpAgentHarness::with_session_namespace("qwen_sessions");
         harness
-            .spawn_with_command(current_dir, combined_prompt, qwen_command)
+            .spawn_with_command(current_dir, combined_prompt, qwen_command, env)
             .await
     }
 
@@ -52,12 +57,19 @@ impl StandardCodingAgentExecutor for QwenCode {
         current_dir: &Path,
         prompt: &str,
         session_id: &str,
+        env: Option<&HashMap<String, String>>,
     ) -> Result<SpawnedChild, ExecutorError> {
         let qwen_command = self.build_command_builder().build_follow_up(&[]);
         let combined_prompt = self.append_prompt.combine_prompt(prompt);
         let harness = AcpAgentHarness::with_session_namespace("qwen_sessions");
         harness
-            .spawn_follow_up_with_command(current_dir, combined_prompt, session_id, qwen_command)
+            .spawn_follow_up_with_command(
+                current_dir,
+                combined_prompt,
+                session_id,
+                qwen_command,
+                env,
+            )
             .await
     }
 

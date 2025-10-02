@@ -1,6 +1,7 @@
 mod share_bridge;
 
 use std::{
+    collections::HashMap,
     path::{Path, PathBuf},
     process::Stdio,
     sync::Arc,
@@ -20,6 +21,7 @@ use workspace_utils::{msg_store::MsgStore, path::make_path_relative, shell::get_
 
 use crate::{
     command::{CmdOverrides, CommandBuilder, apply_overrides},
+    env::apply_env,
     executors::{
         AppendPrompt, ExecutorError, SpawnedChild, StandardCodingAgentExecutor,
         opencode::share_bridge::Bridge as ShareBridge,
@@ -128,7 +130,12 @@ impl Opencode {
 
 #[async_trait]
 impl StandardCodingAgentExecutor for Opencode {
-    async fn spawn(&self, current_dir: &Path, prompt: &str) -> Result<SpawnedChild, ExecutorError> {
+    async fn spawn(
+        &self,
+        current_dir: &Path,
+        prompt: &str,
+        env: Option<&HashMap<String, String>>,
+    ) -> Result<SpawnedChild, ExecutorError> {
         // Start a dedicated local share bridge bound to this opencode process
         let bridge = ShareBridge::start().await.map_err(ExecutorError::Io)?;
         let (shell_cmd, shell_arg) = get_shell_command();
@@ -148,6 +155,8 @@ impl StandardCodingAgentExecutor for Opencode {
             .env("NODE_NO_WARNINGS", "1")
             .env("OPENCODE_AUTO_SHARE", "1")
             .env("OPENCODE_API", bridge.base_url.clone());
+
+        apply_env(&mut command, env);
 
         let mut child = match command.group_spawn() {
             Ok(c) => c,
@@ -193,6 +202,7 @@ impl StandardCodingAgentExecutor for Opencode {
         current_dir: &Path,
         prompt: &str,
         session_id: &str,
+        env: Option<&HashMap<String, String>>,
     ) -> Result<SpawnedChild, ExecutorError> {
         // Start a dedicated local share bridge bound to this opencode process
         let bridge = ShareBridge::start().await.map_err(ExecutorError::Io)?;
@@ -215,6 +225,8 @@ impl StandardCodingAgentExecutor for Opencode {
             .env("NODE_NO_WARNINGS", "1")
             .env("OPENCODE_AUTO_SHARE", "1")
             .env("OPENCODE_API", bridge.base_url.clone());
+
+        apply_env(&mut command, env);
 
         let mut child = match command.group_spawn() {
             Ok(c) => c,
