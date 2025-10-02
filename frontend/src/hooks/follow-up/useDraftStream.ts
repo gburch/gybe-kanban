@@ -52,6 +52,7 @@ function useDraftsStreamState(projectId?: string): Drafts | undefined {
 
   const { data } = useQuery<DraftsContainer | undefined>({
     queryKey,
+    queryFn: () => initialData(), // No-op since data is managed via WebSocket
     enabled: isStreamEnabled,
     staleTime: Infinity,
     gcTime: 0,
