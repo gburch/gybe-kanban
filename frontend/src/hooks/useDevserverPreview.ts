@@ -33,12 +33,6 @@ export function useDevserverPreview(
     scheme: 'http',
   });
 
-  // Ref to track state for stable callbacks
-  const stateRef = useRef(state);
-  useEffect(() => {
-    stateRef.current = state;
-  }, [state]);
-
   const streamRef = useRef<(() => void) | null>(null);
   const streamTokenRef = useRef(0);
   const lastProcessedIndexRef = useRef(0);
@@ -127,32 +121,40 @@ export function useDevserverPreview(
       // Ignore if this is from a stale stream
       if (currentToken !== streamTokenRef.current) return;
 
-      // Use ref instead of state deps to avoid dependency churn
-      const currentState = stateRef.current;
-      if (currentState.status === 'ready' && currentState.url) return;
+      let latestMatch: ReturnType<typeof extractUrlFromLine> | null = null;
 
-      // Process all pending entries
+      // Process all pending entries and keep the last detected URL
       for (const entry of pendingEntriesRef.current) {
         const urlInfo = extractUrlFromLine(entry.content);
         if (urlInfo) {
-          setState((prev) => {
-            // Only update if we don't already have a URL for this stream
-            if (prev.status === 'ready' && prev.url) return prev;
-
-            return {
-              status: 'ready',
-              url: urlInfo.url,
-              port: urlInfo.port,
-              scheme: urlInfo.scheme,
-            };
-          });
-
-          break; // Stop after finding first URL
+          latestMatch = urlInfo;
         }
       }
 
-      // Clear processed entries
+      // Clear processed entries regardless of detection outcome
       pendingEntriesRef.current = [];
+
+      if (!latestMatch) {
+        return;
+      }
+
+      setState((prev) => {
+        if (
+          prev.status === 'ready' &&
+          prev.url === latestMatch.url &&
+          prev.port === latestMatch.port &&
+          prev.scheme === latestMatch.scheme
+        ) {
+          return prev;
+        }
+
+        return {
+          status: 'ready',
+          url: latestMatch.url,
+          port: latestMatch.port,
+          scheme: latestMatch.scheme,
+        };
+      });
     },
     [extractUrlFromLine]
   );
