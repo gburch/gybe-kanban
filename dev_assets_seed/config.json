@@ -1,25 +1,39 @@
 {
-  "theme": "light",
-  "executor": {
-    "type": "claude"
+  "config_version": "v9",
+  "theme": "SYSTEM",
+  "executor_profile": {
+    "executor": "CLAUDE_CODE"
   },
-  "disclaimer_acknowledged": true,
-  "onboarding_acknowledged": true,
-  "sound_alerts": true,
-  "sound_file": "abstract-sound4",
-  "push_notifications": true,
+  "disclaimer_acknowledged": false,
+  "onboarding_acknowledged": false,
+  "github_login_acknowledged": false,
+  "telemetry_acknowledged": false,
+  "notifications": {
+    "sound_enabled": true,
+    "push_enabled": true,
+    "sound_file": "COW_MOOING"
+  },
   "editor": {
     "editor_type": "VS_CODE",
     "custom_command": null
   },
   "github": {
-    "token": "",
+    "pat": null,
+    "oauth_token": null,
+    "username": null,
+    "primary_email": null,
     "default_pr_base": "main",
     "branch_prefix": "vk/",
     "merge_commit_message_suffix": "(vibe-kanban {short_id})"
   },
+  "analytics_enabled": null,
+  "workspace_dir": null,
+  "last_app_version": "0.0.101",
+  "show_release_notes": false,
+  "language": "BROWSER",
   "activity_feed": {
     "enabled": true,
     "window_days": 21
-  }
+  },
+  "claude_plan": "free"
 }
