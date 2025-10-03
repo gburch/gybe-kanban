@@ -221,7 +221,7 @@ function stripHeavyProps(payload: OpenInEditorPayload): OpenInEditorPayload {
     props: pruneValue(payload.selected.props, 2) as Record<string, unknown>,
   };
 
-  const shallowComponents = payload.components.map((c) => ({
+  const shallowComponents = (payload.components ?? []).map((c) => ({
     ...c,
     props: pruneValue(c.props, 2) as Record<string, unknown>,
   }));

@@ -31,7 +31,7 @@ export interface Coordinates {
 
 export interface OpenInEditorPayload {
   selected: SelectedComponent;
-  components: ComponentInfo[];
+  components?: ComponentInfo[];
   trigger: 'alt-click' | 'context-menu';
   coords?: Coordinates;
   clickedElement?: ClickedElement;
