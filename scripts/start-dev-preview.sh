@@ -225,9 +225,6 @@ forward_logs() {
   local raw_line
   local url
   while IFS= read -r raw_line; do
-    local display_line
-    display_line="$(sanitize_backend_urls "${raw_line}")"
-    printf '%s\n' "${display_line}"
     if [[ ${printed} -eq 0 ]]; then
       local stripped
       stripped="$(printf '%s' "${raw_line}" | strip_ansi)"

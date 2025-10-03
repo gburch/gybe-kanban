@@ -18,7 +18,12 @@ use db::models::{
     merge::{Merge, MergeStatus, PrMerge, PullRequestInfo},
     project::{Project, ProjectError},
     task::{Task, TaskRelationships, TaskStatus},
-    task_attempt::{CreateTaskAttempt, TaskAttempt, TaskAttemptError},
+    task_attempt::{
+        CreateTaskAttempt,
+        CreateTaskAttemptRepository,
+        TaskAttempt,
+        TaskAttemptError,
+    },
 };
 use deployment::Deployment;
 use executors::{
@@ -129,11 +134,20 @@ pub async fn get_task_attempt(
 }
 
 #[derive(Debug, Deserialize, ts_rs::TS)]
+pub struct CreateTaskAttemptRepositoryBody {
+    pub project_repository_id: Uuid,
+    #[serde(default)]
+    pub is_primary: bool,
+}
+
+#[derive(Debug, Deserialize, ts_rs::TS)]
 pub struct CreateTaskAttemptBody {
     pub task_id: Uuid,
     /// Executor profile specification
     pub executor_profile_id: ExecutorProfileId,
     pub base_branch: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repositories: Option<Vec<CreateTaskAttemptRepositoryBody>>,
 }
 
 impl CreateTaskAttemptBody {
@@ -158,13 +172,26 @@ pub async fn create_task_attempt(
         .container()
         .git_branch_from_task_attempt(&attempt_id, &task.title);
 
+    let repository_selection = payload.repositories.as_ref().map(|repos| {
+        repos
+            .iter()
+            .map(|repo| CreateTaskAttemptRepository {
+                project_repository_id: repo.project_repository_id,
+                is_primary: repo.is_primary,
+            })
+            .collect::<Vec<_>>()
+    });
+
+    let create_request = CreateTaskAttempt {
+        executor: executor_profile_id.executor,
+        base_branch: payload.base_branch.clone(),
+        branch: git_branch_name.clone(),
+        repositories: repository_selection,
+    };
+
     let task_attempt = TaskAttempt::create(
         &deployment.db().pool,
-        &CreateTaskAttempt {
-            executor: executor_profile_id.executor,
-            base_branch: payload.base_branch.clone(),
-            branch: git_branch_name.clone(),
-        },
+        &create_request,
         attempt_id,
         payload.task_id,
     )
@@ -508,25 +535,37 @@ async fn handle_task_attempt_diff_ws(
     use futures_util::{SinkExt, StreamExt, TryStreamExt};
     use utils::log_msg::LogMsg;
 
-    let mut stream = deployment
+    let stream = deployment
         .container()
         .stream_diff(&task_attempt, stats_only, repo_id)
-        .await?
-        .map_ok(|msg: LogMsg| msg.to_ws_message_unchecked());
+        .await?;
+
+    let mut stream = stream.map_ok(|msg: LogMsg| msg.to_ws_message_unchecked());
 
     let (mut sender, mut receiver) = socket.split();
-    tokio::spawn(async move { while let Some(Ok(_)) = receiver.next().await {} });
 
-    while let Some(item) = stream.next().await {
-        match item {
-            Ok(msg) => {
-                if sender.send(msg).await.is_err() {
-                    break;
+    loop {
+        tokio::select! {
+            // Wait for next stream item
+            item = stream.next() => {
+                match item {
+                    Some(Ok(msg)) => {
+                        if sender.send(msg).await.is_err() {
+                            break;
+                        }
+                    }
+                    Some(Err(e)) => {
+                        tracing::error!("stream error: {}", e);
+                        break;
+                    }
+                    None => break,
                 }
             }
-            Err(e) => {
-                tracing::error!("stream error: {}", e);
-                break;
+            // Detect client disconnection
+            msg = receiver.next() => {
+                if msg.is_none() {
+                    break;
+                }
             }
         }
     }

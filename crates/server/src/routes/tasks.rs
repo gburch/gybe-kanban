@@ -15,7 +15,7 @@ use axum::{
 use db::models::{
     image::TaskImage,
     task::{CreateTask, Task, TaskWithAttemptStatus, UpdateTask},
-    task_attempt::{CreateTaskAttempt, TaskAttempt},
+    task_attempt::{CreateTaskAttempt, CreateTaskAttemptRepository, TaskAttempt},
 };
 use deployment::Deployment;
 use executors::profile::ExecutorProfileId;
@@ -29,7 +29,12 @@ use ts_rs::TS;
 use utils::response::ApiResponse;
 use uuid::Uuid;
 
-use crate::{DeploymentImpl, error::ApiError, middleware::load_task_middleware};
+use crate::{
+    DeploymentImpl,
+    error::ApiError,
+    middleware::load_task_middleware,
+    routes::task_attempts::CreateTaskAttemptRepositoryBody,
+};
 
 #[derive(Debug, Deserialize)]
 pub struct TaskQuery {
@@ -139,6 +144,8 @@ pub struct CreateAndStartTaskRequest {
     pub task: CreateTask,
     pub executor_profile_id: ExecutorProfileId,
     pub base_branch: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repositories: Option<Vec<CreateTaskAttemptRepositoryBody>>,
 }
 
 pub async fn create_task_and_start(
@@ -168,13 +175,26 @@ pub async fn create_task_and_start(
         .container()
         .git_branch_from_task_attempt(&attempt_id, &task.title);
 
+    let repository_selection = payload.repositories.as_ref().map(|repos| {
+        repos
+            .iter()
+            .map(|repo| CreateTaskAttemptRepository {
+                project_repository_id: repo.project_repository_id,
+                is_primary: repo.is_primary,
+            })
+            .collect::<Vec<_>>()
+    });
+
+    let create_request = CreateTaskAttempt {
+        executor: payload.executor_profile_id.executor,
+        base_branch: payload.base_branch.clone(),
+        branch: git_branch_name.clone(),
+        repositories: repository_selection,
+    };
+
     let task_attempt = TaskAttempt::create(
         &deployment.db().pool,
-        &CreateTaskAttempt {
-            executor: payload.executor_profile_id.executor,
-            base_branch: payload.base_branch,
-            branch: git_branch_name,
-        },
+        &create_request,
         attempt_id,
         task.id,
     )

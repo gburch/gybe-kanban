@@ -1,7 +1,9 @@
+use std::collections::HashSet;
+
 use chrono::{DateTime, Utc};
 use executors::executors::BaseCodingAgent;
 use serde::{Deserialize, Serialize};
-use sqlx::{FromRow, SqlitePool, Type};
+use sqlx::{FromRow, Sqlite, SqlitePool, Transaction, Type};
 use thiserror::Error;
 use ts_rs::TS;
 use uuid::Uuid;
@@ -79,11 +81,20 @@ pub struct TaskAttemptContext {
     pub project: Project,
 }
 
-#[derive(Debug, Deserialize, TS)]
+#[derive(Debug, Clone, Deserialize, TS)]
+pub struct CreateTaskAttemptRepository {
+    pub project_repository_id: Uuid,
+    #[serde(default)]
+    pub is_primary: bool,
+}
+
+#[derive(Debug, Clone, Deserialize, TS)]
 pub struct CreateTaskAttempt {
     pub executor: BaseCodingAgent,
     pub base_branch: String,
     pub branch: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repositories: Option<Vec<CreateTaskAttemptRepository>>,
 }
 
 impl TaskAttempt {
@@ -368,24 +379,158 @@ impl TaskAttempt {
         id: Uuid,
         task_id: Uuid,
     ) -> Result<Self, TaskAttemptError> {
-        // let prefixed_id = format!("vibe-kanban-{}", attempt_id);
-        // Insert the record into the database
-        Ok(sqlx::query_as!(
+        let mut tx: Transaction<'_, Sqlite> = pool.begin().await?;
+
+        let project_row = sqlx::query!(
+            r#"SELECT project_id as "project_id!: Uuid" FROM tasks WHERE id = $1"#,
+            task_id
+        )
+        .fetch_one(&mut *tx)
+        .await?;
+        let project_id = project_row.project_id;
+
+        let repository_rows = sqlx::query!(
+            r#"SELECT id as "id!: Uuid", is_primary as "is_primary!: bool"
+               FROM project_repositories
+               WHERE project_id = $1"#,
+            project_id
+        )
+        .fetch_all(&mut *tx)
+        .await?;
+
+        if repository_rows.is_empty() {
+            return Err(TaskAttemptError::ValidationError(
+                "Project must have at least one repository".to_string(),
+            ));
+        }
+
+        let mut assignments: Vec<(Uuid, bool)> = if let Some(custom) = &data.repositories {
+            if custom.is_empty() {
+                return Err(TaskAttemptError::ValidationError(
+                    "At least one repository must be selected".to_string(),
+                ));
+            }
+
+            let valid_ids: HashSet<Uuid> = repository_rows.iter().map(|row| row.id).collect();
+            let mut seen = HashSet::new();
+            let mut result = Vec::with_capacity(custom.len());
+            let mut explicit_primary = false;
+
+            for entry in custom {
+                if !valid_ids.contains(&entry.project_repository_id) {
+                    return Err(TaskAttemptError::ValidationError(
+                        "Selected repository does not belong to project".to_string(),
+                    ));
+                }
+
+                if !seen.insert(entry.project_repository_id) {
+                    return Err(TaskAttemptError::ValidationError(
+                        "Duplicate repository selection".to_string(),
+                    ));
+                }
+
+                if entry.is_primary {
+                    explicit_primary = true;
+                }
+
+                result.push((entry.project_repository_id, entry.is_primary));
+            }
+
+            if !explicit_primary {
+                let fallback = repository_rows
+                    .iter()
+                    .find(|row| row.is_primary)
+                    .or_else(|| repository_rows.first())
+                    .map(|row| row.id)
+                    .ok_or_else(|| {
+                        TaskAttemptError::ValidationError(
+                            "Project must define a primary repository".to_string(),
+                        )
+                    })?;
+
+                if let Some(entry) = result.iter_mut().find(|(repo_id, _)| *repo_id == fallback) {
+                    entry.1 = true;
+                } else {
+                    result.push((fallback, true));
+                }
+            }
+
+            result
+        } else {
+            repository_rows
+                .iter()
+                .map(|row| (row.id, row.is_primary))
+                .collect()
+        };
+
+        let primary_count = assignments
+            .iter()
+            .filter(|(_, is_primary)| *is_primary)
+            .count();
+
+        if primary_count == 0 {
+            if let Some(first) = assignments.first_mut() {
+                first.1 = true;
+            }
+        } else if primary_count > 1 {
+            return Err(TaskAttemptError::ValidationError(
+                "Exactly one repository must be marked as primary".to_string(),
+            ));
+        }
+
+        if assignments
+            .iter()
+            .filter(|(_, is_primary)| *is_primary)
+            .count()
+            != 1
+        {
+            return Err(TaskAttemptError::ValidationError(
+                "Exactly one repository must be marked as primary".to_string(),
+            ));
+        }
+
+        let branch = &data.branch;
+        let base_branch = &data.base_branch;
+
+        let attempt = sqlx::query_as!(
             TaskAttempt,
             r#"INSERT INTO task_attempts (id, task_id, container_ref, branch, target_branch, executor, worktree_deleted, setup_completed_at)
                VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
                RETURNING id as "id!: Uuid", task_id as "task_id!: Uuid", container_ref, branch, target_branch, executor as "executor!",  worktree_deleted as "worktree_deleted!: bool", setup_completed_at as "setup_completed_at: DateTime<Utc>", created_at as "created_at!: DateTime<Utc>", updated_at as "updated_at!: DateTime<Utc>""#,
             id,
             task_id,
-            Option::<String>::None, // Container isn't known yet
-            data.branch,
-            data.base_branch, // Target branch is same as base branch during creation
+            Option::<String>::None,
+            branch,
+            base_branch,
             data.executor,
-            false, // worktree_deleted is false during creation
-            Option::<DateTime<Utc>>::None // setup_completed_at is None during creation
+            false,
+            Option::<DateTime<Utc>>::None
         )
-        .fetch_one(pool)
-        .await?)
+        .fetch_one(&mut *tx)
+        .await?;
+
+        for (repo_id, is_primary) in assignments {
+            let entry_id = Uuid::new_v4();
+            sqlx::query!(
+                r#"INSERT INTO task_attempt_repositories (
+                        id,
+                        task_attempt_id,
+                        project_repository_id,
+                        is_primary
+                    )
+                    VALUES ($1, $2, $3, $4)"#,
+                entry_id,
+                attempt.id,
+                repo_id,
+                is_primary
+            )
+            .execute(&mut *tx)
+            .await?;
+        }
+
+        tx.commit().await?;
+
+        Ok(attempt)
     }
 
     pub async fn update_target_branch(
