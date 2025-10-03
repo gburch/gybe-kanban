@@ -1389,9 +1389,15 @@ impl ContainerService for LocalContainerService {
     }
 
     fn git_branch_from_task_attempt(&self, attempt_id: &Uuid, task_title: &str) -> String {
-        let prefix = {
-            let config = self.config.blocking_read();
-            config.github.resolved_branch_prefix()
+        let prefix = match tokio::runtime::Handle::try_current() {
+            Ok(_) => tokio::task::block_in_place(|| {
+                let config = self.config.blocking_read();
+                config.github.resolved_branch_prefix()
+            }),
+            Err(_) => {
+                let config = self.config.blocking_read();
+                config.github.resolved_branch_prefix()
+            }
         };
 
         git_branch_name_with_prefix(&prefix, attempt_id, task_title)
