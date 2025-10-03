@@ -1,5 +1,6 @@
 import { SplitSide } from '@git-diff-view/react';
 import { createContext, useContext, useState, ReactNode } from 'react';
+import { randomId } from '@/utils/randomId';
 
 export interface ReviewComment {
   id: string;
@@ -46,7 +47,7 @@ export function ReviewProvider({ children }: { children: ReactNode }) {
   const addComment = (comment: Omit<ReviewComment, 'id'>) => {
     const newComment: ReviewComment = {
       ...comment,
-      id: crypto.randomUUID(),
+      id: randomId(),
     };
     setComments((prev) => [...prev, newComment]);
   };

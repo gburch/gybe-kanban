@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { ProjectActivityFeed } from '../ProjectActivityFeed';
 import { useActivityFeedStore } from '@/stores/activityFeedStore';
 import type { ActivityFeedEvent } from '@/lib/api';
+import { randomId } from '@/utils/randomId';
 
 const mockUseActivityFeed = vi.fn();
 
@@ -62,7 +63,7 @@ const resetStore = () => {
 };
 
 const stubEvent = (overrides: Partial<ActivityFeedEvent> = {}): ActivityFeedEvent => ({
-  id: overrides.id ?? crypto.randomUUID(),
+  id: overrides.id ?? randomId(),
   headline: overrides.headline ?? 'New deployment ready',
   summary: overrides.summary ?? 'Deployment completed successfully',
   cta: overrides.cta ?? { label: 'View', href: '/deployments/1' },

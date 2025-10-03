@@ -189,6 +189,14 @@ function MarkdownRenderer({
     []
   );
 
+  const markdownOptions = useMemo(
+    () => ({
+      overrides,
+      disableParsingRawHTML: true,
+    }),
+    [overrides]
+  );
+
   const [copied, setCopied] = useState(false);
   const handleCopy = useCallback(async () => {
     try {
@@ -244,7 +252,7 @@ function MarkdownRenderer({
         </div>
       )}
       <div className={className}>
-        <Markdown options={{ overrides }}>{content}</Markdown>
+        <Markdown options={markdownOptions}>{content}</Markdown>
       </div>
     </div>
   );
