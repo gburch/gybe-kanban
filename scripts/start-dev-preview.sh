@@ -96,7 +96,11 @@ normalize_url() {
 extract_url() {
   local line="${1}"
 
-  if [[ "${line}" =~ (Server|Preview|Local)[[:space:]]*:[[:space:]]*(https?://[^[:space:]]+) ]]; then
+  if [[ "${line}" =~ Server[[:space:]]+running ]]; then
+    return 1
+  fi
+
+  if [[ "${line}" =~ (Local|Preview|Network)[[:space:]]*:[[:space:]]*(https?://[^[:space:]]+) ]]; then
     normalize_url "${BASH_REMATCH[2]}"
     return 0
   fi
