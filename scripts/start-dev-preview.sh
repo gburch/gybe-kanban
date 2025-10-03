@@ -175,6 +175,29 @@ rewrite_preview_url() {
   printf '%s://%s%s%s\n' "${scheme}" "${output_host}" "${port_segment}" "${path}"
 }
 
+sanitize_backend_urls() {
+  local line="${1}"
+  local sanitized="${line}"
+
+  if [[ "${sanitized}" == *"server:"* && "${sanitized}" == *"http://"* ]]; then
+    sanitized="${sanitized//http:\/\/0.0.0.0:/http:\/\/backend.local:}"
+    sanitized="${sanitized//http:\/\/127.0.0.1:/http:\/\/backend.local:}"
+    sanitized="${sanitized//http:\/\/localhost:/http:\/\/backend.local:}"
+    sanitized="${sanitized//0.0.0.0:/backend.local:}"
+    sanitized="${sanitized//127.0.0.1:/backend.local:}"
+    sanitized="${sanitized//localhost:/backend.local:}"
+  elif [[ "${sanitized}" == *"Server running on http://"* ]]; then
+    sanitized="${sanitized//http:\/\/0.0.0.0:/http:\/\/backend.local:}"
+    sanitized="${sanitized//http:\/\/127.0.0.1:/http:\/\/backend.local:}"
+    sanitized="${sanitized//http:\/\/localhost:/http:\/\/backend.local:}"
+    sanitized="${sanitized//0.0.0.0:/backend.local:}"
+    sanitized="${sanitized//127.0.0.1:/backend.local:}"
+    sanitized="${sanitized//localhost:/backend.local:}"
+  fi
+
+  printf '%s\n' "${sanitized}"
+}
+
 extract_url() {
   local line="${1}"
 
@@ -195,7 +218,9 @@ forward_logs() {
   local raw_line
   local url
   while IFS= read -r raw_line; do
-    printf '%s\n' "${raw_line}"
+    local display_line
+    display_line="$(sanitize_backend_urls "${raw_line}")"
+    printf '%s\n' "${display_line}"
     if [[ ${printed} -eq 0 ]]; then
       local stripped
       stripped="$(printf '%s' "${raw_line}" | strip_ansi)"
