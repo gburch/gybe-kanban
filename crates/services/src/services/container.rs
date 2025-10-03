@@ -33,14 +33,11 @@ use futures::{StreamExt, future};
 use sqlx::Error as SqlxError;
 use thiserror::Error;
 use tokio::{sync::RwLock, task::JoinHandle};
-use utils::{
-    log_msg::LogMsg,
-    msg_store::MsgStore,
-    text::{git_branch_id, short_uuid},
-};
+use utils::{log_msg::LogMsg, msg_store::MsgStore, text::git_branch_name_with_prefix};
 use uuid::Uuid;
 
 use crate::services::{
+    config::GitHubConfig,
     git::{GitService, GitServiceError},
     image::ImageService,
     worktree_manager::{WorktreeError, WorktreeManager},
@@ -228,8 +225,7 @@ pub trait ContainerService {
     }
 
     fn git_branch_from_task_attempt(&self, attempt_id: &Uuid, task_title: &str) -> String {
-        let task_title_id = git_branch_id(task_title);
-        format!("vk/{}-{}", short_uuid(attempt_id), task_title_id)
+        git_branch_name_with_prefix(GitHubConfig::DEFAULT_BRANCH_PREFIX, attempt_id, task_title)
     }
 
     async fn stream_raw_logs(

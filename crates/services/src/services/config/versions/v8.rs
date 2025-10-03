@@ -67,6 +67,64 @@ impl Default for GitHubConfig {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn base_config() -> GitHubConfig {
+        GitHubConfig {
+            branch_prefix: None,
+            merge_commit_message_suffix: None,
+            ..GitHubConfig::default()
+        }
+    }
+
+    #[test]
+    fn resolved_branch_prefix_uses_default_when_missing() {
+        let config = base_config();
+
+        assert_eq!(
+            config.resolved_branch_prefix(),
+            GitHubConfig::DEFAULT_BRANCH_PREFIX
+        );
+    }
+
+    #[test]
+    fn resolved_branch_prefix_trims_and_preserves_empty() {
+        let mut config = base_config();
+        config.branch_prefix = Some("  ".into());
+
+        assert_eq!(config.resolved_branch_prefix(), "");
+
+        config.branch_prefix = Some(" greg ".into());
+        assert_eq!(config.resolved_branch_prefix(), "greg");
+    }
+
+    #[test]
+    fn format_merge_commit_suffix_substitutes_placeholders() {
+        let mut config = base_config();
+        config.merge_commit_message_suffix = Some("(gb {short_id} {TASK_ID})".into());
+
+        let formatted = config
+            .format_merge_commit_suffix("abcd", "1234-5678")
+            .expect("suffix should be Some");
+
+        assert_eq!(formatted, "(gb abcd 1234-5678)");
+    }
+
+    #[test]
+    fn format_merge_commit_suffix_returns_none_when_blank() {
+        let mut config = base_config();
+        config.merge_commit_message_suffix = Some("   ".into());
+
+        assert!(
+            config
+                .format_merge_commit_suffix("abcd", "1234-5678")
+                .is_none()
+        );
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
 pub struct ActivityFeedConfig {
     #[serde(default)]

@@ -49,3 +49,26 @@ pub fn git_branch_name_with_prefix(
         format!("{}{}-{}", normalized_prefix, short_id, task_title_id)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn attempt_id() -> Uuid {
+        Uuid::parse_str("12345678-1234-1234-1234-123456789abc").unwrap()
+    }
+
+    #[test]
+    fn adds_separator_when_prefix_missing_one() {
+        let branch = git_branch_name_with_prefix("greg", &attempt_id(), "My Feature!");
+
+        assert_eq!(branch, "greg/1234-my-feature");
+    }
+
+    #[test]
+    fn omits_prefix_when_empty_after_trim() {
+        let branch = git_branch_name_with_prefix("   ", &attempt_id(), "My Feature!");
+
+        assert_eq!(branch, "1234-my-feature");
+    }
+}

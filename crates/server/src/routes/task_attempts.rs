@@ -613,8 +613,27 @@ pub async fn merge_task_attempt(
     let task_uuid_str = task.id.to_string();
     let first_uuid_section = task_uuid_str.split('-').next().unwrap_or(&task_uuid_str);
 
-    // Create commit message with task title and description
-    let mut commit_message = format!("{} (vibe-kanban {})", ctx.task.title, first_uuid_section);
+    let merge_suffix = {
+        let config = deployment.config().read().await;
+        config
+            .github
+            .format_merge_commit_suffix(first_uuid_section, &task_uuid_str)
+    };
+
+    // Create commit message with task title and optional suffix from settings
+    let mut commit_message = ctx.task.title.clone();
+    if let Some(suffix) = merge_suffix {
+        let needs_separator = suffix
+            .chars()
+            .next()
+            .map(|c| !c.is_whitespace())
+            .unwrap_or(true);
+
+        if needs_separator {
+            commit_message.push(' ');
+        }
+        commit_message.push_str(&suffix);
+    }
 
     // Add description on next line if it exists
     if let Some(description) = &ctx.task.description

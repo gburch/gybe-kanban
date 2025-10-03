@@ -60,7 +60,7 @@ use utils::{
     diff::Diff,
     log_msg::LogMsg,
     msg_store::MsgStore,
-    text::{git_branch_id, short_uuid},
+    text::{git_branch_id, git_branch_name_with_prefix, short_uuid},
 };
 use uuid::Uuid;
 
@@ -1386,6 +1386,15 @@ impl ContainerService for LocalContainerService {
 
     fn git(&self) -> &GitService {
         &self.git
+    }
+
+    fn git_branch_from_task_attempt(&self, attempt_id: &Uuid, task_title: &str) -> String {
+        let prefix = {
+            let config = self.config.blocking_read();
+            config.github.resolved_branch_prefix()
+        };
+
+        git_branch_name_with_prefix(&prefix, attempt_id, task_title)
     }
 
     fn task_attempt_to_current_dir(&self, task_attempt: &TaskAttempt) -> PathBuf {
