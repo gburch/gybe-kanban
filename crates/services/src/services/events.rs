@@ -5,7 +5,7 @@ use db::{
     models::{
         draft::{Draft, DraftType},
         execution_process::ExecutionProcess,
-        task::Task,
+        task::{Task, TaskWithAttemptStatus},
         task_attempt::TaskAttempt,
     },
 };
@@ -248,28 +248,50 @@ impl EventService {
                             // Handle task-related operations with direct patches
                             match &record_type {
                                 RecordTypes::Task(task) => {
-                                    // Convert Task to TaskWithAttemptStatus
-                                    if let Ok(task_list) =
-                                        Task::find_by_project_id_with_attempt_status(
-                                            &db.pool,
-                                            task.project_id,
+                                    let fetched = Task::find_by_project_id_with_attempt_status(
+                                        &db.pool,
+                                        task.project_id,
+                                    )
+                                    .await
+                                    .ok()
+                                    .and_then(|task_list| {
+                                        task_list.into_iter().find(|t| t.id == task.id)
+                                    });
+
+                                    let (task_with_status, is_fallback) = if let Some(found) = fetched {
+                                        (found, false)
+                                    } else {
+                                        (
+                                            TaskWithAttemptStatus {
+                                                task: task.clone(),
+                                                has_in_progress_attempt: false,
+                                                has_running_dev_server: false,
+                                                has_merged_attempt: false,
+                                                last_attempt_failed: false,
+                                                executor: String::new(),
+                                            },
+                                            true,
                                         )
-                                        .await
-                                        && let Some(task_with_status) =
-                                            task_list.into_iter().find(|t| t.id == task.id)
-                                    {
-                                        let patch = match hook.operation {
-                                            SqliteOperation::Insert => {
-                                                task_patch::add(&task_with_status)
-                                            }
-                                            SqliteOperation::Update => {
-                                                task_patch::replace(&task_with_status)
-                                            }
-                                            _ => task_patch::replace(&task_with_status), // fallback
-                                        };
-                                        msg_store_for_hook.push_patch(patch);
-                                        return;
+                                    };
+
+                                    let patch = match hook.operation {
+                                        SqliteOperation::Insert => task_patch::add(&task_with_status),
+                                        SqliteOperation::Update => {
+                                            task_patch::replace(&task_with_status)
+                                        }
+                                        _ => task_patch::replace(&task_with_status), // fallback
+                                    };
+
+                                    if is_fallback {
+                                        tracing::debug!(
+                                            task_id = %task.id,
+                                            op = ?hook.operation,
+                                            "using fallback task patch for websocket stream"
+                                        );
                                     }
+
+                                    msg_store_for_hook.push_patch(patch);
+                                    return;
                                 }
                                 // Draft updates: emit direct patches used by the follow-up draft stream
                                 RecordTypes::Draft(draft) => {
