@@ -112,8 +112,10 @@ bash scripts/start-dev-preview.sh
 This helper script:
 - Temporarily writes `frontend/.env.local` with the current hostname and restores the previous file (if any) on exit.
 - Launches `npm run dev` so both backend (`cargo watch`) and frontend (Vite) stay active.
-- Streams the combined logs to stdout and, after Vite prints its local URL, emits a single `Server: http://127.0.0.1:<port>/` line that preview tooling can detect.
+- Streams the combined logs to stdout and, after Vite prints its local URL, emits a single `Server: <url>` line that preview tooling can detect.
 - Blocks until stopped (Ctrl+C), ensuring the dev server stays alive for the entire preview session.
+
+By default the script rewrites the reported preview URL to use your machine hostname so remote clients can reach it. To override the host, export `PREVIEW_OUTPUT_HOST=your.host.name` before running the script.
 
 Prerequisites: install dependencies with `pnpm i` in the repo root and ensure `cargo-watch` is available (`cargo install cargo-watch`).
 

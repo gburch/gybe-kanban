@@ -60,21 +60,50 @@ strip_ansi() {
   sed -E $'s/\x1B\[[0-9;]*[[:alpha:]]//g'
 }
 
-normalize_host() {
-  local host="${1}"
-  case "${host}" in
-    ""|0.0.0.0|127.0.0.1|localhost|::|::1|"[::]"|"[::1]")
-      printf '127.0.0.1'
+is_loopback_host() {
+  case "$1" in
+    ""|localhost|127.0.0.1|0.0.0.0|::|::1|"[::]"|"[::1]")
+      return 0
       ;;
     *)
-      if [[ "${host}" == \[*\] ]]; then
-        printf '%s' "${host:1:${#host}-2}"
-      else
-        printf '%s' "${host}"
-      fi
+      return 1
       ;;
   esac
 }
+
+normalize_host() {
+  local host="${1}"
+  if [[ "${host}" == \[*\] ]]; then
+    host="${host:1:${#host}-2}"
+  fi
+  if is_loopback_host "${host}"; then
+    printf '127.0.0.1'
+  else
+    printf '%s' "${host}"
+  fi
+}
+
+resolve_preview_host() {
+  local candidate
+  for candidate in \
+    "${PREVIEW_OUTPUT_HOST:-}" \
+    "${BACKEND_HOST:-}" \
+    "${HOST_SHORT:-}" \
+    "${HOST_LOWER:-}" \
+    "${HOST_RAW:-}"; do
+    if [[ -z "${candidate}" ]]; then
+      continue
+    fi
+    if is_loopback_host "${candidate}"; then
+      continue
+    fi
+    printf '%s\n' "${candidate}"
+    return
+  done
+  printf '127.0.0.1\n'
+}
+
+PREFERRED_PREVIEW_HOST="$(resolve_preview_host)"
 
 normalize_url() {
   local url="${1}"
@@ -91,6 +120,59 @@ normalize_url() {
     fi
   fi
   printf '%s\n' "${url}"
+}
+
+rewrite_preview_url() {
+  local url="${1}"
+  if [[ "${url}" != *://* ]]; then
+    printf '%s\n' "${url}"
+    return
+  fi
+
+  local scheme="${url%%://*}"
+  local rest="${url#${scheme}://}"
+  local hostport="${rest}"
+  local path="/"
+
+  if [[ "${rest}" == */* ]]; then
+    hostport="${rest%%/*}"
+    path="/${rest#*/}"
+  fi
+
+  local host="${hostport}"
+  local port=""
+
+  if [[ "${hostport}" == \[*\]* ]]; then
+    host="${hostport%%]*}"
+    host="${host#\[}"
+    local remainder="${hostport#*]}"
+    if [[ "${remainder}" == :* ]]; then
+      port="${remainder#:}"
+    fi
+  elif [[ "${hostport}" == *:* ]]; then
+    host="${hostport%%:*}"
+    port="${hostport##*:}"
+  fi
+
+  local output_host="${host}"
+  if is_loopback_host "${host}"; then
+    output_host="${PREFERRED_PREVIEW_HOST}"
+  fi
+
+  if [[ "${output_host}" == *:* && "${output_host}" != \[* && "${output_host}" != *\] ]]; then
+    output_host="[${output_host}]"
+  fi
+
+  local port_segment=""
+  if [[ -n "${port}" ]]; then
+    port_segment=":${port}"
+  fi
+
+  if [[ -z "${path}" ]]; then
+    path="/"
+  fi
+
+  printf '%s://%s%s%s\n' "${scheme}" "${output_host}" "${port_segment}" "${path}"
 }
 
 extract_url() {
@@ -131,6 +213,7 @@ forward_logs() {
       stripped="$(printf '%s' "${raw_line}" | strip_ansi)"
       url=""
       if url=$(extract_url "${stripped}"); then
+        url="$(rewrite_preview_url "${url}")"
         printf 'Server: %s\n' "${url}"
         printed=1
       fi
