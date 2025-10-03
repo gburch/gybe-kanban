@@ -225,6 +225,9 @@ pub async fn update_task(
     let parent_task_attempt = payload
         .parent_task_attempt
         .or(existing_task.parent_task_attempt);
+    let parent_task_id = payload
+        .parent_task_id
+        .or(existing_task.parent_task_id);
 
     let task = Task::update(
         &deployment.db().pool,
@@ -234,6 +237,7 @@ pub async fn update_task(
         description,
         status,
         parent_task_attempt,
+        parent_task_id,
     )
     .await?;
 
