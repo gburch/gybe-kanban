@@ -1306,40 +1306,56 @@ impl LocalContainerService {
             }
         }
 
-        if let Err(err) = WorktreeManager::ensure_worktree_exists(
-            &repo.git_repo_path,
-            &branch_to_use,
-            &worktree_path,
-        )
-        .await
-        {
-            match err {
-                WorktreeError::BranchNotFound(_) => {
-                    WorktreeManager::create_worktree(
-                        &repo.git_repo_path,
-                        &branch_to_use,
-                        &worktree_path,
-                        &base_branch_to_use,
-                        true,
-                    )
-                    .await?;
-                }
-                WorktreeError::GitCli(ref msg)
-                    if msg.contains("invalid reference") || msg.contains("unknown revision") =>
-                {
-                    WorktreeManager::create_worktree(
-                        &repo.git_repo_path,
-                        &branch_to_use,
-                        &worktree_path,
-                        &base_branch_to_use,
-                        true,
-                    )
-                    .await?;
-                }
-                other => {
-                    return Err(other.into());
+        let branch_exists = self
+            .git()
+            .branch_exists(&repo.git_repo_path, &branch_to_use)?;
+
+        if branch_exists {
+            if let Err(err) = WorktreeManager::ensure_worktree_exists(
+                &repo.git_repo_path,
+                &branch_to_use,
+                &worktree_path,
+            )
+            .await
+            {
+                match err {
+                    WorktreeError::BranchNotFound(_) => {
+                        WorktreeManager::create_worktree(
+                            &repo.git_repo_path,
+                            &branch_to_use,
+                            &worktree_path,
+                            &base_branch_to_use,
+                            true,
+                        )
+                        .await?;
+                    }
+                    WorktreeError::GitCli(ref msg)
+                        if msg.contains("invalid reference")
+                            || msg.contains("unknown revision") =>
+                    {
+                        WorktreeManager::create_worktree(
+                            &repo.git_repo_path,
+                            &branch_to_use,
+                            &worktree_path,
+                            &base_branch_to_use,
+                            true,
+                        )
+                        .await?;
+                    }
+                    other => {
+                        return Err(other.into());
+                    }
                 }
             }
+        } else {
+            WorktreeManager::create_worktree(
+                &repo.git_repo_path,
+                &branch_to_use,
+                &worktree_path,
+                &base_branch_to_use,
+                true,
+            )
+            .await?;
         }
 
         if entry_is_primary
