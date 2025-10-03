@@ -187,18 +187,6 @@ extract_url() {
     return 0
   fi
 
-  if [[ "${line}" =~ (https?://(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::\]|\[::1\]|::|::1|[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+)(?::[0-9]{2,5})?[^[:space:]]*) ]]; then
-    normalize_url "${BASH_REMATCH[1]}"
-    return 0
-  fi
-
-  if [[ "${line}" =~ (localhost|127\.0\.0\.1|0\.0\.0\.0|\[::\]|\[::1\]|::|::1):([0-9]{2,5}) ]]; then
-    local host="$(normalize_host "${BASH_REMATCH[1]}")"
-    local port="${BASH_REMATCH[2]}"
-    printf 'http://%s:%s\n' "${host}" "${port}"
-    return 0
-  fi
-
   return 1
 }
 
