@@ -80,6 +80,8 @@ export type GetMcpServerResponse = { mcp_config: McpConfig, config_path: string,
 
 export type CreateFollowUpAttempt = { prompt: string, variant: string | null, image_ids: Array<string> | null, retry_process_id: string | null, force_when_dirty: boolean | null, perform_git_reset: boolean | null, };
 
+export type CreateTaskAttemptRepositoryBody = { project_repository_id: string, is_primary: boolean, base_branch?: string | null, };
+
 export type DraftResponse = { task_attempt_id: string, draft_type: DraftType, retry_process_id: string | null, prompt: string, queued: boolean, variant: string | null, image_ids: Array<string> | null, version: bigint, };
 
 export type UpdateFollowUpDraftRequest = { prompt: string | null, variant: string | null | null, image_ids: Array<string> | null, version: bigint | null, };
@@ -90,7 +92,7 @@ export type ChangeTargetBranchRequest = { new_target_branch: string, };
 
 export type ChangeTargetBranchResponse = { new_target_branch: string, status: [number, number], };
 
-export type CreateAndStartTaskRequest = { task: CreateTask, executor_profile_id: ExecutorProfileId, base_branch: string, };
+export type CreateAndStartTaskRequest = { task: CreateTask, executor_profile_id: ExecutorProfileId, base_branch: string, repositories?: Array<CreateTaskAttemptRepositoryBody> | null, };
 
 export type CreateGitHubPrRequest = { title: string, body: string | null, target_branch: string | null, };
 
@@ -230,7 +232,7 @@ export type CreateTaskAttemptBody = { task_id: string,
 /**
  * Executor profile specification
  */
-executor_profile_id: ExecutorProfileId, base_branch: string, };
+executor_profile_id: ExecutorProfileId, base_branch: string, repositories?: Array<CreateTaskAttemptRepositoryBody> | null, };
 
 export type RebaseTaskAttemptRequest = { old_base_branch: string | null, new_base_branch: string | null, };
 

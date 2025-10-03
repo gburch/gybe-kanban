@@ -23,6 +23,7 @@ vi.mock('@/lib/api', () => ({
 describe('useProjectTasks', () => {
   const baseTask = (overrides: Partial<TaskWithAttemptStatus>): TaskWithAttemptStatus => ({
     has_in_progress_attempt: false,
+    has_running_dev_server: false,
     has_merged_attempt: false,
     last_attempt_failed: false,
     executor: 'agent',

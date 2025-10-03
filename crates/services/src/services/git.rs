@@ -1861,6 +1861,41 @@ impl GitService {
         self.fetch_from_remote(repo, github_token, &remote, &refspec)
     }
 
+    pub fn ensure_remote_branch(
+        &self,
+        repo_path: &Path,
+        remote_branch: &str,
+        github_token: Option<&str>,
+    ) -> Result<(), GitServiceError> {
+        let repo = Repository::open(repo_path)?;
+        if repo.find_branch(remote_branch, BranchType::Remote).is_ok() {
+            return Ok(());
+        }
+
+        let (remote_name, branch_path) = remote_branch
+            .split_once('/')
+            .ok_or_else(|| GitServiceError::BranchNotFound(remote_branch.to_string()))?;
+
+        let remote = repo.find_remote(remote_name)?;
+
+        if let Some(token) = github_token {
+            let refspec = format!(
+                "+refs/heads/{branch}:refs/remotes/{remote}/{branch}",
+                branch = branch_path,
+                remote = remote_name
+            );
+            self.fetch_from_remote(&repo, token, &remote, &refspec)?;
+        } else {
+            super::git_cli::GitCli::new().git(repo_path, ["fetch", remote_name, branch_path])?;
+        }
+
+        if repo.find_branch(remote_branch, BranchType::Remote).is_err() {
+            return Err(GitServiceError::BranchNotFound(remote_branch.to_string()));
+        }
+
+        Ok(())
+    }
+
     /// Fetch from remote repository using GitHub token authentication
     fn fetch_all_from_remote(
         &self,

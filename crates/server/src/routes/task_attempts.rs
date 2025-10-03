@@ -18,12 +18,7 @@ use db::models::{
     merge::{Merge, MergeStatus, PrMerge, PullRequestInfo},
     project::{Project, ProjectError},
     task::{Task, TaskRelationships, TaskStatus},
-    task_attempt::{
-        CreateTaskAttempt,
-        CreateTaskAttemptRepository,
-        TaskAttempt,
-        TaskAttemptError,
-    },
+    task_attempt::{CreateTaskAttempt, CreateTaskAttemptRepository, TaskAttempt, TaskAttemptError},
 };
 use deployment::Deployment;
 use executors::{
@@ -38,7 +33,7 @@ use git2::BranchType;
 use serde::{Deserialize, Serialize};
 use services::services::{
     container::ContainerService,
-    git::{ConflictOp, WorktreeResetOptions},
+    git::{ConflictOp, GitServiceError, WorktreeResetOptions},
     github_service::{CreatePrRequest, GitHubService, GitHubServiceError},
 };
 use sqlx::Error as SqlxError;
@@ -138,6 +133,8 @@ pub struct CreateTaskAttemptRepositoryBody {
     pub project_repository_id: Uuid,
     #[serde(default)]
     pub is_primary: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base_branch: Option<String>,
 }
 
 #[derive(Debug, Deserialize, ts_rs::TS)]
@@ -178,6 +175,12 @@ pub async fn create_task_attempt(
             .map(|repo| CreateTaskAttemptRepository {
                 project_repository_id: repo.project_repository_id,
                 is_primary: repo.is_primary,
+                base_branch: repo
+                    .base_branch
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .map(ToOwned::to_owned),
             })
             .collect::<Vec<_>>()
     });
@@ -985,9 +988,27 @@ pub async fn get_task_attempt_branch_status(
         }
     };
 
-    let target_branch_type = deployment
+    let target_branch_type = match deployment
         .git()
-        .find_branch_type(&ctx.project.git_repo_path, &task_attempt.target_branch)?;
+        .find_branch_type(&ctx.project.git_repo_path, &task_attempt.target_branch)
+    {
+        Ok(branch_type) => branch_type,
+        Err(GitServiceError::BranchNotFound(missing)) if missing.contains('/') => {
+            let github_token = {
+                let cfg = deployment.config().read().await;
+                cfg.github.token()
+            };
+            deployment.git().ensure_remote_branch(
+                &ctx.project.git_repo_path,
+                &missing,
+                github_token.as_deref(),
+            )?;
+            deployment
+                .git()
+                .find_branch_type(&ctx.project.git_repo_path, &task_attempt.target_branch)?
+        }
+        Err(err) => return Err(ApiError::GitService(err)),
+    };
 
     let (commits_ahead, commits_behind) = match target_branch_type {
         BranchType::Local => {

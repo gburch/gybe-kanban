@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE task_attempt_repositories\n                   SET branch = $1,\n                       base_branch = $2,\n                       is_primary = $3,\n                       updated_at = datetime('now', 'subsec')\n                   WHERE task_attempt_id = $4 AND project_repository_id = $5",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 5
+    },
+    "nullable": []
+  },
+  "hash": "2c4b4105e8338f6558c0c523fcd3bd94817e239dde804ff382e6fe486f215ed1"
+}

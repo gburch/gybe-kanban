@@ -30,9 +30,7 @@ use utils::response::ApiResponse;
 use uuid::Uuid;
 
 use crate::{
-    DeploymentImpl,
-    error::ApiError,
-    middleware::load_task_middleware,
+    DeploymentImpl, error::ApiError, middleware::load_task_middleware,
     routes::task_attempts::CreateTaskAttemptRepositoryBody,
 };
 
@@ -181,6 +179,12 @@ pub async fn create_task_and_start(
             .map(|repo| CreateTaskAttemptRepository {
                 project_repository_id: repo.project_repository_id,
                 is_primary: repo.is_primary,
+                base_branch: repo
+                    .base_branch
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .map(ToOwned::to_owned),
             })
             .collect::<Vec<_>>()
     });
@@ -192,13 +196,8 @@ pub async fn create_task_and_start(
         repositories: repository_selection,
     };
 
-    let task_attempt = TaskAttempt::create(
-        &deployment.db().pool,
-        &create_request,
-        attempt_id,
-        task.id,
-    )
-    .await?;
+    let task_attempt =
+        TaskAttempt::create(&deployment.db().pool, &create_request, attempt_id, task.id).await?;
     let execution_process = deployment
         .container()
         .start_attempt(&task_attempt, payload.executor_profile_id.clone())

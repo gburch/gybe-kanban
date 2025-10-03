@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT id as \"id!: Uuid\",\n                      task_attempt_id as \"task_attempt_id!: Uuid\",\n                      project_repository_id as \"project_repository_id!: Uuid\",\n                      is_primary as \"is_primary!: bool\",\n                      container_ref,\n                      branch,\n                      created_at as \"created_at!: DateTime<Utc>\",\n                      updated_at as \"updated_at!: DateTime<Utc>\"\n               FROM task_attempt_repositories\n               WHERE task_attempt_id = $1 AND is_primary = 1",
+  "query": "SELECT id as \"id!: Uuid\",\n                      task_attempt_id as \"task_attempt_id!: Uuid\",\n                      project_repository_id as \"project_repository_id!: Uuid\",\n                      is_primary as \"is_primary!: bool\",\n                      container_ref,\n                      branch,\n                      base_branch,\n                      created_at as \"created_at!: DateTime<Utc>\",\n                      updated_at as \"updated_at!: DateTime<Utc>\"\n               FROM task_attempt_repositories\n               WHERE task_attempt_id = $1\n               ORDER BY is_primary DESC, created_at ASC",
   "describe": {
     "columns": [
       {
@@ -34,13 +34,18 @@
         "type_info": "Text"
       },
       {
-        "name": "created_at!: DateTime<Utc>",
+        "name": "base_branch",
         "ordinal": 6,
         "type_info": "Text"
       },
       {
-        "name": "updated_at!: DateTime<Utc>",
+        "name": "created_at!: DateTime<Utc>",
         "ordinal": 7,
+        "type_info": "Text"
+      },
+      {
+        "name": "updated_at!: DateTime<Utc>",
+        "ordinal": 8,
         "type_info": "Text"
       }
     ],
@@ -54,9 +59,10 @@
       false,
       true,
       true,
+      true,
       false,
       false
     ]
   },
-  "hash": "c5e1684d7b1fb077c3208aeb5835ef1d8966b889c58069c39d25469037ce1e8b"
+  "hash": "11216aae333254aa105a51e30b23cdd6ded0af479236d9d95667dd4f42a4d215"
 }

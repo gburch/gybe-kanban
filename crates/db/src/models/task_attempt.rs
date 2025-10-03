@@ -86,6 +86,8 @@ pub struct CreateTaskAttemptRepository {
     pub project_repository_id: Uuid,
     #[serde(default)]
     pub is_primary: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base_branch: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, TS)]
@@ -404,54 +406,65 @@ impl TaskAttempt {
             ));
         }
 
-        let mut assignments: Vec<(Uuid, bool)> = if let Some(custom) = &data.repositories {
-            if custom.is_empty() {
-                return Err(TaskAttemptError::ValidationError(
-                    "At least one repository must be selected".to_string(),
-                ));
-            }
-
-            let valid_ids: HashSet<Uuid> = repository_rows.iter().map(|row| row.id).collect();
-            let mut seen = HashSet::new();
-            let mut result = Vec::with_capacity(custom.len());
-            let mut explicit_primary = false;
-
-            for entry in custom {
-                if !valid_ids.contains(&entry.project_repository_id) {
+        let mut assignments: Vec<(Uuid, bool, Option<String>)> =
+            if let Some(custom) = &data.repositories {
+                if custom.is_empty() {
                     return Err(TaskAttemptError::ValidationError(
-                        "Selected repository does not belong to project".to_string(),
+                        "At least one repository must be selected".to_string(),
                     ));
                 }
 
-                if !seen.insert(entry.project_repository_id) {
-                    return Err(TaskAttemptError::ValidationError(
-                        "Duplicate repository selection".to_string(),
-                    ));
+                let valid_ids: HashSet<Uuid> = repository_rows.iter().map(|row| row.id).collect();
+                let mut seen = HashSet::new();
+                let mut result = Vec::with_capacity(custom.len());
+                let mut explicit_primary = false;
+
+                for entry in custom {
+                    if !valid_ids.contains(&entry.project_repository_id) {
+                        return Err(TaskAttemptError::ValidationError(
+                            "Selected repository does not belong to project".to_string(),
+                        ));
+                    }
+
+                    if !seen.insert(entry.project_repository_id) {
+                        return Err(TaskAttemptError::ValidationError(
+                            "Duplicate repository selection".to_string(),
+                        ));
+                    }
+
+                    if entry.is_primary {
+                        explicit_primary = true;
+                    }
+
+                    let base_branch = entry
+                        .base_branch
+                        .as_deref()
+                        .map(str::trim)
+                        .filter(|s| !s.is_empty())
+                        .map(ToOwned::to_owned);
+
+                    result.push((entry.project_repository_id, entry.is_primary, base_branch));
                 }
 
-                if entry.is_primary {
-                    explicit_primary = true;
-                }
+                if !explicit_primary {
+                    let fallback = repository_rows
+                        .iter()
+                        .find(|row| row.is_primary)
+                        .or_else(|| repository_rows.first())
+                        .map(|row| row.id)
+                        .ok_or_else(|| {
+                            TaskAttemptError::ValidationError(
+                                "Project must define a primary repository".to_string(),
+                            )
+                        })?;
 
-                result.push((entry.project_repository_id, entry.is_primary));
-            }
-
-            if !explicit_primary {
-                let fallback = repository_rows
-                    .iter()
-                    .find(|row| row.is_primary)
-                    .or_else(|| repository_rows.first())
-                    .map(|row| row.id)
-                    .ok_or_else(|| {
-                        TaskAttemptError::ValidationError(
-                            "Project must define a primary repository".to_string(),
-                        )
-                    })?;
-
-                if let Some(entry) = result.iter_mut().find(|(repo_id, _)| *repo_id == fallback) {
+                if let Some(entry) = result
+                    .iter_mut()
+                    .find(|(repo_id, _, _)| *repo_id == fallback)
+                {
                     entry.1 = true;
                 } else {
-                    result.push((fallback, true));
+                    result.push((fallback, true, Some(data.base_branch.clone())));
                 }
             }
 
@@ -459,13 +472,13 @@ impl TaskAttempt {
         } else {
             repository_rows
                 .iter()
-                .map(|row| (row.id, row.is_primary))
+                .map(|row| (row.id, row.is_primary, Some(data.base_branch.clone())))
                 .collect()
         };
 
         let primary_count = assignments
             .iter()
-            .filter(|(_, is_primary)| *is_primary)
+            .filter(|(_, is_primary, _)| *is_primary)
             .count();
 
         if primary_count == 0 {
@@ -480,13 +493,19 @@ impl TaskAttempt {
 
         if assignments
             .iter()
-            .filter(|(_, is_primary)| *is_primary)
+            .filter(|(_, is_primary, _)| *is_primary)
             .count()
             != 1
         {
             return Err(TaskAttemptError::ValidationError(
                 "Exactly one repository must be marked as primary".to_string(),
             ));
+        }
+
+        for (_, _, base) in assignments.iter_mut() {
+            if base.as_ref().map(|s| s.trim().is_empty()).unwrap_or(true) {
+                *base = Some(data.base_branch.clone());
+            }
         }
 
         let branch = &data.branch;
@@ -509,20 +528,22 @@ impl TaskAttempt {
         .fetch_one(&mut *tx)
         .await?;
 
-        for (repo_id, is_primary) in assignments {
+        for (repo_id, is_primary, base_branch_override) in assignments {
             let entry_id = Uuid::new_v4();
             sqlx::query!(
                 r#"INSERT INTO task_attempt_repositories (
                         id,
                         task_attempt_id,
                         project_repository_id,
-                        is_primary
+                        is_primary,
+                        base_branch
                     )
-                    VALUES ($1, $2, $3, $4)"#,
+                    VALUES ($1, $2, $3, $4, $5)"#,
                 entry_id,
                 attempt.id,
                 repo_id,
-                is_primary
+                is_primary,
+                base_branch_override
             )
             .execute(&mut *tx)
             .await?;

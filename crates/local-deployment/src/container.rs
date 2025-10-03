@@ -1096,6 +1096,10 @@ fn compute_repository_env_map(
             format!("VIBE_REPO_{}_BRANCH", prefix),
             task_attempt.branch.clone(),
         );
+        env.insert(
+            format!("VIBE_REPO_{}_BASE_BRANCH", prefix),
+            task_attempt.target_branch.clone(),
+        );
         env.insert(format!("VIBE_REPO_{}_NAME", prefix), project.name.clone());
         env.insert(format!("VIBE_REPO_{}_IS_PRIMARY", prefix), "1".into());
         env.insert("VIBE_PRIMARY_REPO_PREFIX".into(), prefix.clone());
@@ -1105,6 +1109,10 @@ fn compute_repository_env_map(
         env.insert(
             "VIBE_PRIMARY_REPO_BRANCH".into(),
             task_attempt.branch.clone(),
+        );
+        env.insert(
+            "VIBE_PRIMARY_REPO_BASE_BRANCH".into(),
+            task_attempt.target_branch.clone(),
         );
 
         return env;
@@ -1140,9 +1148,17 @@ fn compute_repository_env_map(
             })
             .unwrap_or_default();
 
+        let base_branch = attempt_entry
+            .and_then(|entry| entry.base_branch.clone())
+            .unwrap_or_else(|| task_attempt.target_branch.clone());
+
         env.insert(format!("VIBE_REPO_{}_PATH", prefix), repo_path.clone());
         env.insert(format!("VIBE_REPO_{}_ROOT", prefix), repo.root_path.clone());
         env.insert(format!("VIBE_REPO_{}_BRANCH", prefix), branch);
+        env.insert(
+            format!("VIBE_REPO_{}_BASE_BRANCH", prefix),
+            base_branch.clone(),
+        );
         env.insert(format!("VIBE_REPO_{}_NAME", prefix), repo.name.clone());
         env.insert(
             format!("VIBE_REPO_{}_IS_PRIMARY", prefix),
@@ -1163,6 +1179,7 @@ fn compute_repository_env_map(
                 .and_then(|entry| entry.branch.clone())
                 .unwrap_or_else(|| task_attempt.branch.clone());
             env.insert("VIBE_PRIMARY_REPO_BRANCH".into(), primary_branch);
+            env.insert("VIBE_PRIMARY_REPO_BASE_BRANCH".into(), base_branch.clone());
         }
 
         prefixes.push(prefix);
@@ -1208,6 +1225,13 @@ fn compute_repository_env_map(
         );
     }
 
+    if !env.contains_key("VIBE_PRIMARY_REPO_BASE_BRANCH") {
+        env.insert(
+            "VIBE_PRIMARY_REPO_BASE_BRANCH".into(),
+            task_attempt.target_branch.clone(),
+        );
+    }
+
     env
 }
 
@@ -1228,6 +1252,17 @@ impl LocalContainerService {
             .map(|b| b.trim().to_string())
             .filter(|b| !b.is_empty())
             .unwrap_or_else(|| task_attempt.branch.clone());
+
+        let base_branch_to_use = attempt_entry
+            .and_then(|entry| entry.base_branch.clone())
+            .map(|b| b.trim().to_string())
+            .filter(|b| !b.is_empty())
+            .unwrap_or_else(|| task_attempt.target_branch.clone());
+
+        let github_token = {
+            let cfg = self.config.read().await;
+            cfg.github.token()
+        };
 
         let default_path = if repo.is_primary {
             base_worktree_dir.join(&worktree_dir_name)
@@ -1251,6 +1286,14 @@ impl LocalContainerService {
 
         let worktree_path = PathBuf::from(&path_string);
 
+        if base_branch_to_use.contains('/') {
+            let _ = self.git().ensure_remote_branch(
+                &repo.git_repo_path,
+                &base_branch_to_use,
+                github_token.as_deref(),
+            );
+        }
+
         if let Err(err) = WorktreeManager::ensure_worktree_exists(
             &repo.git_repo_path,
             &branch_to_use,
@@ -1264,7 +1307,7 @@ impl LocalContainerService {
                         &repo.git_repo_path,
                         &branch_to_use,
                         &worktree_path,
-                        &task_attempt.target_branch,
+                        &base_branch_to_use,
                         true,
                     )
                     .await?;
@@ -1276,7 +1319,7 @@ impl LocalContainerService {
                         &repo.git_repo_path,
                         &branch_to_use,
                         &worktree_path,
-                        &task_attempt.target_branch,
+                        &base_branch_to_use,
                         true,
                     )
                     .await?;
@@ -1312,6 +1355,7 @@ impl LocalContainerService {
             repo.id,
             entry_is_primary,
             Some(branch_to_use.as_str()),
+            Some(base_branch_to_use.as_str()),
         )
         .await?;
 
@@ -1385,6 +1429,7 @@ mod tests {
         project_repository_id: Uuid,
         container: Option<&str>,
         branch: Option<&str>,
+        base_branch: Option<&str>,
         is_primary: bool,
     ) -> TaskAttemptRepository {
         let now = Utc::now();
@@ -1395,6 +1440,7 @@ mod tests {
             is_primary,
             container_ref: container.map(|p| p.to_string()),
             branch: branch.map(|b| b.to_string()),
+            base_branch: base_branch.map(|b| b.to_string()),
             created_at: now,
             updated_at: now,
         }
@@ -1430,6 +1476,10 @@ mod tests {
             env.get("VIBE_PRIMARY_REPO_BRANCH"),
             Some(&"feature/app".to_string())
         );
+        assert_eq!(
+            env.get("VIBE_PRIMARY_REPO_BASE_BRANCH"),
+            Some(&"main".to_string())
+        );
     }
 
     #[test]
@@ -1449,6 +1499,7 @@ mod tests {
                 primary_repo.id,
                 Some("/tmp/worktrees/suite"),
                 Some("feature/main"),
+                Some("main"),
                 true,
             ),
         );
@@ -1459,6 +1510,7 @@ mod tests {
                 secondary_repo.id,
                 Some("/tmp/worktrees/docs"),
                 Some("docs-update"),
+                Some("docs"),
                 false,
             ),
         );
@@ -1489,6 +1541,14 @@ mod tests {
         assert_eq!(
             env.get(&format!("VIBE_REPO_{}_BRANCH", secondary_prefix)),
             Some(&"docs-update".to_string())
+        );
+        assert_eq!(
+            env.get(&format!("VIBE_REPO_{}_BASE_BRANCH", secondary_prefix)),
+            Some(&"docs".to_string())
+        );
+        assert_eq!(
+            env.get("VIBE_PRIMARY_REPO_BASE_BRANCH"),
+            Some(&"main".to_string())
         );
     }
 }
@@ -1600,6 +1660,10 @@ impl ContainerService for LocalContainerService {
             .into_iter()
             .map(|entry| (entry.project_repository_id, entry))
             .collect();
+        let github_token = {
+            let cfg = self.config.read().await;
+            cfg.github.token()
+        };
 
         for repo in project_repositories {
             let attempt_repo = attempt_repo_map.get(&repo.id);
@@ -1609,6 +1673,12 @@ impl ContainerService for LocalContainerService {
                 .map(|b| b.trim().to_string())
                 .filter(|b| !b.is_empty())
                 .unwrap_or_else(|| task_attempt.branch.clone());
+
+            let base_branch_to_use = attempt_repo
+                .and_then(|entry| entry.base_branch.clone())
+                .map(|b| b.trim().to_string())
+                .filter(|b| !b.is_empty())
+                .unwrap_or_else(|| task_attempt.target_branch.clone());
 
             let repo_worktree_path = if repo.is_primary {
                 worktree_path.clone()
@@ -1623,11 +1693,18 @@ impl ContainerService for LocalContainerService {
             };
 
             if !repo.is_primary {
+                if base_branch_to_use.contains('/') {
+                    let _ = self.git().ensure_remote_branch(
+                        &repo.git_repo_path,
+                        &base_branch_to_use,
+                        github_token.as_deref(),
+                    );
+                }
                 WorktreeManager::create_worktree(
                     &repo.git_repo_path,
                     &branch_to_use,
                     &repo_worktree_path,
-                    &task_attempt.target_branch,
+                    &base_branch_to_use,
                     true,
                 )
                 .await?;
@@ -1650,6 +1727,7 @@ impl ContainerService for LocalContainerService {
                 repo.id,
                 repo.is_primary,
                 Some(branch_to_use.as_str()),
+                Some(base_branch_to_use.as_str()),
             )
             .await?;
         }

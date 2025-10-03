@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT id as \"id!: Uuid\",\n                      task_attempt_id as \"task_attempt_id!: Uuid\",\n                      project_repository_id as \"project_repository_id!: Uuid\",\n                      is_primary as \"is_primary!: bool\",\n                      container_ref,\n                      branch,\n                      created_at as \"created_at!: DateTime<Utc>\",\n                      updated_at as \"updated_at!: DateTime<Utc>\"\n               FROM task_attempt_repositories\n               WHERE task_attempt_id = $1\n               ORDER BY is_primary DESC, created_at ASC",
+  "query": "SELECT id as \"id!: Uuid\",\n                      task_attempt_id as \"task_attempt_id!: Uuid\",\n                      project_repository_id as \"project_repository_id!: Uuid\",\n                      is_primary as \"is_primary!: bool\",\n                      container_ref,\n                      branch,\n                      base_branch,\n                      created_at as \"created_at!: DateTime<Utc>\",\n                      updated_at as \"updated_at!: DateTime<Utc>\"\n               FROM task_attempt_repositories\n               WHERE task_attempt_id = $1 AND is_primary = 1",
   "describe": {
     "columns": [
       {
@@ -34,13 +34,18 @@
         "type_info": "Text"
       },
       {
-        "name": "created_at!: DateTime<Utc>",
+        "name": "base_branch",
         "ordinal": 6,
         "type_info": "Text"
       },
       {
-        "name": "updated_at!: DateTime<Utc>",
+        "name": "created_at!: DateTime<Utc>",
         "ordinal": 7,
+        "type_info": "Text"
+      },
+      {
+        "name": "updated_at!: DateTime<Utc>",
+        "ordinal": 8,
         "type_info": "Text"
       }
     ],
@@ -54,9 +59,10 @@
       false,
       true,
       true,
+      true,
       false,
       false
     ]
   },
-  "hash": "57581525c2923814d53e46bcf36982b9ee6bfa05dae1fbc6adf9105376f83b34"
+  "hash": "b96dfe6d44d3b4a7a0a7383d6eec7c9a397093d08d28e226e569fb50c1e6b4a6"
 }

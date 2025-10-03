@@ -12,6 +12,7 @@ pub struct TaskAttemptRepository {
     pub is_primary: bool,
     pub container_ref: Option<String>,
     pub branch: Option<String>,
+    pub base_branch: Option<String>,
     #[ts(type = "Date")]
     pub created_at: DateTime<Utc>,
     #[ts(type = "Date")]
@@ -33,6 +34,7 @@ pub struct TaskAttemptRepositoryWithRepo {
     pub is_primary: bool,
     pub container_ref: Option<String>,
     pub branch: Option<String>,
+    pub base_branch: Option<String>,
     pub git_repo_path: String,
 }
 
@@ -49,6 +51,7 @@ impl TaskAttemptRepository {
                       is_primary as "is_primary!: bool",
                       container_ref,
                       branch,
+                      base_branch,
                       created_at as "created_at!: DateTime<Utc>",
                       updated_at as "updated_at!: DateTime<Utc>"
                FROM task_attempt_repositories
@@ -73,6 +76,7 @@ impl TaskAttemptRepository {
                       is_primary as "is_primary!: bool",
                       container_ref,
                       branch,
+                      base_branch,
                       created_at as "created_at!: DateTime<Utc>",
                       updated_at as "updated_at!: DateTime<Utc>"
                FROM task_attempt_repositories
@@ -139,6 +143,7 @@ impl TaskAttemptRepository {
         project_repository_id: Uuid,
         is_primary: bool,
         branch: Option<&str>,
+        base_branch: Option<&str>,
     ) -> Result<(), sqlx::Error> {
         // First, try to find existing record
         let existing = Self::find_for_attempt(pool, attempt_id, project_repository_id).await?;
@@ -148,10 +153,12 @@ impl TaskAttemptRepository {
             sqlx::query!(
                 r#"UPDATE task_attempt_repositories
                    SET branch = $1,
-                       is_primary = $2,
+                       base_branch = $2,
+                       is_primary = $3,
                        updated_at = datetime('now', 'subsec')
-                   WHERE task_attempt_id = $3 AND project_repository_id = $4"#,
+                   WHERE task_attempt_id = $4 AND project_repository_id = $5"#,
                 branch,
+                base_branch,
                 is_primary,
                 attempt_id,
                 project_repository_id
@@ -167,14 +174,16 @@ impl TaskAttemptRepository {
                         task_attempt_id,
                         project_repository_id,
                         is_primary,
-                        branch
+                        branch,
+                        base_branch
                     )
-                    VALUES ($1, $2, $3, $4, $5)"#,
+                    VALUES ($1, $2, $3, $4, $5, $6)"#,
                 id,
                 attempt_id,
                 project_repository_id,
                 is_primary,
-                branch
+                branch,
+                base_branch
             )
             .execute(pool)
             .await?;
@@ -226,6 +235,7 @@ impl TaskAttemptRepository {
                 tar.is_primary            AS "is_primary!: bool",
                 tar.container_ref         AS container_ref,
                 tar.branch                AS branch,
+                tar.base_branch           AS base_branch,
                 pr.git_repo_path          AS git_repo_path
             FROM task_attempt_repositories tar
             JOIN project_repositories pr ON pr.id = tar.project_repository_id
@@ -244,6 +254,7 @@ impl TaskAttemptRepository {
                 is_primary: r.is_primary,
                 container_ref: r.container_ref,
                 branch: r.branch,
+                base_branch: r.base_branch,
                 git_repo_path: r.git_repo_path,
             })
             .collect())
@@ -279,6 +290,7 @@ impl TaskAttemptRepository {
                       is_primary as "is_primary!: bool",
                       container_ref,
                       branch,
+                      base_branch,
                       created_at as "created_at!: DateTime<Utc>",
                       updated_at as "updated_at!: DateTime<Utc>"
                FROM task_attempt_repositories

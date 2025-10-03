@@ -430,7 +430,11 @@ export const attemptsApi = {
 
   create: async (
     data: CreateTaskAttemptBody & {
-      repositories?: Array<{ project_repository_id: string; is_primary: boolean }>;
+      repositories?: Array<{
+        project_repository_id: string;
+        is_primary: boolean;
+        base_branch?: string | null;
+      }>;
     }
   ): Promise<TaskAttempt> => {
     const response = await makeRequest(`/api/task-attempts`, {

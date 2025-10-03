@@ -172,6 +172,7 @@ const baseTask = (overrides: Partial<TaskWithAttemptStatus>): TaskWithAttemptSta
   created_at: new Date().toISOString(),
   updated_at: new Date().toISOString(),
   has_in_progress_attempt: false,
+  has_running_dev_server: false,
   has_merged_attempt: false,
   last_attempt_failed: false,
   executor: 'executor',

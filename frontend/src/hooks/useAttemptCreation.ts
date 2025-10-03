@@ -18,7 +18,11 @@ export function useAttemptCreation(taskId: string) {
     }: {
       profile: ExecutorProfileId;
       baseBranch: string;
-      repositories?: Array<{ project_repository_id: string; is_primary: boolean }>;
+      repositories?: Array<{
+        project_repository_id: string;
+        is_primary: boolean;
+        base_branch?: string | null;
+      }>;
     }) =>
       attemptsApi.create({
         task_id: taskId,

@@ -11,6 +11,7 @@ import BranchSelector from '@/components/tasks/BranchSelector.tsx';
 import { ExecutorProfileSelector } from '@/components/settings';
 
 import { showModal } from '@/lib/modals';
+import { projectsApi } from '@/lib/api';
 import { Card } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { useProject } from '@/contexts/project-context';
@@ -51,6 +52,7 @@ function CreateAttempt({
   const { isAttemptRunning } = useAttemptExecution(selectedAttempt?.id);
   const { createAttempt, isCreating } = useAttemptCreation(task.id);
   const {
+    projectId,
     repositories,
     selectedRepositoryId,
     setSelectedRepositoryId,
@@ -59,20 +61,84 @@ function CreateAttempt({
   const [repositorySelection, setRepositorySelection] = useState<RepositorySelectionValue>({
     selectedIds: [],
     primaryId: null,
+    baseBranches: {},
   });
+  const [repositoryBranches, setRepositoryBranches] = useState<Record<string, GitBranch[]>>({});
+  const [branchLoading, setBranchLoading] = useState<Record<string, boolean>>({});
   const [selectionError, setSelectionError] = useState<string | null>(null);
   const repositoryLabel = activeRepository?.name ?? 'Primary repository';
 
+  const ensureRepoBranches = useCallback(
+    async (repoId: string) => {
+      if (!projectId) {
+        return undefined;
+      }
+
+      if (repositoryBranches[repoId]) {
+        return repositoryBranches[repoId];
+      }
+
+      setBranchLoading((prev) => ({ ...prev, [repoId]: true }));
+      try {
+        const result = await projectsApi.getBranches(projectId, repoId);
+        setRepositoryBranches((prev) => ({ ...prev, [repoId]: result }));
+        setRepositorySelection((prev) => {
+          if (!prev.selectedIds.includes(repoId)) {
+            return prev;
+          }
+          const current = prev.baseBranches[repoId];
+          const normalizedCurrent = current && current.trim().length > 0 ? current : null;
+          const normalizedDefault =
+            createAttemptBranch && createAttemptBranch.trim().length > 0
+              ? createAttemptBranch
+              : null;
+          const fallback =
+            normalizedCurrent ??
+            normalizedDefault ??
+            result.find((branch) => !branch.is_remote)?.name ??
+            result[0]?.name ??
+            null;
+          if (fallback === normalizedCurrent) {
+            return prev;
+          }
+          return {
+            ...prev,
+            baseBranches: {
+              ...prev.baseBranches,
+              [repoId]: fallback,
+            },
+          };
+        });
+        return result;
+      } catch (error) {
+        console.error('Failed to load branches for repository', repoId, error);
+        throw error;
+      } finally {
+        setBranchLoading((prev) => {
+          const next = { ...prev };
+          delete next[repoId];
+          return next;
+        });
+      }
+    },
+    [projectId, repositoryBranches, createAttemptBranch]
+  );
+
   useEffect(() => {
     if (!repositories || repositories.length === 0) {
-      setRepositorySelection({ selectedIds: [], primaryId: null });
+      setRepositorySelection({ selectedIds: [], primaryId: null, baseBranches: {} });
       return;
     }
 
     setRepositorySelection((prev) =>
-      normalizeRepositorySelection(prev, repositories, selectedRepositoryId)
+      normalizeRepositorySelection(
+        prev,
+        repositories,
+        selectedRepositoryId,
+        createAttemptBranch
+      )
     );
-  }, [repositories, selectedRepositoryId]);
+  }, [repositories, selectedRepositoryId, createAttemptBranch]);
 
   useEffect(() => {
     if (
@@ -82,24 +148,105 @@ function CreateAttempt({
     ) {
       const defaults = buildRepositorySelectionDefaults(
         repositories,
-        selectedRepositoryId
+        selectedRepositoryId,
+        createAttemptBranch
       );
       setRepositorySelection(defaults);
       if (defaults.primaryId) {
         setSelectedRepositoryId(defaults.primaryId);
+        void ensureRepoBranches(defaults.primaryId);
       }
     }
-  }, [repositories, repositorySelection.primaryId, selectedRepositoryId, setSelectedRepositoryId]);
+  }, [
+    repositories,
+    repositorySelection.primaryId,
+    selectedRepositoryId,
+    setSelectedRepositoryId,
+    createAttemptBranch,
+    ensureRepoBranches,
+  ]);
+
+  useEffect(() => {
+    if (repositorySelection.primaryId) {
+      void ensureRepoBranches(repositorySelection.primaryId);
+    }
+  }, [repositorySelection.primaryId, ensureRepoBranches]);
+
+  useEffect(() => {
+    if (!repositorySelection.primaryId) {
+      return;
+    }
+    if (!createAttemptBranch || createAttemptBranch.trim().length === 0) {
+      return;
+    }
+
+    const normalizedDefault = createAttemptBranch.trim();
+    setRepositorySelection((prev) => {
+      const primaryId = prev.primaryId;
+      if (!primaryId) {
+        return prev;
+      }
+
+      const current = prev.baseBranches[primaryId];
+      const normalizedCurrent = current && current.trim().length > 0 ? current.trim() : null;
+
+      if (normalizedCurrent === normalizedDefault) {
+        return prev;
+      }
+
+      return {
+        ...prev,
+        baseBranches: {
+          ...prev.baseBranches,
+          [primaryId]: normalizedDefault,
+        },
+      };
+    });
+  }, [createAttemptBranch, repositorySelection.primaryId]);
+
+  useEffect(() => {
+    const primaryId = repositorySelection.primaryId;
+    if (!primaryId) {
+      return;
+    }
+    const base = repositorySelection.baseBranches[primaryId];
+    const normalized = base && base.trim().length > 0 ? base : null;
+    if (normalized && normalized !== createAttemptBranch) {
+      setCreateAttemptBranch(normalized);
+    }
+  }, [
+    repositorySelection.baseBranches,
+    repositorySelection.primaryId,
+    createAttemptBranch,
+    setCreateAttemptBranch,
+  ]);
 
   const handleRepositorySelectionChange = useCallback(
     (next: RepositorySelectionValue) => {
       setSelectionError(null);
-      setRepositorySelection(next);
+
+      const previousIds = new Set(repositorySelection.selectedIds);
+      next.selectedIds.forEach((id) => {
+        if (!previousIds.has(id)) {
+          void ensureRepoBranches(id);
+        }
+      });
+
       if (next.primaryId) {
         setSelectedRepositoryId(next.primaryId);
+        if (next.primaryId !== repositorySelection.primaryId) {
+          void ensureRepoBranches(next.primaryId);
+        }
       }
+
+      setRepositorySelection(next);
     },
-    [setSelectedRepositoryId]
+    [
+      ensureRepoBranches,
+      repositorySelection.primaryId,
+      repositorySelection.selectedIds,
+      setSelectedRepositoryId,
+    ]
   );
 
   // Create attempt logic
@@ -119,13 +266,24 @@ function CreateAttempt({
       await createAttempt({
         profile,
         baseBranch: effectiveBaseBranch,
-        repositories: repositorySelection.selectedIds.map((id) => ({
-          project_repository_id: id,
-          is_primary: repositorySelection.primaryId === id,
-        })),
+        repositories: repositorySelection.selectedIds.map((id) => {
+          const override = repositorySelection.baseBranches[id];
+          const normalizedBase =
+            override && override.trim().length > 0
+              ? override
+              : createAttemptBranch && createAttemptBranch.trim().length > 0
+                ? createAttemptBranch
+                : null;
+
+          return {
+            project_repository_id: id,
+            is_primary: repositorySelection.primaryId === id,
+            base_branch: normalizedBase ?? undefined,
+          };
+        }),
       });
     },
-    [createAttempt, repositorySelection, selectedBranch]
+    [createAttempt, repositorySelection, selectedBranch, createAttemptBranch]
   );
 
   // Handler for Enter key or Start button
@@ -263,6 +421,10 @@ function CreateAttempt({
               value={repositorySelection}
               onChange={handleRepositorySelectionChange}
               disabled={isCreating || isAttemptRunning}
+              branchOptions={repositoryBranches}
+              isBranchLoading={branchLoading}
+              onEnsureBranches={ensureRepoBranches}
+              defaultBaseBranch={createAttemptBranch}
             />
             {selectionError && (
               <p className="text-xs text-destructive">{selectionError}</p>

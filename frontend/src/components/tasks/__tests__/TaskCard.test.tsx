@@ -18,6 +18,7 @@ const baseTask = (): TaskWithAttemptStatus => ({
   has_in_progress_attempt: false,
   has_merged_attempt: false,
   last_attempt_failed: false,
+  has_running_dev_server: false,
   executor: 'executor',
 });
 
