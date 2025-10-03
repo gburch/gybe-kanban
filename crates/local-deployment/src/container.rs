@@ -1286,7 +1286,16 @@ impl LocalContainerService {
 
         let worktree_path = PathBuf::from(&path_string);
 
-        if base_branch_to_use.contains('/') {
+        let should_fetch_remote_base =
+            if let Some((remote_name, _)) = base_branch_to_use.split_once('/') {
+                self.git()
+                    .remote_exists(&repo.git_repo_path, remote_name)
+                    .map_err(ContainerError::from)?
+            } else {
+                false
+            };
+
+        if should_fetch_remote_base {
             match self.git().ensure_remote_branch(
                 &repo.git_repo_path,
                 &base_branch_to_use,
@@ -1721,7 +1730,16 @@ impl ContainerService for LocalContainerService {
             };
 
             if !repo.is_primary {
-                if base_branch_to_use.contains('/') {
+                let should_fetch_remote_base =
+                    if let Some((remote_name, _)) = base_branch_to_use.split_once('/') {
+                        self.git()
+                            .remote_exists(&repo.git_repo_path, remote_name)
+                            .map_err(ContainerError::from)?
+                    } else {
+                        false
+                    };
+
+                if should_fetch_remote_base {
                     match self.git().ensure_remote_branch(
                         &repo.git_repo_path,
                         &base_branch_to_use,

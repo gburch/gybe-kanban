@@ -993,21 +993,35 @@ pub async fn get_task_attempt_branch_status(
         .find_branch_type(&ctx.project.git_repo_path, &task_attempt.target_branch)
     {
         Ok(branch_type) => branch_type,
-        Err(GitServiceError::BranchNotFound(missing)) if missing.contains('/') => {
-            let github_token = {
-                let cfg = deployment.config().read().await;
-                cfg.github.token()
-            };
-            match deployment.git().ensure_remote_branch(
-                &ctx.project.git_repo_path,
-                &missing,
-                github_token.as_deref(),
-            ) {
-                Ok(true) => deployment
+        Err(GitServiceError::BranchNotFound(missing)) => {
+            let remote_exists = if let Some((remote_name, _)) = missing.split_once('/') {
+                deployment
                     .git()
-                    .find_branch_type(&ctx.project.git_repo_path, &task_attempt.target_branch)?,
-                Ok(false) => BranchType::Local,
-                Err(err) => return Err(ApiError::GitService(err)),
+                    .remote_exists(&ctx.project.git_repo_path, remote_name)
+                    .map_err(ApiError::GitService)?
+            } else {
+                false
+            };
+
+            if remote_exists {
+                let github_token = {
+                    let cfg = deployment.config().read().await;
+                    cfg.github.token()
+                };
+                match deployment.git().ensure_remote_branch(
+                    &ctx.project.git_repo_path,
+                    &missing,
+                    github_token.as_deref(),
+                ) {
+                    Ok(true) => deployment.git().find_branch_type(
+                        &ctx.project.git_repo_path,
+                        &task_attempt.target_branch,
+                    )?,
+                    Ok(false) => BranchType::Local,
+                    Err(err) => return Err(ApiError::GitService(err)),
+                }
+            } else {
+                BranchType::Local
             }
         }
         Err(err) => return Err(ApiError::GitService(err)),

@@ -200,6 +200,24 @@ impl GitService {
         }
     }
 
+    /// Return whether the repository defines a remote with the provided name.
+    pub fn remote_exists(
+        &self,
+        repo_path: &Path,
+        remote_name: &str,
+    ) -> Result<bool, GitServiceError> {
+        if remote_name.trim().is_empty() {
+            return Ok(false);
+        }
+
+        let repo = Repository::open(repo_path)?;
+        let remotes = repo.remotes()?;
+        Ok(remotes
+            .iter()
+            .flatten()
+            .any(|candidate| candidate == remote_name))
+    }
+
     /// Initialize a new git repository with a main branch and initial commit
     pub fn initialize_repo_with_main_branch(
         &self,
