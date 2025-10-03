@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Play } from 'lucide-react';
+import { Play, GitFork } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { projectsApi, attemptsApi } from '@/lib/api';
+import { openTaskForm } from '@/lib/openTaskForm';
 import type {
   GitBranch,
   TaskAttempt,
@@ -216,6 +217,20 @@ function TaskDetailsToolbar({
                   >
                     <Play className="h-4 w-4" />
                     Start Attempt
+                  </Button>
+                  <Button
+                    onClick={() =>
+                      openTaskForm({
+                        projectId,
+                        parentTaskId: task.id,
+                      })
+                    }
+                    size="sm"
+                    variant="outline"
+                    className="w-full gap-2"
+                  >
+                    <GitFork className="h-4 w-4" />
+                    Create Subtask
                   </Button>
                 </div>
               )}
