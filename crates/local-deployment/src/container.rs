@@ -53,7 +53,7 @@ use services::services::{
     git::{Commit, DiffTarget, GitService},
     image::ImageService,
     notification::NotificationService,
-    worktree_manager::WorktreeManager,
+    worktree_manager::{WorktreeError, WorktreeManager},
 };
 use tokio::{sync::RwLock, task::JoinHandle};
 use tokio_util::io::ReaderStream;
@@ -1251,12 +1251,41 @@ impl LocalContainerService {
 
         let worktree_path = PathBuf::from(&path_string);
 
-        WorktreeManager::ensure_worktree_exists(
+        if let Err(err) = WorktreeManager::ensure_worktree_exists(
             &repo.git_repo_path,
             &branch_to_use,
             &worktree_path,
         )
-        .await?;
+        .await
+        {
+            match err {
+                WorktreeError::BranchNotFound(_) => {
+                    WorktreeManager::create_worktree(
+                        &repo.git_repo_path,
+                        &branch_to_use,
+                        &worktree_path,
+                        &task_attempt.target_branch,
+                        true,
+                    )
+                    .await?;
+                }
+                WorktreeError::GitCli(ref msg)
+                    if msg.contains("invalid reference") || msg.contains("unknown revision") =>
+                {
+                    WorktreeManager::create_worktree(
+                        &repo.git_repo_path,
+                        &branch_to_use,
+                        &worktree_path,
+                        &task_attempt.target_branch,
+                        true,
+                    )
+                    .await?;
+                }
+                other => {
+                    return Err(other.into());
+                }
+            }
+        }
 
         if entry_is_primary
             && task_attempt
