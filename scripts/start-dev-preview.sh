@@ -46,16 +46,6 @@ HOST_RAW="$(hostname)"
 HOST_LOWER="$(printf '%s' "${HOST_RAW}" | tr '[:upper:]' '[:lower:]')"
 HOST_SHORT="${HOST_LOWER%%.*}"
 
-if [[ -f "${ENV_FILE}" ]]; then
-  BACKUP_FILE="$(mktemp "${ENV_FILE}.bak.XXXXXX")"
-  cp "${ENV_FILE}" "${BACKUP_FILE}"
-fi
-
-cat >"${ENV_FILE}" <<EOF_ENV
-VITE_STRICT_ALLOWED_HOSTS=false
-VITE_ALLOWED_HOSTS=localhost,127.0.0.1,${HOST_RAW},${HOST_LOWER},${HOST_SHORT},gmac,GMAC
-EOF_ENV
-
 strip_ansi() {
   sed -E $'s/\x1B\[[0-9;]*[[:alpha:]]//g'
 }
@@ -104,6 +94,23 @@ resolve_preview_host() {
 }
 
 PREFERRED_PREVIEW_HOST="$(resolve_preview_host)"
+
+if [[ -f "${ENV_FILE}" ]]; then
+  BACKUP_FILE="$(mktemp "${ENV_FILE}.bak.XXXXXX")"
+  cp "${ENV_FILE}" "${BACKUP_FILE}"
+fi
+
+cat >"${ENV_FILE}" <<EOF_ENV
+VITE_STRICT_ALLOWED_HOSTS=false
+VITE_ALLOWED_HOSTS=localhost,127.0.0.1,${HOST_RAW},${HOST_LOWER},${HOST_SHORT},gmac,GMAC
+EOF_ENV
+
+ACCESSIBLE_HOST="${PREFERRED_PREVIEW_HOST}"
+
+export HOST="0.0.0.0"
+export BACKEND_HOST="${ACCESSIBLE_HOST}"
+export VITE_HOST="0.0.0.0"
+export VITE_HMR_HOST="${ACCESSIBLE_HOST}"
 
 normalize_url() {
   local url="${1}"
