@@ -101,6 +101,22 @@ After starting, you can access:
 - Frontend: `http://gmac:3000` (or your configured FRONTEND_PORT)
 - Backend API: `http://gmac:PORT` (check console output for actual port)
 
+#### Preview integrations / long-running environments
+
+For tooling that expects a long-running command which emits the preview URL (e.g., the in-app Vibe preview feature), use:
+
+```bash
+bash scripts/start-dev-preview.sh
+```
+
+This helper script:
+- Temporarily writes `frontend/.env.local` with the current hostname and restores the previous file (if any) on exit.
+- Launches `npm run dev` so both backend (`cargo watch`) and frontend (Vite) stay active.
+- Streams the combined logs to stdout and, after Vite prints its local URL, emits a single `Server: http://127.0.0.1:<port>/` line that preview tooling can detect.
+- Blocks until stopped (Ctrl+C), ensuring the dev server stays alive for the entire preview session.
+
+Prerequisites: install dependencies with `pnpm i` in the repo root and ensure `cargo-watch` is available (`cargo install cargo-watch`).
+
 ### Building the frontend
 
 To build just the frontend:
