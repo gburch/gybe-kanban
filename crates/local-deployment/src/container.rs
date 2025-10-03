@@ -1211,6 +1211,85 @@ fn compute_repository_env_map(
     env
 }
 
+impl LocalContainerService {
+    async fn ensure_repository_container(
+        &self,
+        task_attempt: &TaskAttempt,
+        task: &Task,
+        repo: &ProjectRepository,
+        attempt_entry: Option<&TaskAttemptRepository>,
+    ) -> Result<(String, String), ContainerError> {
+        let worktree_dir_name =
+            LocalContainerService::dir_name_from_task_attempt(&task_attempt.id, &task.title);
+        let base_worktree_dir = WorktreeManager::get_worktree_base_dir();
+
+        let branch_to_use = attempt_entry
+            .and_then(|entry| entry.branch.clone())
+            .map(|b| b.trim().to_string())
+            .filter(|b| !b.is_empty())
+            .unwrap_or_else(|| task_attempt.branch.clone());
+
+        let default_path = if repo.is_primary {
+            base_worktree_dir.join(&worktree_dir_name)
+        } else {
+            let suffix = Self::repo_worktree_suffix(repo);
+            base_worktree_dir.join(format!("{worktree_dir_name}--{suffix}"))
+        };
+
+        let entry_is_primary = attempt_entry
+            .map(|entry| entry.is_primary)
+            .unwrap_or(repo.is_primary);
+
+        let path_string = attempt_entry
+            .and_then(|entry| entry.container_ref.clone())
+            .or_else(|| {
+                entry_is_primary
+                    .then(|| task_attempt.container_ref.clone())
+                    .flatten()
+            })
+            .unwrap_or_else(|| default_path.to_string_lossy().to_string());
+
+        let worktree_path = PathBuf::from(&path_string);
+
+        WorktreeManager::ensure_worktree_exists(
+            &repo.git_repo_path,
+            &branch_to_use,
+            &worktree_path,
+        )
+        .await?;
+
+        if entry_is_primary
+            && task_attempt
+                .container_ref
+                .as_deref()
+                .map(|existing| existing != path_string.as_str())
+                .unwrap_or(true)
+        {
+            TaskAttempt::update_container_ref(&self.db.pool, task_attempt.id, &path_string).await?;
+        }
+
+        TaskAttemptRepository::upsert_container_ref(
+            &self.db.pool,
+            task_attempt.id,
+            repo.id,
+            entry_is_primary,
+            Some(path_string.as_str()),
+        )
+        .await?;
+
+        TaskAttemptRepository::upsert_branch(
+            &self.db.pool,
+            task_attempt.id,
+            repo.id,
+            entry_is_primary,
+            Some(branch_to_use.as_str()),
+        )
+        .await?;
+
+        Ok((path_string, branch_to_use))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1593,19 +1672,38 @@ impl ContainerService for LocalContainerService {
             .await?
             .ok_or(sqlx::Error::RowNotFound)?;
 
-        let container_ref = task_attempt.container_ref.as_ref().ok_or_else(|| {
-            ContainerError::Other(anyhow!("Container ref not found for task attempt"))
-        })?;
-        let worktree_path = PathBuf::from(container_ref);
+        let project_repositories =
+            ProjectRepository::list_for_project(&self.db.pool, project.id).await?;
+        let attempt_repositories =
+            TaskAttemptRepository::list_for_attempt(&self.db.pool, task_attempt.id).await?;
+        let attempt_repo_map: HashMap<Uuid, TaskAttemptRepository> = attempt_repositories
+            .iter()
+            .map(|entry| (entry.project_repository_id, entry.clone()))
+            .collect();
 
-        WorktreeManager::ensure_worktree_exists(
-            &project.git_repo_path,
-            &task_attempt.branch,
-            &worktree_path,
-        )
-        .await?;
+        let primary_repo = project_repositories
+            .iter()
+            .find(|repo| {
+                attempt_repo_map
+                    .get(&repo.id)
+                    .map(|entry| entry.is_primary)
+                    .unwrap_or(repo.is_primary)
+            })
+            .cloned()
+            .or_else(|| project_repositories.first().cloned())
+            .ok_or_else(|| {
+                ContainerError::Other(anyhow!(
+                    "No repositories configured for project {}",
+                    project.id
+                ))
+            })?;
 
-        Ok(container_ref.to_string())
+        let attempt_entry = attempt_repo_map.get(&primary_repo.id);
+        let (container_ref, _) = self
+            .ensure_repository_container(task_attempt, &task, &primary_repo, attempt_entry)
+            .await?;
+
+        Ok(container_ref)
     }
 
     async fn is_container_clean(&self, task_attempt: &TaskAttempt) -> Result<bool, ContainerError> {
@@ -1629,13 +1727,8 @@ impl ContainerService for LocalContainerService {
         executor_action: &ExecutorAction,
     ) -> Result<(), ContainerError> {
         // Get the worktree path
-        let container_ref = task_attempt
-            .container_ref
-            .as_ref()
-            .ok_or(ContainerError::Other(anyhow!(
-                "Container ref not found for task attempt"
-            )))?;
-        let current_dir = PathBuf::from(container_ref);
+        let container_ref = self.ensure_container_exists(task_attempt).await?;
+        let current_dir = PathBuf::from(&container_ref);
 
         // Compute environment for executor processes
         let repo_env = self.build_executor_env(task_attempt).await?;
@@ -1747,16 +1840,58 @@ impl ContainerService for LocalContainerService {
             .parent_project(&self.db.pool)
             .await?
             .ok_or(ContainerError::Other(anyhow!("Parent project not found")))?;
-        let project_repo_path = project.git_repo_path.clone();
 
         let project_repositories =
             ProjectRepository::list_for_project(&self.db.pool, project.id).await?;
         let attempt_repositories =
             TaskAttemptRepository::list_for_attempt(&self.db.pool, task_attempt.id).await?;
+        let attempt_repo_map: HashMap<Uuid, TaskAttemptRepository> = attempt_repositories
+            .iter()
+            .map(|entry| (entry.project_repository_id, entry.clone()))
+            .collect();
+
         let repo_lookup = Arc::new(RepositoryLookup::from_project_and_attempt(
             &project_repositories,
             &attempt_repositories,
         ));
+
+        let selected_repo = if let Some(repo_id) = repository_filter {
+            project_repositories
+                .iter()
+                .find(|repo| repo.id == repo_id)
+                .cloned()
+                .ok_or_else(|| {
+                    ContainerError::Other(anyhow!(
+                        "Repository {} not found for task attempt {}",
+                        repo_id,
+                        task_attempt.id
+                    ))
+                })?
+        } else {
+            project_repositories
+                .iter()
+                .find(|repo| {
+                    attempt_repo_map
+                        .get(&repo.id)
+                        .map(|entry| entry.is_primary)
+                        .unwrap_or(repo.is_primary)
+                })
+                .cloned()
+                .or_else(|| project_repositories.first().cloned())
+                .ok_or_else(|| {
+                    ContainerError::Other(anyhow!(
+                        "No repositories configured for project {}",
+                        project.id
+                    ))
+                })?
+        };
+
+        let attempt_entry = attempt_repo_map.get(&selected_repo.id);
+        let (container_ref, _) = self
+            .ensure_repository_container(task_attempt, &task, &selected_repo, attempt_entry)
+            .await?;
+        let worktree_path = PathBuf::from(&container_ref);
+        let project_repo_path = selected_repo.git_repo_path.clone();
 
         let latest_merge =
             Merge::find_latest_by_task_attempt_id(&self.db.pool, task_attempt.id).await?;
@@ -1786,8 +1921,6 @@ impl ContainerService for LocalContainerService {
             return Ok(Box::pin(wrapper));
         }
 
-        let container_ref = self.ensure_container_exists(task_attempt).await?;
-        let worktree_path = PathBuf::from(container_ref);
         let base_commit = self.git().get_base_commit(
             &project_repo_path,
             &task_attempt.branch,
@@ -1859,9 +1992,7 @@ impl ContainerService for LocalContainerService {
             )))?,
         };
 
-        let container_ref = ctx.task_attempt.container_ref.as_ref().ok_or_else(|| {
-            ContainerError::Other(anyhow::anyhow!("Container reference not found"))
-        })?;
+        let container_ref = self.ensure_container_exists(&ctx.task_attempt).await?;
 
         tracing::debug!(
             "Committing changes for task attempt {} at path {:?}: '{}'",
@@ -1870,7 +2001,7 @@ impl ContainerService for LocalContainerService {
             message
         );
 
-        let changes_committed = self.git().commit(Path::new(container_ref), &message)?;
+        let changes_committed = self.git().commit(Path::new(&container_ref), &message)?;
         Ok(changes_committed)
     }
 
