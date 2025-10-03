@@ -172,55 +172,6 @@ function CreateAttempt({
     }
   }, [repositorySelection.primaryId, ensureRepoBranches]);
 
-  useEffect(() => {
-    if (!repositorySelection.primaryId) {
-      return;
-    }
-    if (!createAttemptBranch || createAttemptBranch.trim().length === 0) {
-      return;
-    }
-
-    const normalizedDefault = createAttemptBranch.trim();
-    setRepositorySelection((prev) => {
-      const primaryId = prev.primaryId;
-      if (!primaryId) {
-        return prev;
-      }
-
-      const current = prev.baseBranches[primaryId];
-      const normalizedCurrent = current && current.trim().length > 0 ? current.trim() : null;
-
-      if (normalizedCurrent === normalizedDefault) {
-        return prev;
-      }
-
-      return {
-        ...prev,
-        baseBranches: {
-          ...prev.baseBranches,
-          [primaryId]: normalizedDefault,
-        },
-      };
-    });
-  }, [createAttemptBranch, repositorySelection.primaryId]);
-
-  useEffect(() => {
-    const primaryId = repositorySelection.primaryId;
-    if (!primaryId) {
-      return;
-    }
-    const base = repositorySelection.baseBranches[primaryId];
-    const normalized = base && base.trim().length > 0 ? base : null;
-    if (normalized && normalized !== createAttemptBranch) {
-      setCreateAttemptBranch(normalized);
-    }
-  }, [
-    repositorySelection.baseBranches,
-    repositorySelection.primaryId,
-    createAttemptBranch,
-    setCreateAttemptBranch,
-  ]);
-
   const handleRepositorySelectionChange = useCallback(
     (next: RepositorySelectionValue) => {
       setSelectionError(null);
@@ -240,13 +191,44 @@ function CreateAttempt({
       }
 
       setRepositorySelection(next);
+
+      if (next.primaryId) {
+        const primaryBase =
+          next.baseBranches[next.primaryId] ?? createAttemptBranch ?? null;
+        if (primaryBase && primaryBase !== createAttemptBranch) {
+          setCreateAttemptBranch(primaryBase);
+        }
+      }
     },
     [
       ensureRepoBranches,
       repositorySelection.primaryId,
       repositorySelection.selectedIds,
       setSelectedRepositoryId,
+      createAttemptBranch,
+      setCreateAttemptBranch,
     ]
+  );
+
+  const handleGlobalBaseSelect = useCallback(
+    (branch: string) => {
+      setCreateAttemptBranch(branch);
+      setSelectionError(null);
+      setRepositorySelection((prev) => {
+        const primaryId = prev.primaryId;
+        if (!primaryId) {
+          return prev;
+        }
+        return {
+          ...prev,
+          baseBranches: {
+            ...prev.baseBranches,
+            [primaryId]: branch,
+          },
+        };
+      });
+    },
+    [setCreateAttemptBranch]
   );
 
   // Create attempt logic
@@ -381,7 +363,7 @@ function CreateAttempt({
             <BranchSelector
               branches={branches}
               selectedBranch={createAttemptBranch}
-              onBranchSelect={setCreateAttemptBranch}
+              onBranchSelect={handleGlobalBaseSelect}
               placeholder="Select branch"
             />
           </div>

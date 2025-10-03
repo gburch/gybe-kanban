@@ -193,10 +193,13 @@ export function RepositorySelection({
 
   const handleBaseBranchChange = useCallback(
     (repoId: string, branch: string | null) => {
-      const baseBranches = {
-        ...value.baseBranches,
-        [repoId]: sanitizeBase(branch),
-      };
+      const sanitized = sanitizeBase(branch);
+      const baseBranches = { ...value.baseBranches };
+      if (sanitized) {
+        baseBranches[repoId] = sanitized;
+      } else {
+        delete baseBranches[repoId];
+      }
       updateSelection(new Set(value.selectedIds), value.primaryId, baseBranches);
     },
     [updateSelection, value.baseBranches, value.primaryId, value.selectedIds]

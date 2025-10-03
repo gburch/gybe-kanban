@@ -1866,10 +1866,10 @@ impl GitService {
         repo_path: &Path,
         remote_branch: &str,
         github_token: Option<&str>,
-    ) -> Result<(), GitServiceError> {
+    ) -> Result<bool, GitServiceError> {
         let repo = Repository::open(repo_path)?;
         if repo.find_branch(remote_branch, BranchType::Remote).is_ok() {
-            return Ok(());
+            return Ok(true);
         }
 
         let (remote_name, branch_path) = remote_branch
@@ -1878,22 +1878,38 @@ impl GitService {
 
         let remote = repo.find_remote(remote_name)?;
 
-        if let Some(token) = github_token {
+        let fetch_result = if let Some(token) = github_token {
             let refspec = format!(
                 "+refs/heads/{branch}:refs/remotes/{remote}/{branch}",
                 branch = branch_path,
                 remote = remote_name
             );
-            self.fetch_from_remote(&repo, token, &remote, &refspec)?;
+            self.fetch_from_remote(&repo, token, &remote, &refspec)
         } else {
-            super::git_cli::GitCli::new().git(repo_path, ["fetch", remote_name, branch_path])?;
+            super::git_cli::GitCli::new()
+                .git(repo_path, ["fetch", remote_name, branch_path])
+                .map(|_| ())
+                .map_err(GitServiceError::from)
+        };
+
+        match fetch_result {
+            Ok(_) => {}
+            Err(GitServiceError::GitCLI(GitCliError::CommandFailed(msg)))
+                if msg.contains("couldn't find remote ref")
+                    || msg.contains("unknown revision")
+                    || msg.contains("repository not found")
+                    || msg.contains("could not read") =>
+            {
+                return Ok(false);
+            }
+            Err(err) => return Err(err),
         }
 
         if repo.find_branch(remote_branch, BranchType::Remote).is_err() {
-            return Err(GitServiceError::BranchNotFound(remote_branch.to_string()));
+            return Ok(false);
         }
 
-        Ok(())
+        Ok(true)
     }
 
     /// Fetch from remote repository using GitHub token authentication

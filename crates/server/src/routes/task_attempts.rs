@@ -998,14 +998,17 @@ pub async fn get_task_attempt_branch_status(
                 let cfg = deployment.config().read().await;
                 cfg.github.token()
             };
-            deployment.git().ensure_remote_branch(
+            match deployment.git().ensure_remote_branch(
                 &ctx.project.git_repo_path,
                 &missing,
                 github_token.as_deref(),
-            )?;
-            deployment
-                .git()
-                .find_branch_type(&ctx.project.git_repo_path, &task_attempt.target_branch)?
+            ) {
+                Ok(true) => deployment
+                    .git()
+                    .find_branch_type(&ctx.project.git_repo_path, &task_attempt.target_branch)?,
+                Ok(false) => BranchType::Local,
+                Err(err) => return Err(ApiError::GitService(err)),
+            }
         }
         Err(err) => return Err(ApiError::GitService(err)),
     };

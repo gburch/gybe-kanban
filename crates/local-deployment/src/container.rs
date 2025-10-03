@@ -1253,7 +1253,7 @@ impl LocalContainerService {
             .filter(|b| !b.is_empty())
             .unwrap_or_else(|| task_attempt.branch.clone());
 
-        let base_branch_to_use = attempt_entry
+        let mut base_branch_to_use = attempt_entry
             .and_then(|entry| entry.base_branch.clone())
             .map(|b| b.trim().to_string())
             .filter(|b| !b.is_empty())
@@ -1287,11 +1287,23 @@ impl LocalContainerService {
         let worktree_path = PathBuf::from(&path_string);
 
         if base_branch_to_use.contains('/') {
-            let _ = self.git().ensure_remote_branch(
+            match self.git().ensure_remote_branch(
                 &repo.git_repo_path,
                 &base_branch_to_use,
                 github_token.as_deref(),
-            );
+            ) {
+                Ok(true) => {}
+                Ok(false) => {
+                    tracing::warn!(
+                        "Remote base branch '{}' not found for repository '{}'; falling back to target branch '{}'",
+                        base_branch_to_use,
+                        repo.name,
+                        task_attempt.target_branch
+                    );
+                    base_branch_to_use = task_attempt.target_branch.clone();
+                }
+                Err(err) => return Err(err.into()),
+            }
         }
 
         if let Err(err) = WorktreeManager::ensure_worktree_exists(
@@ -1674,7 +1686,7 @@ impl ContainerService for LocalContainerService {
                 .filter(|b| !b.is_empty())
                 .unwrap_or_else(|| task_attempt.branch.clone());
 
-            let base_branch_to_use = attempt_repo
+            let mut base_branch_to_use = attempt_repo
                 .and_then(|entry| entry.base_branch.clone())
                 .map(|b| b.trim().to_string())
                 .filter(|b| !b.is_empty())
@@ -1694,11 +1706,23 @@ impl ContainerService for LocalContainerService {
 
             if !repo.is_primary {
                 if base_branch_to_use.contains('/') {
-                    let _ = self.git().ensure_remote_branch(
+                    match self.git().ensure_remote_branch(
                         &repo.git_repo_path,
                         &base_branch_to_use,
                         github_token.as_deref(),
-                    );
+                    ) {
+                        Ok(true) => {}
+                        Ok(false) => {
+                            tracing::warn!(
+                                "Remote base branch '{}' not found for repository '{}'; falling back to target branch '{}'",
+                                base_branch_to_use,
+                                repo.name,
+                                task_attempt.target_branch
+                            );
+                            base_branch_to_use = task_attempt.target_branch.clone();
+                        }
+                        Err(err) => return Err(err.into()),
+                    }
                 }
                 WorktreeManager::create_worktree(
                     &repo.git_repo_path,

@@ -458,23 +458,23 @@ impl TaskAttempt {
                             )
                         })?;
 
-                if let Some(entry) = result
-                    .iter_mut()
-                    .find(|(repo_id, _, _)| *repo_id == fallback)
-                {
-                    entry.1 = true;
-                } else {
-                    result.push((fallback, true, Some(data.base_branch.clone())));
+                    if let Some(entry) = result
+                        .iter_mut()
+                        .find(|(repo_id, _, _)| *repo_id == fallback)
+                    {
+                        entry.1 = true;
+                    } else {
+                        result.push((fallback, true, Some(data.base_branch.clone())));
+                    }
                 }
-            }
 
-            result
-        } else {
-            repository_rows
-                .iter()
-                .map(|row| (row.id, row.is_primary, Some(data.base_branch.clone())))
-                .collect()
-        };
+                result
+            } else {
+                repository_rows
+                    .iter()
+                    .map(|row| (row.id, row.is_primary, Some(data.base_branch.clone())))
+                    .collect()
+            };
 
         let primary_count = assignments
             .iter()
