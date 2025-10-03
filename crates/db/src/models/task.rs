@@ -35,6 +35,7 @@ pub struct TaskWithAttemptStatus {
     #[ts(flatten)]
     pub task: Task,
     pub has_in_progress_attempt: bool,
+    pub has_running_dev_server: bool,
     pub has_merged_attempt: bool,
     pub last_attempt_failed: bool,
     pub executor: String,
@@ -116,6 +117,17 @@ impl Task {
        AND ep.run_reason IN ('setupscript','cleanupscript','codingagent')
      LIMIT 1
   ) THEN 1 ELSE 0 END            AS "has_in_progress_attempt!: i64",
+
+  CASE WHEN EXISTS (
+    SELECT 1
+      FROM task_attempts ta
+      JOIN execution_processes ep
+        ON ep.task_attempt_id = ta.id
+     WHERE ta.task_id       = t.id
+       AND ep.status        = 'running'
+       AND ep.run_reason    = 'devserver'
+     LIMIT 1
+  ) THEN 1 ELSE 0 END            AS "has_running_dev_server!: i64",
   
   CASE WHEN (
     SELECT ep.status
@@ -158,6 +170,7 @@ ORDER BY t.created_at DESC"#,
                     updated_at: rec.updated_at,
                 },
                 has_in_progress_attempt: rec.has_in_progress_attempt != 0,
+                has_running_dev_server: rec.has_running_dev_server != 0,
                 has_merged_attempt: false, // TODO use merges table
                 last_attempt_failed: rec.last_attempt_failed != 0,
                 executor: rec.executor,

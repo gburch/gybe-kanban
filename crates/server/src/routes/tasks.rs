@@ -223,6 +223,7 @@ pub async fn create_task_and_start(
     Ok(ResponseJson(ApiResponse::success(TaskWithAttemptStatus {
         task,
         has_in_progress_attempt: true,
+        has_running_dev_server: false,
         has_merged_attempt: false,
         last_attempt_failed: false,
         executor: task_attempt.executor,

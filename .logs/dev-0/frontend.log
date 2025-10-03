@@ -1,0 +1,20 @@
+
+> vibe-kanban@0.0.101 frontend:dev /private/var/folders/dn/t5x06pd118vf62s2fbbps1th0000gn/T/vibe-kanban-dev/worktrees/61dd-show-a-pulsaitin
+> cd frontend && npm run dev -- --port ${FRONTEND_PORT:-3000} --host
+
+npm warn Unknown env config "verify-deps-before-run". This will stop working in the next major version of npm.
+npm warn Unknown env config "_jsr-registry". This will stop working in the next major version of npm.
+
+> vibe-kanban@0.0.55 dev
+> VITE_OPEN=${VITE_OPEN:-false} vite --port 3005 --host
+
+Warning: Ignoring extra certs from `/Users/gb/anything/styleseat/keys_and_certs/ssl/loc.styleseat.com+3.pem`, load failed: error:80000002:system library::No such file or directory
+[sentry-vite-plugin] Info: Sending telemetry data on issues and performance to Sentry. To disable telemetry, set `options.telemetry` to `false`.
+Port 3005 is in use, trying another one...
+
+  [32m[1mVITE[22m v5.4.20[39m  [2mready in [0m[1m1978[22m[2m[0m ms[22m
+
+  [32m➜[39m  [1mLocal[22m:   [36mhttp://localhost:[1m3006[22m/[39m
+  [32m➜[39m  [1mNetwork[22m: [36mhttp://100.90.238.126:[1m3006[22m/[39m
+  [32m➜[39m  [1mNetwork[22m: [36mhttp://192.168.1.205:[1m3006[22m/[39m
+[41m[30m ELIFECYCLE [39m[49m [31mCommand failed.[39m

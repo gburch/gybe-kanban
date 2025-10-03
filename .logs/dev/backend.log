@@ -1,0 +1,23 @@
+
+> vibe-kanban@0.0.101 backend:dev:watch /private/var/folders/dn/t5x06pd118vf62s2fbbps1th0000gn/T/vibe-kanban-dev/worktrees/61dd-show-a-pulsaitin
+> DISABLE_WORKTREE_ORPHAN_CLEANUP=1 RUST_LOG=debug cargo watch -w crates -x 'run --bin server'
+
+[Running 'cargo run --bin server']
+warning: server@0.0.101: Creating dummy frontend/dist directory for compilation
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.19s
+     Running `target/debug/server`
+[2m2025-10-02T20:09:31.328954Z[0m [32m INFO[0m [2mexecutors::profile[0m[2m:[0m No user profiles.json found, using defaults only
+[2m2025-10-02T20:09:31.330191Z[0m [32m INFO[0m [2mexecutors::profile[0m[2m:[0m Detected available executor: CODEX
+[2m2025-10-02T20:09:31.347911Z[0m [32m INFO[0m [2mlocal_deployment[0m[2m:[0m Starting orphaned image cleanup...
+[2m2025-10-02T20:09:31.348158Z[0m [34mDEBUG[0m [2mlocal_deployment::container[0m[2m:[0m Orphan worktree cleanup is disabled via DISABLE_WORKTREE_ORPHAN_CLEANUP environment variable
+[2m2025-10-02T20:09:31.348237Z[0m [34mDEBUG[0m [2mservices::services::image[0m[2m:[0m No orphaned images found during cleanup
+[2m2025-10-02T20:09:31.349291Z[0m [32m INFO[0m [2mservices::services::pr_monitor[0m[2m:[0m Starting PR monitoring service with interval 60s
+[2m2025-10-02T20:09:31.349335Z[0m [32m INFO[0m [2mservices::services::file_search_cache[0m[2m:[0m Starting file search cache warming...
+[2m2025-10-02T20:09:31.349361Z[0m [32m INFO[0m [2mlocal_deployment::container[0m[2m:[0m Starting periodic worktree cleanup...
+[2m2025-10-02T20:09:31.349571Z[0m [34mDEBUG[0m [2mlocal_deployment::container[0m[2m:[0m Checking 0 active worktrees for external deletion...
+[2m2025-10-02T20:09:31.350630Z[0m [32m INFO[0m [2mservices::services::file_search_cache[0m[2m:[0m No active projects found, skipping cache warming
+[2m2025-10-02T20:09:31.350737Z[0m [34mDEBUG[0m [2mlocal_deployment::container[0m[2m:[0m No expired worktrees found
+[2m2025-10-02T20:09:31.350897Z[0m [34mDEBUG[0m [2mservices::services::pr_monitor[0m[2m:[0m No open PRs to check
+Error: Io(Os { code: 48, kind: AddrInUse, message: "Address already in use" })
+[Finished running. Exit status: 1]
+2025-10-02T16:10:55.211-04:00 - WARN Could not pass on signal to command: I/O error: No such process (os error 3)

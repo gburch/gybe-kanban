@@ -192,8 +192,16 @@ export function TaskCard({
           )}
         </div>
         <div className="flex items-center space-x-1">
+          {/* Dev Server Indicator takes priority */}
+          {task.has_running_dev_server && (
+            <span className="relative flex h-3 w-3 items-center justify-center">
+              <span className="absolute inline-flex h-full w-full rounded-full bg-red-500 opacity-75 animate-ping" />
+              <span className="relative inline-flex h-2 w-2 rounded-full bg-red-500 shadow-[0_0_6px_rgba(239,68,68,0.8)]" />
+              <span className="sr-only">Dev server running</span>
+            </span>
+          )}
           {/* In Progress Spinner */}
-          {task.has_in_progress_attempt && (
+          {!task.has_running_dev_server && task.has_in_progress_attempt && (
             <Loader2 className="h-3 w-3 animate-spin text-blue-500" />
           )}
           {/* Merged Indicator */}

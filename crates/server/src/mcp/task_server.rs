@@ -89,6 +89,8 @@ pub struct TaskSummary {
     pub updated_at: String,
     #[schemars(description = "Whether the task has an in-progress execution attempt")]
     pub has_in_progress_attempt: Option<bool>,
+    #[schemars(description = "Whether the task currently has a running dev server")]
+    pub has_running_dev_server: Option<bool>,
     #[schemars(description = "Whether the task has a merged execution attempt")]
     pub has_merged_attempt: Option<bool>,
     #[schemars(description = "Whether the last execution attempt failed")]
@@ -446,6 +448,7 @@ impl TaskServer {
                         created_at: task.created_at.to_rfc3339(),
                         updated_at: task.updated_at.to_rfc3339(),
                         has_in_progress_attempt: Some(task.has_in_progress_attempt),
+                        has_running_dev_server: Some(task.has_running_dev_server),
                         has_merged_attempt: Some(task.has_merged_attempt),
                         last_attempt_failed: Some(task.last_attempt_failed),
                     })
@@ -594,6 +597,7 @@ impl TaskServer {
                     created_at: updated_task.created_at.to_rfc3339(),
                     updated_at: updated_task.updated_at.to_rfc3339(),
                     has_in_progress_attempt: None,
+                    has_running_dev_server: None,
                     has_merged_attempt: None,
                     last_attempt_failed: None,
                 };
@@ -765,6 +769,7 @@ impl TaskServer {
                     created_at: task.created_at.to_rfc3339(),
                     updated_at: task.updated_at.to_rfc3339(),
                     has_in_progress_attempt: None,
+                    has_running_dev_server: None,
                     has_merged_attempt: None,
                     last_attempt_failed: None,
                 };
