@@ -20,7 +20,7 @@ use db::models::{
 use deployment::Deployment;
 use executors::profile::ExecutorProfileId;
 use futures_util::{SinkExt, StreamExt, TryStreamExt};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use services::services::container::{
     ContainerService, WorktreeCleanupData, cleanup_worktrees_direct,
 };
@@ -34,7 +34,7 @@ use crate::{
     routes::task_attempts::CreateTaskAttemptRepositoryBody,
 };
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct TaskQuery {
     pub project_id: Uuid,
 }

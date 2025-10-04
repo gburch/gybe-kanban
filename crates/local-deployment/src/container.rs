@@ -811,8 +811,11 @@ impl LocalContainerService {
         project_repo_path: &Path,
         merge_commit_id: &str,
         stats_only: bool,
+<<<<<<< HEAD
         repository_filter: Option<Uuid>,
         repo_lookup: Arc<RepositoryLookup>,
+=======
+>>>>>>> origin/main
     ) -> Result<DiffStreamWithWatcher, ContainerError> {
         let diffs = self.git().get_diffs(
             DiffTarget::Commit {
@@ -860,8 +863,11 @@ impl LocalContainerService {
         worktree_path: &Path,
         base_commit: &Commit,
         stats_only: bool,
+<<<<<<< HEAD
         repository_filter: Option<Uuid>,
         repo_lookup: Arc<RepositoryLookup>,
+=======
+>>>>>>> origin/main
     ) -> Result<DiffStreamWithWatcher, ContainerError> {
         // Get initial snapshot
         let git_service = self.git().clone();
@@ -923,7 +929,11 @@ impl LocalContainerService {
             let git_service = git_service.clone();
             let cumulative = Arc::clone(&cumulative);
             let full_sent = Arc::clone(&full_sent);
+<<<<<<< HEAD
             let repo_lookup = Arc::clone(&repo_lookup);
+=======
+
+>>>>>>> origin/main
             try_stream! {
                 while let Some(result) = rx.next().await {
                     match result {
@@ -2081,6 +2091,7 @@ impl ContainerService for LocalContainerService {
             && self.is_container_clean(task_attempt).await?
             && !is_ahead
         {
+<<<<<<< HEAD
             let wrapper = self.create_merged_diff_stream(
                 &project_repo_path,
                 &commit,
@@ -2088,6 +2099,10 @@ impl ContainerService for LocalContainerService {
                 repository_filter,
                 Arc::clone(&repo_lookup),
             )?;
+=======
+            let wrapper =
+                self.create_merged_diff_stream(&project_repo_path, &commit, stats_only)?;
+>>>>>>> origin/main
             return Ok(Box::pin(wrapper));
         }
 
@@ -2098,6 +2113,7 @@ impl ContainerService for LocalContainerService {
         )?;
 
         let wrapper = self
+<<<<<<< HEAD
             .create_live_diff_stream(
                 &worktree_path,
                 &base_commit,
@@ -2105,6 +2121,9 @@ impl ContainerService for LocalContainerService {
                 repository_filter,
                 repo_lookup,
             )
+=======
+            .create_live_diff_stream(&worktree_path, &base_commit, stats_only)
+>>>>>>> origin/main
             .await?;
         Ok(Box::pin(wrapper))
     }
