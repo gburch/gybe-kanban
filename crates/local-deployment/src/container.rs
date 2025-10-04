@@ -1705,6 +1705,11 @@ impl ContainerService for LocalContainerService {
         for repo in project_repositories {
             let attempt_repo = attempt_repo_map.get(&repo.id);
 
+            // Skip repositories that weren't selected for this attempt
+            if attempt_repo.is_none() {
+                continue;
+            }
+
             let branch_to_use = attempt_repo
                 .and_then(|entry| entry.branch.clone())
                 .map(|b| b.trim().to_string())
