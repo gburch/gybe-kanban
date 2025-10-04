@@ -19,6 +19,12 @@ import dagre from 'dagre';
 
 const CARD_WIDTH = 280;
 const CARD_HEIGHT = 110;
+const FLOW_NODE_VERTICAL_GAP = 6;
+const FLOW_RANK_HORIZONTAL_GAP = 200;
+const FLOW_STATUS_ZONE_GAP = 24;
+const FLOW_LAYOUT_MARGIN_X = 24;
+const FLOW_LAYOUT_MARGIN_Y = 24;
+const FLOW_BASE_X = 24;
 
 type Task = TaskWithAttemptStatus;
 
@@ -178,10 +184,10 @@ function buildFlowLayout(
   const g = new dagre.graphlib.Graph();
   g.setGraph({
     rankdir: 'LR', // Left to right - we'll reverse edge direction to get children left of parents
-    nodesep: 20,   // Vertical spacing between nodes (reduced from 60)
-    ranksep: 300,  // Horizontal spacing between ranks (reduced from 400)
-    marginx: 30,
-    marginy: 30,
+    nodesep: FLOW_NODE_VERTICAL_GAP,
+    ranksep: FLOW_RANK_HORIZONTAL_GAP,
+    marginx: FLOW_LAYOUT_MARGIN_X,
+    marginy: FLOW_LAYOUT_MARGIN_Y,
     ranker: 'tight-tree', // Use tight-tree ranker to respect rank constraints
   });
   g.setDefaultEdgeLabel(() => ({}));
@@ -276,8 +282,8 @@ function buildFlowLayout(
 
   // Define horizontal zones with gaps between status groups
   // Order: Done (left) → Todo (middle) → Active (right)
-  const baseX = 40;
-  const statusGap = 60; // Gap between status zones (reduced from 100)
+  const baseX = FLOW_BASE_X;
+  const statusGap = FLOW_STATUS_ZONE_GAP;
 
   const doneZoneStart = baseX;
   const todoZoneStart = doneZoneStart + doneWidth + statusGap;
