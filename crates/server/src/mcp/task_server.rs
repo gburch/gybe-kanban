@@ -18,7 +18,7 @@ use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json;
 use uuid::Uuid;
 
-use crate::routes::task_attempts::CreateTaskAttemptBody;
+use crate::routes::task_attempts::{CreateTaskAttemptBody, CreateTaskAttemptRepositoryBody};
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct CreateTaskRequest {
@@ -184,6 +184,16 @@ pub struct DeleteTaskRequest {
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct StartTaskAttemptRepositoryRequest {
+    #[schemars(description = "The ID of the project repository")]
+    pub project_repository_id: Uuid,
+    #[schemars(description = "Whether this repository should be the primary one")]
+    pub is_primary: bool,
+    #[schemars(description = "Optional base branch override for this repository")]
+    pub base_branch: Option<String>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct StartTaskAttemptRequest {
     #[schemars(description = "The ID of the task to start")]
     pub task_id: Uuid,
@@ -195,6 +205,8 @@ pub struct StartTaskAttemptRequest {
     pub variant: Option<String>,
     #[schemars(description = "The base branch to use for the attempt")]
     pub base_branch: String,
+    #[schemars(description = "Optional list of specific repositories to use for this attempt. If not provided, all project repositories will be used.")]
+    pub repositories: Option<Vec<StartTaskAttemptRepositoryRequest>>,
 }
 
 #[derive(Debug, Serialize, schemars::JsonSchema)]
@@ -433,6 +445,7 @@ impl TaskServer {
             executor,
             variant,
             base_branch,
+            repositories,
         }): Parameters<StartTaskAttemptRequest>,
     ) -> Result<CallToolResult, ErrorData> {
         let base_branch = base_branch.trim().to_string();
@@ -470,11 +483,23 @@ impl TaskServer {
             variant,
         };
 
+        // Map MCP request repositories to API body format
+        let repositories = repositories.map(|repos| {
+            repos
+                .into_iter()
+                .map(|r| CreateTaskAttemptRepositoryBody {
+                    project_repository_id: r.project_repository_id,
+                    is_primary: r.is_primary,
+                    base_branch: r.base_branch,
+                })
+                .collect()
+        });
+
         let payload = CreateTaskAttemptBody {
             task_id,
             executor_profile_id,
             base_branch,
-            repositories: None,
+            repositories,
         };
 
         let url = self.url("/api/task-attempts");
