@@ -66,6 +66,14 @@ export function TaskRelationshipViewer({
       return;
     }
 
+    // Check for parent_task_id first (new way)
+    if (task?.parent_task_id && tasksById) {
+      const parentTaskData = tasksById[task.parent_task_id];
+      setParentTask(parentTaskData || null);
+      return;
+    }
+
+    // Fall back to parent_task_attempt (legacy way)
     if (task?.parent_task_attempt && tasksById) {
       attemptsApi
         .get(task.parent_task_attempt)
@@ -78,10 +86,32 @@ export function TaskRelationshipViewer({
     } else {
       setParentTask(null);
     }
-  }, [selectedAttempt?.id, task?.parent_task_attempt, tasksById]);
+  }, [selectedAttempt?.id, task?.parent_task_attempt, task?.parent_task_id, tasksById]);
 
   const displayParentTask = relationships?.parent_task || parentTask;
-  const childTasks = relationships?.children || [];
+
+  // Combine attempt-based children with task-based subtasks
+  const attemptChildren = relationships?.children || [];
+  const taskSubtasks = relationships?.subtasks || [];
+
+  // Also find subtasks from tasksById for tasks without attempts
+  const directSubtasks = tasksById && task?.id
+    ? Object.values(tasksById).filter(t => t.parent_task_id === task.id)
+    : [];
+
+  // Merge all children, avoiding duplicates
+  const allChildTaskIds = new Set([
+    ...attemptChildren.map(t => t.id),
+    ...taskSubtasks.map(t => t.id),
+    ...directSubtasks.map(t => t.id),
+  ]);
+
+  const childTasks = [
+    ...attemptChildren,
+    ...taskSubtasks.filter(t => !attemptChildren.find(c => c.id === t.id)),
+    ...directSubtasks.filter(t => !allChildTaskIds.has(t.id) || allChildTaskIds.size === directSubtasks.length),
+  ];
+
   const hasParent = displayParentTask !== null;
   const hasChildren = childTasks.length > 0;
 
