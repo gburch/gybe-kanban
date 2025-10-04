@@ -25,7 +25,7 @@ use serde::Deserialize;
 use services::services::{
     file_ranker::FileRanker,
     file_search_cache::{CacheError, SearchMode, SearchQuery},
-    git::GitBranch,
+    git::{GitBranch, GitRemote},
 };
 use utils::{path::expand_tilde, response::ApiResponse};
 use uuid::Uuid;
@@ -465,6 +465,35 @@ pub async fn delete_project_repository(
             Err(StatusCode::INTERNAL_SERVER_ERROR)
         }
     }
+}
+
+pub async fn get_project_remotes(
+    Extension(project): Extension<Project>,
+    State(deployment): State<DeploymentImpl>,
+    Query(repo_query): Query<RepositoryQuery>,
+) -> Result<ResponseJson<ApiResponse<Vec<GitRemote>>>, ApiError> {
+    let pool = &deployment.db().pool;
+    let repo_path = if let Some(repo_id) = repo_query.repo_id {
+        match ProjectRepository::find_by_id(pool, repo_id).await? {
+            Some(repo) if repo.project_id == project.id => repo.git_repo_path.clone(),
+            Some(_) => {
+                return Ok(ResponseJson(ApiResponse::error(
+                    "Repository not found for this project",
+                )));
+            }
+            None => {
+                return Ok(ResponseJson(ApiResponse::error("Repository not found")));
+            }
+        }
+    } else {
+        match ProjectRepository::find_primary(pool, project.id).await? {
+            Some(primary) => primary.git_repo_path.clone(),
+            None => project.git_repo_path.clone(),
+        }
+    };
+
+    let remotes = deployment.git().get_all_remotes(&repo_path)?;
+    Ok(ResponseJson(ApiResponse::success(remotes)))
 }
 
 pub async fn create_project(
@@ -1014,6 +1043,7 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
         .route("/activity_feed", get(activity_feed::get_activity_feed))
         .route("/activity_feed/ws", get(project_activity_feed_ws))
         .route("/branches", get(get_project_branches))
+        .route("/remotes", get(get_project_remotes))
         .route(
             "/repositories",
             get(get_project_repositories).post(create_project_repository),

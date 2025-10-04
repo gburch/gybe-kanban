@@ -53,6 +53,7 @@ import {
   ActivityFeedResponse,
   CodexUsageSnapshot,
   ClaudeCodeUsageSnapshot,
+  GitRemote,
 } from 'shared/types';
 
 // Re-export types for convenience
@@ -331,6 +332,14 @@ export const projectsApi = {
       `/api/projects/${id}/branches${repoQuery}`
     );
     return handleApiResponse<GitBranch[]>(response);
+  },
+
+  getRemotes: async (id: string, repoId?: string): Promise<GitRemote[]> => {
+    const repoQuery = repoId ? `?repo_id=${encodeURIComponent(repoId)}` : '';
+    const response = await makeRequest(
+      `/api/projects/${id}/remotes${repoQuery}`
+    );
+    return handleApiResponse<GitRemote[]>(response);
   },
 
   searchFiles: async (

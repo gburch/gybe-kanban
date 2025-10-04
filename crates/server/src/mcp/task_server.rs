@@ -205,7 +205,9 @@ pub struct StartTaskAttemptRequest {
     pub variant: Option<String>,
     #[schemars(description = "The base branch to use for the attempt")]
     pub base_branch: String,
-    #[schemars(description = "Optional list of specific repositories to use for this attempt. If not provided, all project repositories will be used.")]
+    #[schemars(
+        description = "Optional list of specific repositories to use for this attempt. If not provided, all project repositories will be used."
+    )]
     pub repositories: Option<Vec<StartTaskAttemptRepositoryRequest>>,
 }
 
