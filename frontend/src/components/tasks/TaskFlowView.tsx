@@ -290,17 +290,29 @@ function buildFlowLayout(
   const activeZoneStart = todoZoneStart + todoWidth + statusGap;
 
   // Shift each status group to its zone while preserving relative positions
-  statusGroups.done.nodes.forEach(node => {
-    node.x = doneZoneStart + (node.x - statusGroups.done.minX);
-  });
+  // Also compact Y positions within each group to remove gaps
+  const compactAndShiftGroup = (group: FlowNode[], zoneStartX: number, minX: number) => {
+    if (group.length === 0) return;
 
-  statusGroups.todo.nodes.forEach(node => {
-    node.x = todoZoneStart + (node.x - statusGroups.todo.minX);
-  });
+    // Sort nodes by Y position
+    const sortedNodes = [...group].sort((a, b) => a.y - b.y);
 
-  statusGroups.active.nodes.forEach(node => {
-    node.x = activeZoneStart + (node.x - statusGroups.active.minX);
-  });
+    // Compact Y positions
+    let currentY = FLOW_LAYOUT_MARGIN_Y;
+    sortedNodes.forEach(node => {
+      node.y = currentY;
+      currentY += CARD_HEIGHT + FLOW_NODE_VERTICAL_GAP;
+    });
+
+    // Shift X positions to zone
+    group.forEach(node => {
+      node.x = zoneStartX + (node.x - minX);
+    });
+  };
+
+  compactAndShiftGroup(statusGroups.done.nodes, doneZoneStart, statusGroups.done.minX);
+  compactAndShiftGroup(statusGroups.todo.nodes, todoZoneStart, statusGroups.todo.minX);
+  compactAndShiftGroup(statusGroups.active.nodes, activeZoneStart, statusGroups.active.minX);
 
   const computeZoneBounds = (
     group: { nodes: FlowNode[] },
