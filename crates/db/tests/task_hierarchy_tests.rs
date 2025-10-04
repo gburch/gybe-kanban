@@ -1,7 +1,8 @@
-use db::models::project::{CreateProject, Project};
-use db::models::task::{CreateTask, Task};
-use sqlx::SqlitePool;
-use sqlx::sqlite::SqlitePoolOptions;
+use db::models::{
+    project::{CreateProject, Project},
+    task::{CreateTask, Task},
+};
+use sqlx::{SqlitePool, sqlite::SqlitePoolOptions};
 use uuid::Uuid;
 
 /// Helper to create a test database with migrations applied
