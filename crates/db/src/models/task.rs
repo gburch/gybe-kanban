@@ -259,12 +259,14 @@ ORDER BY t.created_at DESC"#,
         pool: &SqlitePool,
         id: Uuid,
         project_id: Uuid,
-        title: String,
-        description: Option<String>,
-        status: TaskStatus,
-        parent_task_attempt: Option<Uuid>,
-        parent_task_id: Option<Uuid>,
+        data: UpdateTask,
     ) -> Result<Self, sqlx::Error> {
+        let title = data.title;
+        let description = data.description;
+        let status = data.status;
+        let parent_task_attempt = data.parent_task_attempt;
+        let parent_task_id = data.parent_task_id;
+
         sqlx::query_as!(
             Task,
             r#"UPDATE tasks
