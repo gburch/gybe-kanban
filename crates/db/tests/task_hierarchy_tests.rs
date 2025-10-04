@@ -1,6 +1,6 @@
 use db::models::{
     project::{CreateProject, Project},
-    task::{CreateTask, Task},
+    task::{CreateTask, Task, UpdateTask},
 };
 use sqlx::{SqlitePool, sqlite::SqlitePoolOptions};
 use uuid::Uuid;
