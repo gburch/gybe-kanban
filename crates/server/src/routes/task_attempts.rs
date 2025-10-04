@@ -736,10 +736,11 @@ pub async fn create_github_pr(
         }
     }
 
-    let preferred_remote = deployment
+    let head_remote = deployment
         .git()
         .get_remote_name_from_branch_name(&workspace_path, &task_attempt.branch)
         .ok();
+    let mut base_remote: Option<String> = None;
 
     let norm_target_branch_name = if matches!(
         deployment
@@ -752,14 +753,22 @@ pub async fn create_github_pr(
         let remote = deployment
             .git()
             .get_remote_name_from_branch_name(&project.git_repo_path, &target_branch)?;
+        base_remote = Some(remote.clone());
         let remote_prefix = format!("{}/", remote);
         target_branch
             .strip_prefix(&remote_prefix)
             .unwrap_or(&target_branch)
             .to_string()
     } else {
-        target_branch
+        if let Ok(remote) = deployment
+            .git()
+            .get_remote_name_from_branch_name(&project.git_repo_path, &target_branch)
+        {
+            base_remote = Some(remote);
+        }
+        target_branch.clone()
     };
+    let preferred_remote = base_remote.clone().or(head_remote);
     // Create the PR using GitHub service
     let pr_request = CreatePrRequest {
         title: request.title.clone(),
@@ -1345,10 +1354,15 @@ pub async fn attach_existing_pr(
     };
 
     let workspace_path = ensure_worktree_path(&deployment, &task_attempt).await?;
-    let preferred_remote = deployment
+    let head_remote = deployment
         .git()
         .get_remote_name_from_branch_name(&workspace_path, &task_attempt.branch)
         .ok();
+    let base_remote = deployment
+        .git()
+        .get_remote_name_from_branch_name(&project.git_repo_path, &task_attempt.target_branch)
+        .ok();
+    let preferred_remote = base_remote.clone().or(head_remote);
 
     let github_service = GitHubService::new(&github_token)?;
     let repo_info = deployment
