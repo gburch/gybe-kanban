@@ -619,7 +619,7 @@ function TaskFlowView({
       </div>
 
       {/* Zoom controls */}
-      <div className="fixed top-20 right-4 z-50 flex flex-col gap-2">
+      <div className="fixed top-20 right-4 z-30 flex flex-col gap-2">
         <Button
           size="icon"
           variant="secondary"
@@ -653,7 +653,7 @@ function TaskFlowView({
       </div>
 
       {/* Minimap */}
-      <div className="fixed bottom-4 right-4 z-50">
+      <div className="fixed bottom-4 right-4 z-30">
         <canvas
           ref={minimapRef}
           className="border border-border/50 rounded bg-background/80 backdrop-blur-sm shadow-lg cursor-pointer"
