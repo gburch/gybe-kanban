@@ -1770,24 +1770,30 @@ impl GitService {
         &self,
         worktree_path: &Path,
         branch_name: &str,
+        remote_override: Option<&str>,
         github_token: &str,
     ) -> Result<(), GitServiceError> {
         let repo = Repository::open(worktree_path)?;
         self.check_worktree_clean(&repo)?;
 
         let default_remote_name = self.default_remote_name(&repo);
-        let branch = Self::find_branch(&repo, branch_name)?;
-        let branch_ref = branch.get();
-
-        let remote = self
-            .get_remote_from_branch_ref(&repo, branch_ref)
-            .or_else(|_| {
-                repo.find_remote(&default_remote_name).map_err(|_| {
-                    GitServiceError::InvalidRepository(format!(
-                        "Remote '{default_remote_name}' not found for branch '{branch_name}'"
-                    ))
-                })
-            })?;
+        let mut branch = Self::find_branch(&repo, branch_name)?;
+        let remote = if let Some(target_remote) = remote_override {
+            repo.find_remote(target_remote).map_err(|_| {
+                GitServiceError::InvalidRepository(format!(
+                    "Remote '{target_remote}' not found for branch '{branch_name}'"
+                ))
+            })?
+        } else {
+            self.get_remote_from_branch_ref(&repo, branch.get())
+                .or_else(|_| {
+                    repo.find_remote(&default_remote_name).map_err(|_| {
+                        GitServiceError::InvalidRepository(format!(
+                            "Remote '{default_remote_name}' not found for branch '{branch_name}'"
+                        ))
+                    })
+                })?
+        };
         let remote_name = remote.name().unwrap_or(&default_remote_name).to_string();
 
         let remote_url = remote
@@ -1802,7 +1808,6 @@ impl GitService {
             return Err(e.into());
         }
 
-        let mut branch = branch;
         if !branch.get().is_remote() {
             if let Some(branch_target) = branch.get().target() {
                 let remote_ref = format!("refs/remotes/{remote_name}/{branch_name}");

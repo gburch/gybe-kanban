@@ -675,10 +675,17 @@ pub async fn push_task_attempt_branch(
     github_service.check_token().await?;
 
     let ws_path = ensure_worktree_path(&deployment, &task_attempt).await?;
-
-    deployment
+    let branch_remote = deployment
         .git()
-        .push_to_github(&ws_path, &task_attempt.branch, &github_token)?;
+        .get_remote_name_from_branch_name(&ws_path, &task_attempt.branch)
+        .ok();
+
+    deployment.git().push_to_github(
+        &ws_path,
+        &task_attempt.branch,
+        branch_remote.as_deref(),
+        &github_token,
+    )?;
     Ok(ResponseJson(ApiResponse::success(())))
 }
 
@@ -720,12 +727,18 @@ pub async fn create_github_pr(
 
     let workspace_path = ensure_worktree_path(&deployment, &task_attempt).await?;
 
+    let branch_remote = deployment
+        .git()
+        .get_remote_name_from_branch_name(&workspace_path, &task_attempt.branch)
+        .ok();
+
     // Push the branch to GitHub first
-    if let Err(e) =
-        deployment
-            .git()
-            .push_to_github(&workspace_path, &task_attempt.branch, &github_token)
-    {
+    if let Err(e) = deployment.git().push_to_github(
+        &workspace_path,
+        &task_attempt.branch,
+        branch_remote.as_deref(),
+        &github_token,
+    ) {
         tracing::error!("Failed to push branch to GitHub: {}", e);
         let gh_e = GitHubServiceError::from(e);
         if gh_e.is_api_data() {
@@ -736,11 +749,12 @@ pub async fn create_github_pr(
             )));
         }
     }
-
-    let head_remote = deployment
-        .git()
-        .get_remote_name_from_branch_name(&workspace_path, &task_attempt.branch)
-        .ok();
+    let head_remote = branch_remote.clone().or_else(|| {
+        deployment
+            .git()
+            .get_remote_name_from_branch_name(&workspace_path, &task_attempt.branch)
+            .ok()
+    });
     let mut base_remote: Option<String> = None;
 
     let norm_target_branch_name = if matches!(
@@ -773,13 +787,21 @@ pub async fn create_github_pr(
         .remote_name
         .clone()
         .or(base_remote.clone())
-        .or(head_remote);
+        .or_else(|| head_remote.clone());
+    let head_repo_info = head_remote.as_ref().and_then(|remote| {
+        deployment
+            .git()
+            .get_github_repo_info(&project.git_repo_path, Some(remote.as_str()))
+            .ok()
+    });
+
     // Create the PR using GitHub service
     let pr_request = CreatePrRequest {
         title: request.title.clone(),
         body: request.body.clone(),
         head_branch: task_attempt.branch.clone(),
         base_branch: norm_target_branch_name.clone(),
+        head_repo: head_repo_info.clone(),
     };
     // Use GitService to get the remote URL, then create GitHubRepoInfo
     let repo_info = deployment
