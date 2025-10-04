@@ -1,6 +1,7 @@
 import { Dispatch, SetStateAction, useCallback } from 'react';
 import { Button } from '@/components/ui/button.tsx';
 import { X, GitFork } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import type { GitBranch, Task } from 'shared/types';
 import type { ExecutorConfig } from 'shared/types';
 import type { ExecutorProfileId } from 'shared/types';
@@ -42,6 +43,7 @@ function CreateAttempt({
   availableProfiles,
   selectedAttempt,
 }: Props) {
+  const { t } = useTranslation('tasks');
   const { isAttemptRunning } = useAttemptExecution(selectedAttempt?.id);
   const { createAttempt, isCreating } = useAttemptCreation(task.id);
 
@@ -196,7 +198,7 @@ function CreateAttempt({
             className="w-full gap-2"
           >
             <GitFork className="h-4 w-4" />
-            Create Subtask
+            {t('actions.createSubtask')}
           </Button>
         </div>
       </div>
