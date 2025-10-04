@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use crate::{
-    actions::{Executable, ExecutorSpawnContext},
+    actions::{Executable, ExecutorSpawnContext, repo_context::augment_prompt_with_repo_context},
     executors::{ExecutorError, SpawnedChild, StandardCodingAgentExecutor},
     profile::{ExecutorConfigs, ExecutorProfileId},
 };
@@ -27,6 +27,10 @@ impl Executable for CodingAgentInitialRequest {
                 executor_profile_id.to_string(),
             ))?;
 
-        agent.spawn(ctx.current_dir, &self.prompt, ctx.env).await
+        let prompt_with_context = augment_prompt_with_repo_context(&self.prompt, ctx.env);
+
+        agent
+            .spawn(ctx.current_dir, &prompt_with_context, ctx.env)
+            .await
     }
 }

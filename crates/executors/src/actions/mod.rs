@@ -14,6 +14,7 @@ use crate::{
 };
 pub mod coding_agent_follow_up;
 pub mod coding_agent_initial;
+pub mod repo_context;
 pub mod script;
 
 pub struct ExecutorSpawnContext<'a> {
