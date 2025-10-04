@@ -91,6 +91,7 @@ pub struct CreateGitHubPrRequest {
     pub body: Option<String>,
     pub target_branch: Option<String>,
     pub remote_name: Option<String>,
+    pub head_remote_name: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -727,16 +728,20 @@ pub async fn create_github_pr(
 
     let workspace_path = ensure_worktree_path(&deployment, &task_attempt).await?;
 
-    let branch_remote = deployment
+    let inferred_branch_remote = deployment
         .git()
         .get_remote_name_from_branch_name(&workspace_path, &task_attempt.branch)
         .ok();
+    let head_remote_name = request
+        .head_remote_name
+        .clone()
+        .or_else(|| inferred_branch_remote.clone());
 
     // Push the branch to GitHub first
     if let Err(e) = deployment.git().push_to_github(
         &workspace_path,
         &task_attempt.branch,
-        branch_remote.as_deref(),
+        head_remote_name.as_deref(),
         &github_token,
     ) {
         tracing::error!("Failed to push branch to GitHub: {}", e);
@@ -749,12 +754,14 @@ pub async fn create_github_pr(
             )));
         }
     }
-    let head_remote = branch_remote.clone().or_else(|| {
-        deployment
-            .git()
-            .get_remote_name_from_branch_name(&workspace_path, &task_attempt.branch)
-            .ok()
-    });
+    let head_remote = head_remote_name
+        .clone()
+        .or_else(|| {
+            deployment
+                .git()
+                .get_remote_name_from_branch_name(&workspace_path, &task_attempt.branch)
+                .ok()
+        });
     let mut base_remote: Option<String> = None;
 
     let norm_target_branch_name = if matches!(
