@@ -19,7 +19,7 @@ import dagre from 'dagre';
 
 const CARD_WIDTH = 280;
 const CARD_HEIGHT = 110;
-const FLOW_NODE_VERTICAL_GAP = 6;
+const FLOW_NODE_VERTICAL_GAP = 2;
 const FLOW_RANK_HORIZONTAL_GAP = 200;
 const FLOW_STATUS_ZONE_GAP = 24;
 const FLOW_LAYOUT_MARGIN_X = 24;
