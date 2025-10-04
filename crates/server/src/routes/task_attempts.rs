@@ -90,6 +90,7 @@ pub struct CreateGitHubPrRequest {
     pub title: String,
     pub body: Option<String>,
     pub target_branch: Option<String>,
+    pub remote_name: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -768,7 +769,11 @@ pub async fn create_github_pr(
         }
         target_branch.clone()
     };
-    let preferred_remote = base_remote.clone().or(head_remote);
+    let preferred_remote = request
+        .remote_name
+        .clone()
+        .or(base_remote.clone())
+        .or(head_remote);
     // Create the PR using GitHub service
     let pr_request = CreatePrRequest {
         title: request.title.clone(),
