@@ -294,14 +294,34 @@ function buildFlowLayout(
   const compactAndShiftGroup = (group: FlowNode[], zoneStartX: number, minX: number) => {
     if (group.length === 0) return;
 
-    // Sort nodes by Y position
-    const sortedNodes = [...group].sort((a, b) => a.y - b.y);
+    // Group nodes by their X position (same column in hierarchy)
+    // Use a tolerance to group nodes that are very close in X
+    const xTolerance = 10;
+    const xGroups = new Map<number, FlowNode[]>();
 
-    // Compact Y positions
-    let currentY = FLOW_LAYOUT_MARGIN_Y;
-    sortedNodes.forEach(node => {
-      node.y = currentY;
-      currentY += CARD_HEIGHT + FLOW_NODE_VERTICAL_GAP;
+    group.forEach(node => {
+      // Find existing group with similar X, or create new one
+      let foundGroup = false;
+      for (const [x, nodes] of xGroups.entries()) {
+        if (Math.abs(node.x - x) < xTolerance) {
+          nodes.push(node);
+          foundGroup = true;
+          break;
+        }
+      }
+      if (!foundGroup) {
+        xGroups.set(node.x, [node]);
+      }
+    });
+
+    // Compact Y positions within each X group (vertical column)
+    xGroups.forEach((nodes) => {
+      const sortedNodes = [...nodes].sort((a, b) => a.y - b.y);
+      let currentY = FLOW_LAYOUT_MARGIN_Y;
+      sortedNodes.forEach(node => {
+        node.y = currentY;
+        currentY += CARD_HEIGHT + FLOW_NODE_VERTICAL_GAP;
+      });
     });
 
     // Shift X positions to zone
