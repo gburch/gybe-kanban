@@ -21,6 +21,7 @@ import {
 import BranchSelector from '@/components/tasks/BranchSelector';
 import { useCallback, useEffect, useState } from 'react';
 import { attemptsApi } from '@/lib/api.ts';
+import { useTranslation } from 'react-i18next';
 
 import {
   GitBranch,
@@ -50,6 +51,7 @@ const CreatePrDialog = NiceModal.create(() => {
   const [selectedHeadRemote, setSelectedHeadRemote] = useState<string | null>(
     null
   );
+  const { t } = useTranslation(['tasks']);
 
   const getRemoteFromBranchName = useCallback((branchName?: string | null) => {
     if (!branchName) return null;
@@ -88,10 +90,7 @@ const CreatePrDialog = NiceModal.create(() => {
               }
             }
 
-            if (
-              !projectBranches.length &&
-              !data.attempt.target_branch
-            ) {
+            if (!projectBranches.length && !data.attempt.target_branch) {
               setPrBaseBranch('');
             }
 
@@ -219,7 +218,15 @@ const CreatePrDialog = NiceModal.create(() => {
       }
     }
     setCreatingPR(false);
-  }, [data, prBaseBranch, prBody, prTitle, selectedRemote, modal]);
+  }, [
+    data,
+    prBaseBranch,
+    prBody,
+    prTitle,
+    selectedRemote,
+    selectedHeadRemote,
+    modal,
+  ]);
 
   const handleCancelCreatePR = useCallback(() => {
     modal.hide();
@@ -247,26 +254,32 @@ const CreatePrDialog = NiceModal.create(() => {
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div className="space-y-2">
-              <Label htmlFor="pr-title">Title</Label>
+              <Label htmlFor="pr-title">
+                {t('tasks:git.createPr.labels.title')}
+              </Label>
               <Input
                 id="pr-title"
                 value={prTitle}
                 onChange={(e) => setPrTitle(e.target.value)}
-                placeholder="Enter PR title"
+                placeholder={t('tasks:git.createPr.placeholders.title')}
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="pr-body">Description (optional)</Label>
+              <Label htmlFor="pr-body">
+                {t('tasks:git.createPr.labels.descriptionOptional')}
+              </Label>
               <Textarea
                 id="pr-body"
                 value={prBody}
                 onChange={(e) => setPrBody(e.target.value)}
-                placeholder="Enter PR description"
+                placeholder={t('tasks:git.createPr.placeholders.description')}
                 rows={4}
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="pr-remote">Remote</Label>
+              <Label htmlFor="pr-remote">
+                {t('tasks:git.createPr.labels.remote')}
+              </Label>
               <Select
                 value={selectedRemote ?? undefined}
                 onValueChange={(value) => setSelectedRemote(value)}
@@ -281,24 +294,28 @@ const CreatePrDialog = NiceModal.create(() => {
                   <SelectValue
                     placeholder={
                       remotesLoading
-                        ? 'Loading remotes...'
+                        ? t('tasks:git.createPr.placeholders.remote.loading')
                         : remotes.length === 0
-                        ? 'No remotes found'
-                        : 'Select remote'
+                          ? t('tasks:git.createPr.placeholders.remote.empty')
+                          : t('tasks:git.createPr.placeholders.remote.default')
                     }
                   />
                 </SelectTrigger>
                 <SelectContent>
                   {remotes.map((remote) => (
                     <SelectItem key={remote.name} value={remote.name}>
-                      {remote.url ? `${remote.name} (${remote.url})` : remote.name}
+                      {remote.url
+                        ? `${remote.name} (${remote.url})`
+                        : remote.name}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="pr-head-remote">Source Remote</Label>
+              <Label htmlFor="pr-head-remote">
+                {t('tasks:git.createPr.labels.sourceRemote')}
+              </Label>
               <Select
                 value={selectedHeadRemote ?? undefined}
                 onValueChange={(value) => setSelectedHeadRemote(value)}
@@ -313,30 +330,38 @@ const CreatePrDialog = NiceModal.create(() => {
                   <SelectValue
                     placeholder={
                       remotesLoading
-                        ? 'Loading remotes...'
+                        ? t('tasks:git.createPr.placeholders.remote.loading')
                         : remotes.length === 0
-                        ? 'No remotes found'
-                        : 'Select source remote'
+                          ? t('tasks:git.createPr.placeholders.remote.empty')
+                          : t(
+                              'tasks:git.createPr.placeholders.sourceRemote.default'
+                            )
                     }
                   />
                 </SelectTrigger>
                 <SelectContent>
                   {remotes.map((remote) => (
                     <SelectItem key={remote.name} value={remote.name}>
-                      {remote.url ? `${remote.name} (${remote.url})` : remote.name}
+                      {remote.url
+                        ? `${remote.name} (${remote.url})`
+                        : remote.name}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="pr-base">Base Branch</Label>
+              <Label htmlFor="pr-base">
+                {t('tasks:git.createPr.labels.baseBranch')}
+              </Label>
               <BranchSelector
                 branches={branches}
                 selectedBranch={prBaseBranch}
                 onBranchSelect={setPrBaseBranch}
                 placeholder={
-                  branchesLoading ? 'Loading branches...' : 'Select base branch'
+                  branchesLoading
+                    ? t('tasks:git.createPr.placeholders.baseBranch.loading')
+                    : t('tasks:git.createPr.placeholders.baseBranch.default')
                 }
                 className={
                   branchesLoading ? 'opacity-50 cursor-not-allowed' : ''

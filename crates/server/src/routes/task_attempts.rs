@@ -754,14 +754,12 @@ pub async fn create_github_pr(
             )));
         }
     }
-    let head_remote = head_remote_name
-        .clone()
-        .or_else(|| {
-            deployment
-                .git()
-                .get_remote_name_from_branch_name(&workspace_path, &task_attempt.branch)
-                .ok()
-        });
+    let head_remote = head_remote_name.clone().or_else(|| {
+        deployment
+            .git()
+            .get_remote_name_from_branch_name(&workspace_path, &task_attempt.branch)
+            .ok()
+    });
     let mut base_remote: Option<String> = None;
 
     let norm_target_branch_name = if matches!(
