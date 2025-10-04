@@ -73,6 +73,16 @@ function BranchSelector({
     setHighlighted(null);
   }, [branchSearchTerm]);
 
+  // Focus search input when dropdown opens
+  useEffect(() => {
+    if (open && searchInputRef.current) {
+      // Small delay to ensure dropdown is rendered
+      setTimeout(() => {
+        searchInputRef.current?.focus();
+      }, 0);
+    }
+  }, [open]);
+
   return (
     <DropdownMenu open={open} onOpenChange={setOpen}>
       <DropdownMenuTrigger asChild>
