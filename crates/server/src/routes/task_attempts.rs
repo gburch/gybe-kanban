@@ -128,7 +128,7 @@ pub async fn get_task_attempt(
     Ok(ResponseJson(ApiResponse::success(task_attempt)))
 }
 
-#[derive(Debug, Deserialize, ts_rs::TS)]
+#[derive(Debug, Serialize, Deserialize, ts_rs::TS)]
 pub struct CreateTaskAttemptRepositoryBody {
     pub project_repository_id: Uuid,
     #[serde(default)]
@@ -137,7 +137,7 @@ pub struct CreateTaskAttemptRepositoryBody {
     pub base_branch: Option<String>,
 }
 
-#[derive(Debug, Deserialize, ts_rs::TS)]
+#[derive(Debug, Serialize, Deserialize, ts_rs::TS)]
 pub struct CreateTaskAttemptBody {
     pub task_id: Uuid,
     /// Executor profile specification

@@ -924,6 +924,7 @@ impl LocalContainerService {
             let cumulative = Arc::clone(&cumulative);
             let full_sent = Arc::clone(&full_sent);
             let repo_lookup = Arc::clone(&repo_lookup);
+
             try_stream! {
                 while let Some(result) = rx.next().await {
                     match result {

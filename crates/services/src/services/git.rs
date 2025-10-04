@@ -894,17 +894,35 @@ impl GitService {
         branch_ref: &Reference,
         base_branch_ref: &Reference,
     ) -> Result<(usize, usize), GitServiceError> {
-        let (a, b) = repo.graph_ahead_behind(
-            branch_ref.target().ok_or(GitServiceError::BranchNotFound(
+        let branch_oid = branch_ref
+            .target()
+            .ok_or(GitServiceError::BranchNotFound(
                 "Branch not found".to_string(),
-            ))?,
-            base_branch_ref
-                .target()
-                .ok_or(GitServiceError::BranchNotFound(
-                    "Branch not found".to_string(),
-                ))?,
-        )?;
-        Ok((a, b))
+            ))?;
+        let base_oid = base_branch_ref
+            .target()
+            .ok_or(GitServiceError::BranchNotFound(
+                "Branch not found".to_string(),
+            ))?;
+
+        // Check if base branch is an ancestor of our branch
+        // If it is, we're fully up-to-date with the base (commits_behind = 0)
+        let is_ancestor = repo
+            .graph_descendant_of(branch_oid, base_oid)
+            .unwrap_or(false);
+
+        let (ahead, behind) = if is_ancestor {
+            // Base is in our history, so we're not behind at all
+            // Count commits from base to our HEAD (using merge base)
+            let merge_base = repo.merge_base(branch_oid, base_oid)?;
+            let (a, _) = repo.graph_ahead_behind(branch_oid, merge_base)?;
+            (a, 0)
+        } else {
+            // Base has commits we don't have
+            repo.graph_ahead_behind(branch_oid, base_oid)?
+        };
+
+        Ok((ahead, behind))
     }
 
     pub fn get_branch_status(

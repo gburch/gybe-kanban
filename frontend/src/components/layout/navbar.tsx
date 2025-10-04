@@ -13,6 +13,7 @@ import {
   Settings,
   BookOpen,
   MessageCircleQuestion,
+  MessageCircle,
   Menu,
   Plus,
   LayoutGrid,
@@ -45,6 +46,11 @@ const EXTERNAL_LINKS = [
     label: 'Support',
     icon: MessageCircleQuestion,
     href: 'https://github.com/BloopAI/vibe-kanban/issues',
+  },
+  {
+    label: 'Discord',
+    icon: MessageCircle,
+    href: 'https://discord.gg/AC4nwVtJM3',
   },
 ];
 
