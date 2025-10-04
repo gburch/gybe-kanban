@@ -86,20 +86,27 @@ export function TaskRelationshipViewer({
     } else {
       setParentTask(null);
     }
-  }, [selectedAttempt?.id, task?.parent_task_attempt, task?.parent_task_id, tasksById]);
+  }, [
+    selectedAttempt?.id,
+    task?.parent_task_attempt,
+    task?.parent_task_id,
+    tasksById,
+  ]);
 
   const displayParentTask = relationships?.parent_task || parentTask;
 
   // Get subtasks via parent_task_id (new way)
   // First check relationships API (when there's an attempt), then fall back to tasksById
   const subtasksFromRelationships = relationships?.subtasks || [];
-  const subtasksFromTasksById = tasksById && task?.id
-    ? Object.values(tasksById).filter(t => t.parent_task_id === task.id)
-    : [];
+  const subtasksFromTasksById =
+    tasksById && task?.id
+      ? Object.values(tasksById).filter((t) => t.parent_task_id === task.id)
+      : [];
 
-  const subtasks = subtasksFromRelationships.length > 0
-    ? subtasksFromRelationships
-    : subtasksFromTasksById;
+  const subtasks =
+    subtasksFromRelationships.length > 0
+      ? subtasksFromRelationships
+      : subtasksFromTasksById;
 
   // Legacy: tasks created by this attempt via parent_task_attempt
   const legacyChildren = relationships?.children || [];
@@ -107,7 +114,9 @@ export function TaskRelationshipViewer({
   // Combine, preferring subtasks over legacy children (avoid showing same task twice)
   const childTasks = [
     ...subtasks,
-    ...legacyChildren.filter(legacy => !subtasks.find(sub => sub.id === legacy.id)),
+    ...legacyChildren.filter(
+      (legacy) => !subtasks.find((sub) => sub.id === legacy.id)
+    ),
   ];
 
   const hasParent = displayParentTask !== null;
