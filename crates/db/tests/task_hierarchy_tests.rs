@@ -1,8 +1,8 @@
-use sqlx::sqlite::SqlitePoolOptions;
-use sqlx::SqlitePool;
-use uuid::Uuid;
 use db::models::project::{CreateProject, Project};
 use db::models::task::{CreateTask, Task};
+use sqlx::SqlitePool;
+use sqlx::sqlite::SqlitePoolOptions;
+use uuid::Uuid;
 
 /// Helper to create a test database with migrations applied
 async fn setup_test_db() -> SqlitePool {

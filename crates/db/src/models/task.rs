@@ -27,7 +27,7 @@ pub struct Task {
     pub description: Option<String>,
     pub status: TaskStatus,
     pub parent_task_attempt: Option<Uuid>, // Foreign key to parent TaskAttempt (legacy)
-    pub parent_task_id: Option<Uuid>, // Foreign key to parent Task
+    pub parent_task_id: Option<Uuid>,      // Foreign key to parent Task
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
