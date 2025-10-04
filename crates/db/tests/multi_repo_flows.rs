@@ -195,10 +195,12 @@ async fn attempt_explicit_repository_selection_respected() -> TestResult<()> {
                 CreateTaskAttemptRepository {
                     project_repository_id: default_primary.id,
                     is_primary: false,
+                    base_branch: None,
                 },
                 CreateTaskAttemptRepository {
                     project_repository_id: shared_utils.id,
                     is_primary: true,
+                    base_branch: None,
                 },
             ]),
         },

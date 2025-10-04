@@ -1,4 +1,5 @@
 use std::{
+    collections::HashMap,
     path::{Path, PathBuf},
     process::Stdio,
     sync::Arc,
@@ -24,6 +25,7 @@ use workspace_utils::{
 
 use crate::{
     command::{CmdOverrides, CommandBuilder, apply_overrides},
+    env::apply_env,
     executors::{AppendPrompt, ExecutorError, SpawnedChild, StandardCodingAgentExecutor},
     logs::{
         NormalizedEntry, NormalizedEntryType, plain_text_processor::PlainTextLogProcessor,
@@ -96,7 +98,12 @@ impl Copilot {
 
 #[async_trait]
 impl StandardCodingAgentExecutor for Copilot {
-    async fn spawn(&self, current_dir: &Path, prompt: &str) -> Result<SpawnedChild, ExecutorError> {
+    async fn spawn(
+        &self,
+        current_dir: &Path,
+        prompt: &str,
+        env: Option<&HashMap<String, String>>,
+    ) -> Result<SpawnedChild, ExecutorError> {
         let (shell_cmd, shell_arg) = get_shell_command();
         let log_dir = Self::create_temp_log_dir(current_dir).await?;
         let copilot_command = self
@@ -115,6 +122,8 @@ impl StandardCodingAgentExecutor for Copilot {
             .arg(shell_arg)
             .arg(copilot_command)
             .env("NODE_NO_WARNINGS", "1");
+
+        apply_env(&mut command, env);
 
         let mut child = command.group_spawn()?;
 
@@ -135,6 +144,7 @@ impl StandardCodingAgentExecutor for Copilot {
         current_dir: &Path,
         prompt: &str,
         session_id: &str,
+        env: Option<&HashMap<String, String>>,
     ) -> Result<SpawnedChild, ExecutorError> {
         let (shell_cmd, shell_arg) = get_shell_command();
         let log_dir = Self::create_temp_log_dir(current_dir).await?;
@@ -155,6 +165,8 @@ impl StandardCodingAgentExecutor for Copilot {
             .arg(shell_arg)
             .arg(copilot_command)
             .env("NODE_NO_WARNINGS", "1");
+
+        apply_env(&mut command, env);
 
         let mut child = command.group_spawn()?;
 

@@ -129,6 +129,15 @@ pub async fn get_task_attempt(
 }
 
 #[derive(Debug, Serialize, Deserialize, ts_rs::TS)]
+pub struct CreateTaskAttemptRepositoryBody {
+    pub project_repository_id: Uuid,
+    #[serde(default)]
+    pub is_primary: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base_branch: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, ts_rs::TS)]
 pub struct CreateTaskAttemptBody {
     pub task_id: Uuid,
     /// Executor profile specification

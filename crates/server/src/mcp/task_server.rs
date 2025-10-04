@@ -123,6 +123,7 @@ impl TaskSummary {
             created_at: task.created_at.to_rfc3339(),
             updated_at: task.updated_at.to_rfc3339(),
             has_in_progress_attempt: None,
+            has_running_dev_server: None,
             has_merged_attempt: None,
             last_attempt_failed: None,
         }
@@ -137,6 +138,7 @@ impl TaskSummary {
             created_at: task.created_at.to_rfc3339(),
             updated_at: task.updated_at.to_rfc3339(),
             has_in_progress_attempt: Some(task.has_in_progress_attempt),
+            has_running_dev_server: Some(task.has_running_dev_server),
             has_merged_attempt: Some(task.has_merged_attempt),
             last_attempt_failed: Some(task.last_attempt_failed),
         }
@@ -472,6 +474,7 @@ impl TaskServer {
             task_id,
             executor_profile_id,
             base_branch,
+            repositories: None,
         };
 
         let url = self.url("/api/task-attempts");
