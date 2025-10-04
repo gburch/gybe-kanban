@@ -1,8 +1,4 @@
 use std::{
-<<<<<<< HEAD
-    collections::HashMap,
-=======
->>>>>>> origin/main
     path::{Path, PathBuf},
     process::Stdio,
     sync::Arc,
@@ -28,10 +24,6 @@ use workspace_utils::{
 
 use crate::{
     command::{CmdOverrides, CommandBuilder, apply_overrides},
-<<<<<<< HEAD
-    env::apply_env,
-=======
->>>>>>> origin/main
     executors::{AppendPrompt, ExecutorError, SpawnedChild, StandardCodingAgentExecutor},
     logs::{
         NormalizedEntry, NormalizedEntryType, plain_text_processor::PlainTextLogProcessor,
@@ -104,16 +96,7 @@ impl Copilot {
 
 #[async_trait]
 impl StandardCodingAgentExecutor for Copilot {
-<<<<<<< HEAD
-    async fn spawn(
-        &self,
-        current_dir: &Path,
-        prompt: &str,
-        env: Option<&HashMap<String, String>>,
-    ) -> Result<SpawnedChild, ExecutorError> {
-=======
     async fn spawn(&self, current_dir: &Path, prompt: &str) -> Result<SpawnedChild, ExecutorError> {
->>>>>>> origin/main
         let (shell_cmd, shell_arg) = get_shell_command();
         let log_dir = Self::create_temp_log_dir(current_dir).await?;
         let copilot_command = self
@@ -133,11 +116,6 @@ impl StandardCodingAgentExecutor for Copilot {
             .arg(copilot_command)
             .env("NODE_NO_WARNINGS", "1");
 
-<<<<<<< HEAD
-        apply_env(&mut command, env);
-
-=======
->>>>>>> origin/main
         let mut child = command.group_spawn()?;
 
         // Write prompt to stdin
@@ -157,10 +135,6 @@ impl StandardCodingAgentExecutor for Copilot {
         current_dir: &Path,
         prompt: &str,
         session_id: &str,
-<<<<<<< HEAD
-        env: Option<&HashMap<String, String>>,
-=======
->>>>>>> origin/main
     ) -> Result<SpawnedChild, ExecutorError> {
         let (shell_cmd, shell_arg) = get_shell_command();
         let log_dir = Self::create_temp_log_dir(current_dir).await?;
@@ -182,11 +156,6 @@ impl StandardCodingAgentExecutor for Copilot {
             .arg(copilot_command)
             .env("NODE_NO_WARNINGS", "1");
 
-<<<<<<< HEAD
-        apply_env(&mut command, env);
-
-=======
->>>>>>> origin/main
         let mut child = command.group_spawn()?;
 
         // Write comprehensive prompt to stdin

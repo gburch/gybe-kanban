@@ -59,18 +59,12 @@ fn main() -> anyhow::Result<()> {
                     }
                 };
 
-<<<<<<< HEAD
-            tracing::debug!("[MCP] Using asset dir {}", asset_dir().display());
-
-            let service = TaskServer::new(pool)
-=======
                 let url = format!("http://{}:{}", host, port);
                 tracing::info!("[MCP] Using backend URL: {}", url);
                 url
             };
 
             let service = TaskServer::new(&base_url)
->>>>>>> origin/main
                 .serve(stdio())
                 .await
                 .inspect_err(|e| {

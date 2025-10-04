@@ -22,12 +22,8 @@ async-trait = "0.1"
 regex = "1.11.1"
 sentry-tracing = { version = "0.41.0", features = ["backtrace"] }
 futures-util = "0.3"
-<<<<<<< HEAD
-
-[dev-dependencies]
-tempfile = "3.10"
-=======
 strum = "0.27.2"
 strum_macros = "0.27.2"
 
->>>>>>> origin/main
+[dev-dependencies]
+tempfile = "3.10"

@@ -454,67 +454,12 @@ impl TaskServer {
             }
         };
 
-<<<<<<< HEAD
-        let task_limit = limit.unwrap_or(50).clamp(1, 200); // Reasonable limits
-
-        let tasks_result =
-            Task::find_by_project_id_with_attempt_status(&self.pool, project_uuid).await;
-
-        match tasks_result {
-            Ok(tasks) => {
-                let filtered_tasks: Vec<_> = tasks
-                    .into_iter()
-                    .filter(|task| {
-                        if let Some(ref filter_status) = status_filter {
-                            &task.status == filter_status
-                        } else {
-                            true
-                        }
-                    })
-                    .take(task_limit as usize)
-                    .collect();
-
-                let task_summaries: Vec<TaskSummary> = filtered_tasks
-                    .into_iter()
-                    .map(|task| TaskSummary {
-                        id: task.id.to_string(),
-                        title: task.title.clone(),
-                        description: task.description.clone(),
-                        status: task_status_to_string(&task.status),
-                        created_at: task.created_at.to_rfc3339(),
-                        updated_at: task.updated_at.to_rfc3339(),
-                        has_in_progress_attempt: Some(task.has_in_progress_attempt),
-                        has_running_dev_server: Some(task.has_running_dev_server),
-                        has_merged_attempt: Some(task.has_merged_attempt),
-                        last_attempt_failed: Some(task.last_attempt_failed),
-                    })
-                    .collect();
-
-                let count = task_summaries.len();
-                let response = ListTasksResponse {
-                    success: true,
-                    tasks: task_summaries,
-                    count,
-                    project_id: project_id.clone(),
-                    project_name: Some(project.name),
-                    applied_filters: ListTasksFilters {
-                        status: status.clone(),
-                        limit: task_limit,
-                    },
-                };
-
-                Ok(CallToolResult::success(vec![Content::text(
-                    serde_json::to_string_pretty(&response)
-                        .unwrap_or_else(|_| "Failed to serialize tasks".to_string()),
-                )]))
-=======
         let variant = variant.and_then(|v| {
             let trimmed = v.trim();
             if trimmed.is_empty() {
                 None
             } else {
                 Some(trimmed.to_string())
->>>>>>> origin/main
             }
         });
 
@@ -590,56 +535,7 @@ impl TaskServer {
             task: Some(summary),
         };
 
-<<<<<<< HEAD
-        match Task::update(
-            &self.pool,
-            task_uuid,
-            project_uuid,
-            new_title,
-            new_description,
-            new_status,
-            new_parent_task_attempt,
-        )
-        .await
-        {
-            Ok(updated_task) => {
-                let task_summary = TaskSummary {
-                    id: updated_task.id.to_string(),
-                    title: updated_task.title,
-                    description: updated_task.description,
-                    status: task_status_to_string(&updated_task.status),
-                    created_at: updated_task.created_at.to_rfc3339(),
-                    updated_at: updated_task.updated_at.to_rfc3339(),
-                    has_in_progress_attempt: None,
-                    has_running_dev_server: None,
-                    has_merged_attempt: None,
-                    last_attempt_failed: None,
-                };
-
-                let response = UpdateTaskResponse {
-                    success: true,
-                    message: "Task updated successfully".to_string(),
-                    task: Some(task_summary),
-                };
-
-                Ok(CallToolResult::success(vec![Content::text(
-                    serde_json::to_string_pretty(&response).unwrap(),
-                )]))
-            }
-            Err(e) => {
-                let error_response = serde_json::json!({
-                    "success": false,
-                    "error": "Failed to update task",
-                    "details": e.to_string()
-                });
-                Ok(CallToolResult::error(vec![Content::text(
-                    serde_json::to_string_pretty(&error_response).unwrap(),
-                )]))
-            }
-        }
-=======
         TaskServer::success(&repsonse)
->>>>>>> origin/main
     }
 
     #[tool(
@@ -684,59 +580,7 @@ impl TaskServer {
             project_name: None,
         };
 
-<<<<<<< HEAD
-        let task_result =
-            Task::find_by_id_and_project_id(&self.pool, task_uuid, project_uuid).await;
-        let project_result = Project::find_by_id(&self.pool, project_uuid).await;
-
-        match (task_result, project_result) {
-            (Ok(Some(task)), Ok(Some(project))) => {
-                let task_summary = TaskSummary {
-                    id: task.id.to_string(),
-                    title: task.title,
-                    description: task.description,
-                    status: task_status_to_string(&task.status),
-                    created_at: task.created_at.to_rfc3339(),
-                    updated_at: task.updated_at.to_rfc3339(),
-                    has_in_progress_attempt: None,
-                    has_running_dev_server: None,
-                    has_merged_attempt: None,
-                    last_attempt_failed: None,
-                };
-
-                let response = GetTaskResponse {
-                    success: true,
-                    task: Some(task_summary),
-                    project_name: Some(project.name),
-                };
-
-                Ok(CallToolResult::success(vec![Content::text(
-                    serde_json::to_string_pretty(&response).unwrap(),
-                )]))
-            }
-            (Ok(None), _) | (_, Ok(None)) => {
-                let error_response = serde_json::json!({
-                    "success": false,
-                    "error": "Task or project not found"
-                });
-                Ok(CallToolResult::error(vec![Content::text(
-                    serde_json::to_string_pretty(&error_response).unwrap(),
-                )]))
-            }
-            (Err(e), _) | (_, Err(e)) => {
-                let error_response = serde_json::json!({
-                    "success": false,
-                    "error": "Failed to retrieve task or project",
-                    "details": e.to_string()
-                });
-                Ok(CallToolResult::error(vec![Content::text(
-                    serde_json::to_string_pretty(&error_response).unwrap(),
-                )]))
-            }
-        }
-=======
         TaskServer::success(&response)
->>>>>>> origin/main
     }
 }
 

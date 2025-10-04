@@ -128,20 +128,7 @@ pub async fn get_task_attempt(
     Ok(ResponseJson(ApiResponse::success(task_attempt)))
 }
 
-<<<<<<< HEAD
-#[derive(Debug, Deserialize, ts_rs::TS)]
-pub struct CreateTaskAttemptRepositoryBody {
-    pub project_repository_id: Uuid,
-    #[serde(default)]
-    pub is_primary: bool,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub base_branch: Option<String>,
-}
-
-#[derive(Debug, Deserialize, ts_rs::TS)]
-=======
 #[derive(Debug, Serialize, Deserialize, ts_rs::TS)]
->>>>>>> origin/main
 pub struct CreateTaskAttemptBody {
     pub task_id: Uuid,
     /// Executor profile specification
@@ -544,11 +531,7 @@ async fn handle_task_attempt_diff_ws(
 
     let stream = deployment
         .container()
-<<<<<<< HEAD
         .stream_diff(&task_attempt, stats_only, repo_id)
-=======
-        .stream_diff(&task_attempt, stats_only)
->>>>>>> origin/main
         .await?;
 
     let mut stream = stream.map_ok(|msg: LogMsg| msg.to_ws_message_unchecked());

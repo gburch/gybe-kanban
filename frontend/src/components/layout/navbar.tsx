@@ -1,9 +1,6 @@
 import { Link, useLocation } from 'react-router-dom';
 import { useCallback, useEffect, useState } from 'react';
-<<<<<<< HEAD
-=======
 import { siDiscord } from 'simple-icons';
->>>>>>> origin/main
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -70,10 +67,8 @@ export function Navbar({ viewMode, onViewModeChange }: NavbarProps = {}) {
   const { projectId, project } = useProject();
   const { query, setQuery, active, registerInputRef } = useSearch();
   const handleOpenInEditor = useOpenProjectInEditor(project || null);
-<<<<<<< HEAD
   const [projects, setProjects] = useState<Project[]>([]);
   const [isProjectsLoading, setIsProjectsLoading] = useState(false);
-=======
   const [onlineCount, setOnlineCount] = useState<number | null>(null);
 
   useEffect(() => {
@@ -104,7 +99,6 @@ export function Navbar({ viewMode, onViewModeChange }: NavbarProps = {}) {
       clearInterval(interval);
     };
   }, []);
->>>>>>> origin/main
 
   const setSearchBarRef = useCallback(
     (node: HTMLInputElement | null) => {
@@ -152,23 +146,17 @@ export function Navbar({ viewMode, onViewModeChange }: NavbarProps = {}) {
     <div className="border-b bg-background">
       <div className="w-full px-3">
         <div className="flex items-center h-12 py-2">
-<<<<<<< HEAD
           <div className="flex-1 flex items-center gap-2">
             <Link to="/projects">
               <Logo />
             </Link>
             <ProjectSwitcher />
-=======
-          <div className="flex-1 flex items-center">
-            <Link to="/projects">
-              <Logo />
-            </Link>
             <a
               href="https://discord.gg/AC4nwVtJM3"
               target="_blank"
               rel="noopener noreferrer"
               aria-label="Join our Discord"
-              className="hidden sm:inline-flex items-center ml-3 text-xs font-medium overflow-hidden border h-6"
+              className="hidden sm:inline-flex items-center text-xs font-medium overflow-hidden border h-6"
             >
               <span className="bg-muted text-foreground flex items-center p-2 border-r">
                 <svg
@@ -189,7 +177,6 @@ export function Navbar({ viewMode, onViewModeChange }: NavbarProps = {}) {
                   : 'online'}
               </span>
             </a>
->>>>>>> origin/main
           </div>
 
           <div className="hidden sm:flex items-center gap-2">
