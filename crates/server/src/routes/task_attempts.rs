@@ -736,6 +736,11 @@ pub async fn create_github_pr(
         }
     }
 
+    let preferred_remote = deployment
+        .git()
+        .get_remote_name_from_branch_name(&workspace_path, &task_attempt.branch)
+        .ok();
+
     let norm_target_branch_name = if matches!(
         deployment
             .git()
@@ -746,7 +751,7 @@ pub async fn create_github_pr(
         // For PR APIs, we must provide just the branch name.
         let remote = deployment
             .git()
-            .get_remote_name_from_branch_name(&workspace_path, &target_branch)?;
+            .get_remote_name_from_branch_name(&project.git_repo_path, &target_branch)?;
         let remote_prefix = format!("{}/", remote);
         target_branch
             .strip_prefix(&remote_prefix)
@@ -765,7 +770,7 @@ pub async fn create_github_pr(
     // Use GitService to get the remote URL, then create GitHubRepoInfo
     let repo_info = deployment
         .git()
-        .get_github_repo_info(&project.git_repo_path)?;
+        .get_github_repo_info(&project.git_repo_path, preferred_remote.as_deref())?;
 
     match github_service.create_pr(&repo_info, &pr_request).await {
         Ok(pr_info) => {
@@ -1339,10 +1344,16 @@ pub async fn attach_existing_pr(
         return Err(ApiError::Project(ProjectError::ProjectNotFound));
     };
 
+    let workspace_path = ensure_worktree_path(&deployment, &task_attempt).await?;
+    let preferred_remote = deployment
+        .git()
+        .get_remote_name_from_branch_name(&workspace_path, &task_attempt.branch)
+        .ok();
+
     let github_service = GitHubService::new(&github_token)?;
     let repo_info = deployment
         .git()
-        .get_github_repo_info(&project.git_repo_path)?;
+        .get_github_repo_info(&project.git_repo_path, preferred_remote.as_deref())?;
 
     // List all PRs for branch (open, closed, and merged)
     let prs = github_service
