@@ -284,11 +284,14 @@ async fn test_update_task_parent_task_id() {
         &pool,
         child.id,
         project.id,
-        child.title.clone(),
-        child.description.clone(),
-        child.status.clone(),
-        child.parent_task_attempt,
-        Some(parent2.id),
+        UpdateTask {
+            title: Some(child.title.clone()),
+            description: child.description.clone(),
+            status: Some(child.status.clone()),
+            parent_task_attempt: child.parent_task_attempt,
+            parent_task_id: Some(parent2.id),
+            image_ids: None,
+        },
     )
     .await
     .expect("Failed to update child task");
