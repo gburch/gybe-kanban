@@ -772,14 +772,22 @@ pub async fn create_github_pr(
     let preferred_remote = request
         .remote_name
         .clone()
-        .or(base_remote.clone())
-        .or(head_remote);
+        .or_else(|| base_remote.clone())
+        .or_else(|| head_remote.clone());
     // Create the PR using GitHub service
+    let head_repo_info = head_remote.as_ref().and_then(|remote| {
+        deployment
+            .git()
+            .get_github_repo_info(&project.git_repo_path, Some(remote.as_str()))
+            .ok()
+    });
+
     let pr_request = CreatePrRequest {
         title: request.title.clone(),
         body: request.body.clone(),
         head_branch: task_attempt.branch.clone(),
         base_branch: norm_target_branch_name.clone(),
+        head_repo: head_repo_info.clone(),
     };
     // Use GitService to get the remote URL, then create GitHubRepoInfo
     let repo_info = deployment
