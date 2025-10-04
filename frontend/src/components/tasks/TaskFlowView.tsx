@@ -314,13 +314,53 @@ function buildFlowLayout(
       }
     });
 
-    // Compact Y positions within each X group (vertical column)
-    xGroups.forEach((nodes) => {
-      const sortedNodes = [...nodes].sort((a, b) => a.y - b.y);
+    // Sort X groups by X position (left to right)
+    const sortedXGroups = Array.from(xGroups.entries()).sort((a, b) => a[0] - b[0]);
+
+    // Compact Y positions within each X group, processing left to right
+    // This way children are positioned before their parents
+    sortedXGroups.forEach(([_x, xGroupNodes]) => {
+      // Separate nodes into those with children in this group and those without
+      const leafNodes: FlowNode[] = [];
+      const parentNodes: FlowNode[] = [];
+
+      xGroupNodes.forEach(node => {
+        const hasChildrenInGroup = node.children.some(childId =>
+          xGroupNodes.some(n => n.task.id === childId)
+        );
+        if (hasChildrenInGroup) {
+          parentNodes.push(node);
+        } else {
+          leafNodes.push(node);
+        }
+      });
+
+      // First, compact leaf nodes (no children in this group)
+      const sortedLeafNodes = leafNodes.sort((a, b) => a.y - b.y);
       let currentY = FLOW_LAYOUT_MARGIN_Y;
-      sortedNodes.forEach(node => {
+      sortedLeafNodes.forEach(node => {
         node.y = currentY;
         currentY += CARD_HEIGHT + FLOW_NODE_VERTICAL_GAP;
+      });
+
+      // Then position parent nodes centered relative to their children
+      parentNodes.forEach(parentNode => {
+        const childrenInGroup = parentNode.children
+          .map(childId => nodes[childId])
+          .filter(child => child && xGroupNodes.some(n => n.task.id === child.task.id));
+
+        if (childrenInGroup.length > 0) {
+          // Center parent relative to children
+          const childYPositions = childrenInGroup.map(c => c.y + CARD_HEIGHT / 2);
+          const minChildY = Math.min(...childYPositions);
+          const maxChildY = Math.max(...childYPositions);
+          const centerY = (minChildY + maxChildY) / 2;
+          parentNode.y = centerY - CARD_HEIGHT / 2;
+        } else {
+          // No children in this group, just append
+          parentNode.y = currentY;
+          currentY += CARD_HEIGHT + FLOW_NODE_VERTICAL_GAP;
+        }
       });
     });
 
