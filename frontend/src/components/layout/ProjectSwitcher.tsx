@@ -85,16 +85,17 @@ export function ProjectSwitcher({ className }: ProjectSwitcherProps) {
     }
   };
 
+  const shortcutProjects = useMemo(
+    () => projects.slice(0, MAX_PROJECT_SHORTCUTS),
+    [projects]
+  );
+
   // Don't show the switcher if there are no projects or only on projects list page
   if (!projectId || projects.length === 0) {
     return null;
   }
 
   const activeLabel = project?.name ?? 'Select project';
-  const shortcutProjects = useMemo(
-    () => projects.slice(0, MAX_PROJECT_SHORTCUTS),
-    [projects]
-  );
 
   return (
     <>
