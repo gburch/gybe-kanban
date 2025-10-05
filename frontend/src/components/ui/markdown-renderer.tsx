@@ -152,7 +152,7 @@ function MarkdownRenderer({
       },
       h2: {
         component: ({ children, ...props }: any) => (
-          <h2 {...props} className="text-baseleading-tight font-medium">
+          <h2 {...props} className="text-base leading-tight font-medium">
             {children}
           </h2>
         ),
