@@ -33,6 +33,7 @@ describe('useProjectTasks', () => {
     description: null,
     status: 'todo' as TaskStatus,
     parent_task_attempt: null,
+    parent_task_id: null,
     created_at: new Date('2024-01-01T00:00:00Z').toISOString(),
     updated_at: new Date('2024-01-01T00:00:00Z').toISOString(),
     ...overrides,

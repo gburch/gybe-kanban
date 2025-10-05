@@ -1,6 +1,7 @@
 import { Dispatch, SetStateAction, useCallback, useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button.tsx';
-import { X } from 'lucide-react';
+import { X, GitFork } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import type { GitBranch, Task } from 'shared/types';
 import type { ExecutorConfig } from 'shared/types';
 import type { ExecutorProfileId } from 'shared/types';
@@ -14,13 +15,14 @@ import { showModal } from '@/lib/modals';
 import { projectsApi } from '@/lib/api';
 import { Card } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
+import { openTaskForm } from '@/lib/openTaskForm';
 import { useProject } from '@/contexts/project-context';
 import {
   RepositorySelection,
+  RepositorySelectionValue,
   buildRepositorySelectionDefaults,
   normalizeRepositorySelection,
 } from '@/components/tasks/RepositorySelection';
-import type { RepositorySelectionValue } from '@/components/tasks/RepositorySelection';
 
 type Props = {
   task: Task;
@@ -49,6 +51,7 @@ function CreateAttempt({
   availableProfiles,
   selectedAttempt,
 }: Props) {
+  const { t } = useTranslation('tasks');
   const { isAttemptRunning } = useAttemptExecution(selectedAttempt?.id);
   const { createAttempt, isCreating } = useAttemptCreation(task.id);
   const {
@@ -413,6 +416,24 @@ function CreateAttempt({
             )}
           </div>
         )}
+
+        <div className="pt-3 border-t">
+          <Button
+            onClick={() =>
+              openTaskForm({
+                projectId: task.project_id,
+                parentTaskId: task.id,
+              })
+            }
+            size="sm"
+            variant="outline"
+            className="w-full gap-2"
+            disabled={isCreating || isAttemptRunning}
+          >
+            <GitFork className="h-4 w-4" />
+            {t('actions.createSubtask')}
+          </Button>
+        </div>
       </div>
     </div>
   );

@@ -1,5 +1,6 @@
 import { Link, useLocation } from 'react-router-dom';
 import { useCallback, useEffect, useState } from 'react';
+import { siDiscord } from 'simple-icons';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -30,6 +31,8 @@ import { NotificationButton } from '@/components/notifications/notification-butt
 import { projectsApi } from '@/lib/api';
 import type { Project } from 'shared/types';
 import { ProjectSwitcher } from '@/components/layout/ProjectSwitcher';
+
+const DISCORD_GUILD_ID = '1423630976524877857';
 
 const INTERNAL_NAV = [
   { label: 'Projects', icon: FolderOpen, to: '/projects' },
@@ -66,6 +69,36 @@ export function Navbar({ viewMode, onViewModeChange }: NavbarProps = {}) {
   const handleOpenInEditor = useOpenProjectInEditor(project || null);
   const [projects, setProjects] = useState<Project[]>([]);
   const [isProjectsLoading, setIsProjectsLoading] = useState(false);
+  const [onlineCount, setOnlineCount] = useState<number | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const fetchCount = async () => {
+      try {
+        const res = await fetch(
+          `https://discord.com/api/guilds/${DISCORD_GUILD_ID}/widget.json`,
+          { cache: 'no-store' }
+        );
+        if (!res.ok) return; // Widget disabled or temporary error; keep previous value
+        const data = await res.json();
+        if (!cancelled && typeof data?.presence_count === 'number') {
+          setOnlineCount(data.presence_count);
+        }
+      } catch {
+        // Network error; ignore and keep previous value
+      }
+    };
+
+    // Initial fetch + refresh every 60s
+    fetchCount();
+    const interval = setInterval(fetchCount, 60_000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, []);
 
   const setSearchBarRef = useCallback(
     (node: HTMLInputElement | null) => {
@@ -118,6 +151,29 @@ export function Navbar({ viewMode, onViewModeChange }: NavbarProps = {}) {
               <Logo />
             </Link>
             <ProjectSwitcher />
+            <a
+              href="https://discord.gg/AC4nwVtJM3"
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label="Join our Discord"
+              className="hidden sm:inline-flex items-center text-xs font-medium overflow-hidden border h-6"
+            >
+              <span className="bg-muted text-foreground flex items-center p-2 border-r">
+                <svg
+                  className="h-4 w-4"
+                  viewBox="0 0 24 24"
+                  fill="currentColor"
+                  aria-hidden="true"
+                >
+                  <path d={siDiscord.path} />
+                </svg>
+              </span>
+              <span className="flex h-full items-center p-2" aria-live="polite">
+                {onlineCount !== null
+                  ? `${onlineCount.toLocaleString()} online`
+                  : 'online'}
+              </span>
+            </a>
           </div>
 
           <div className="hidden sm:flex items-center gap-2">

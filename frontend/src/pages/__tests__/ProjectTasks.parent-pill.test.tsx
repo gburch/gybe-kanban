@@ -169,6 +169,7 @@ const baseTask = (overrides: Partial<TaskWithAttemptStatus>): TaskWithAttemptSta
   description: 'Description',
   status: 'todo',
   parent_task_attempt: null,
+  parent_task_id: null,
   created_at: new Date().toISOString(),
   updated_at: new Date().toISOString(),
   has_in_progress_attempt: false,
